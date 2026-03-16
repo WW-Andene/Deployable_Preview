@@ -92,19 +92,19 @@ async function buildBranch(repoConfig, branch) {
       addLog("Cloning " + owner + "/" + repo + "...");
       fs.mkdirSync(repoDir, { recursive: true });
       await runCmd("git clone https://" + config.token + "@github.com/" + owner + "/" + repo + ".git .", repoDir);
+      // Detach HEAD so worktrees can use any branch including the default
+      await runCmd("git checkout --detach", repoDir).catch(() => {});
     } else {
       addLog("Fetching latest...");
       await runCmd("git fetch --all --prune", repoDir);
+      // Ensure HEAD is detached so worktrees can use any branch
+      await runCmd("git checkout --detach", repoDir).catch(() => {});
     }
 
     // Create branch working directory
     fs.mkdirSync(branchDir, { recursive: true });
 
-    // Copy repo to branch dir (clean)
     addLog("Checking out branch: " + branch);
-    if (fs.existsSync(path.join(branchDir, ".git")) || fs.existsSync(path.join(branchDir, "package.json"))) {
-      await runCmd("git checkout " + branch + " && git pull origin " + branch, branchDir).catch(() => {});
-    }
     await runCmd("git worktree prune", repoDir).catch(() => {});
     try { await runCmd("git worktree remove --force " + JSON.stringify(branchDir), repoDir); } catch (e) {}
 
