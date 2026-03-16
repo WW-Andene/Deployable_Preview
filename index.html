@@ -2,363 +2,403 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>DeployView</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-:root{
-  --bg:#0b0c10;--s1:#13141a;--s2:#1a1c24;--s3:#22242e;
-  --brd:rgba(255,255,255,.055);--brd2:rgba(255,255,255,.1);
-  --t1:#e4e0d8;--t2:#9a9590;--t3:#565250;
-  --acc:#e8a94a;--acc2:#f0be6a;--accd:rgba(232,169,74,.1);
-  --err:#e05468;--errd:rgba(224,84,104,.1);
-  --ok:#48b088;--infod:rgba(91,159,212,.1);--info:#5b9fd4;
-  --fh:'Outfit',sans-serif;--fm:'JetBrains Mono',monospace;
-}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--t1);font-family:var(--fh);min-height:100vh}
-input,select{background:var(--bg);border:1.5px solid var(--brd);color:var(--t1);font-family:var(--fm);font-size:13px;padding:10px 14px;border-radius:6px;outline:none;width:100%;transition:border-color .2s,box-shadow .2s}
-input:focus{border-color:rgba(232,169,74,.45);box-shadow:0 0 0 3px var(--accd)}
-input::placeholder{color:var(--t3)}
-select{appearance:none;padding-right:36px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23565250' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
-select option{background:var(--s1);color:var(--t1)}
-.btn{display:inline-flex;align-items:center;gap:7px;font-family:var(--fh);font-size:13px;font-weight:600;padding:9px 18px;border-radius:6px;border:none;cursor:pointer;transition:all .15s;white-space:nowrap}
-.bp{background:var(--acc);color:var(--bg)}.bp:hover{background:var(--acc2);transform:translateY(-1px);box-shadow:0 4px 16px rgba(232,169,74,.25)}
-.bg{background:transparent;color:var(--t2);border:1.5px solid var(--brd)}.bg:hover{background:var(--s2);color:var(--t1);border-color:var(--brd2)}
-.bd{background:var(--errd);color:var(--err)}.bd:hover{background:rgba(224,84,104,.18)}
-.bs{padding:6px 12px;font-size:12px}
-.card{background:var(--s1);border:1.5px solid var(--brd);border-radius:14px;transition:border-color .2s,box-shadow .25s}
-.card:hover{border-color:var(--brd2);box-shadow:0 6px 30px rgba(0,0,0,.35)}
-.spin{width:18px;height:18px;border:2px solid var(--s3);border-top-color:var(--acc);border-radius:50%;animation:sp .7s linear infinite;display:inline-block}
+body{background:#0b0c10;color:#e4e0d8;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
+input,select{background:#0b0c10;border:1.5px solid rgba(255,255,255,.06);color:#e4e0d8;font-family:monospace;font-size:14px;padding:12px;border-radius:6px;outline:none;width:100%}
+input:focus{border-color:rgba(232,169,74,.5);box-shadow:0 0 0 3px rgba(232,169,74,.1)}
+input::placeholder{color:#565250}
+select{-webkit-appearance:none;appearance:none}
+select option{background:#13141a;color:#e4e0d8}
+button{display:inline-flex;align-items:center;gap:7px;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;font-weight:600;padding:10px 20px;border-radius:6px;border:none;cursor:pointer}
+.bp{background:#e8a94a;color:#0b0c10}
+.bg{background:transparent;color:#9a9590;border:1.5px solid rgba(255,255,255,.06)}
+.bd{background:rgba(224,84,104,.1);color:#e05468}
+.bs{padding:7px 14px;font-size:13px}
+.card{background:#13141a;border:1.5px solid rgba(255,255,255,.06);border-radius:14px;padding:18px;margin-bottom:14px}
+.spin{width:18px;height:18px;border:2px solid #22242e;border-top-color:#e8a94a;border-radius:50%;animation:sp .7s linear infinite;display:inline-block}
 @keyframes sp{to{transform:rotate(360deg)}}
-@keyframes fu{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
-@keyframes si{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
-@keyframes pu{0%,100%{opacity:1}50%{opacity:.5}}
-.anim{animation:fu .35s ease forwards}
-.chip{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:100px;font-family:var(--fm);font-size:11px;cursor:pointer;transition:all .15s;border:1.5px solid var(--brd);background:var(--s1);color:var(--t2);user-select:none}
-.chip.on{border-color:var(--acc);background:var(--accd);color:var(--acc)}.chip:hover{border-color:var(--brd2)}
-.topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1.5px solid var(--brd);background:rgba(11,12,16,.88);backdrop-filter:blur(20px);position:sticky;top:0;z-index:100;gap:8px;flex-wrap:wrap}
-.label{font-family:var(--fm);font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.08em;font-weight:500}
-.btag{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:100px;font-family:var(--fm);font-size:11px;font-weight:500}
-.notif{position:fixed;top:60px;right:12px;z-index:200;background:var(--s2);border:1.5px solid var(--ok);border-radius:10px;padding:12px 16px;box-shadow:0 8px 32px rgba(0,0,0,.4);animation:si .3s ease;max-width:320px;display:flex;align-items:flex-start;gap:10px}
-.sep{width:1px;height:22px;background:var(--brd);flex-shrink:0}
-.col{display:flex;flex-direction:column;gap:6px}
-
-/* ── Preview panels ── */
-.preview-panel{
-  position:relative;border:1.5px solid var(--brd);border-radius:10px;overflow:hidden;background:#09090b;
-  display:flex;flex-direction:column;
-}
-.preview-panel .panel-label{
-  padding:6px 12px;font-family:var(--fm);font-size:11px;font-weight:600;
-  border-bottom:1.5px solid var(--brd);display:flex;align-items:center;gap:6px;
-  background:var(--s1);flex-shrink:0;
-}
-.preview-panel iframe{
-  border:none;flex:1;width:100%;height:100%;display:block;
-}
-
-@media(max-width:640px){.topbar{padding:10px 12px}.btn{padding:8px 14px;font-size:12px}.bs{padding:5px 10px;font-size:11px}.hm{display:none!important}}
+.chip{display:inline-flex;align-items:center;padding:6px 14px;border-radius:100px;font-family:monospace;font-size:12px;cursor:pointer;border:1.5px solid rgba(255,255,255,.06);background:#13141a;color:#9a9590}
+.chip.on{border-color:#e8a94a;background:rgba(232,169,74,.1);color:#e8a94a}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1.5px solid rgba(255,255,255,.06);background:rgba(11,12,16,.9);position:sticky;top:0;z-index:100;flex-wrap:wrap;gap:8px}
+.label{font-family:monospace;font-size:11px;color:#565250;text-transform:uppercase;letter-spacing:.08em}
+.btag{display:inline-block;padding:4px 10px;border-radius:100px;font-family:monospace;font-size:11px}
+.preview-frame{border:1.5px solid rgba(255,255,255,.06);border-radius:10px;overflow:hidden;background:#09090b;margin-bottom:16px}
+.preview-frame .frame-label{padding:8px 12px;font-family:monospace;font-size:12px;font-weight:600;border-bottom:1.5px solid rgba(255,255,255,.06);background:#13141a;color:#9a9590}
+.preview-frame .frame-body{position:relative;width:100%;overflow:hidden}
+.preview-frame iframe{border:none;width:100%;height:100%;display:block;position:absolute;top:0;left:0}
+.notif{position:fixed;top:60px;right:12px;z-index:200;background:#1a1c24;border:1.5px solid #48b088;border-radius:10px;padding:12px 16px;max-width:300px}
+#error-display{position:fixed;bottom:10px;left:10px;right:10px;background:#2a0a0a;border:1px solid #e05468;color:#e05468;font-family:monospace;font-size:11px;padding:10px;border-radius:6px;z-index:999;display:none;word-break:break-all}
 </style>
 </head>
 <body>
 <div id="app"></div>
+<div id="error-display"></div>
 <script>
+window.onerror=function(msg,src,line){
+  var d=document.getElementById("error-display");
+  d.style.display="block";
+  d.textContent="Error: "+msg+" (line "+line+")";
+};
+
 (function(){
 "use strict";
 
 var POLL=15000;
 
-var RATIOS=[
-  {id:"9:16",label:"9 : 16 (Portrait)",w:9,h:16},
-  {id:"16:9",label:"16 : 9 (Landscape)",w:16,h:9}
-];
+/* Storage */
+function lsGet(k){try{var v=localStorage.getItem("dv-"+k);return v?JSON.parse(v):null}catch(e){return null}}
+function lsSet(k,v){try{localStorage.setItem("dv-"+k,JSON.stringify(v))}catch(e){}}
 
-/* ── Storage ── */
-var LS={
-  get:function(k){try{var v=localStorage.getItem("dv-"+k);return v?JSON.parse(v):null}catch(e){return null}},
-  set:function(k,v){try{localStorage.setItem("dv-"+k,JSON.stringify(v))}catch(e){}}
-};
-
-/* ── GitHub API ── */
+/* GitHub */
 function ghFetch(path,token){
   return fetch("https://api.github.com"+path,{
-    headers:{Authorization:"Bearer "+token,Accept:"application/vnd.github.v3+json"}
+    headers:{"Authorization":"Bearer "+token,"Accept":"application/vnd.github.v3+json"}
   }).then(function(r){
     if(!r.ok)return r.json().catch(function(){return{}}).then(function(e){throw new Error(e.message||"GitHub "+r.status)});
     return r.json();
   });
 }
 
-/* ── State ── */
+/* State */
 var S={
-  token:LS.get("token")||"",
-  repos:LS.get("repos")||[],
-  view:LS.get("token")?"dashboard":"setup",
+  token:lsGet("token")||"",
+  repos:lsGet("repos")||[],
+  ratios:lsGet("ratios")||["9:16","16:9"],
+  view:lsGet("token")?"dashboard":"setup",
   commits:{},prevShas:{},lastCheck:null,
   activeRepo:null,activeBranch:"",compareBranch:"",compareMode:false,
   refreshKey:0,pollTimer:null,
-  selectedRatios:LS.get("ratios")||["9:16","16:9"],
-  repoUrl:"",repoInfo:null,fetchedBranches:[],selectedBranches:[],branchUrls:{}
+  repoUrl:"",repoInfo:null,fetchedBranches:[],selectedBranches:[],branchUrls:{},
+  _tokenInput:""
 };
-function save(){LS.set("token",S.token);LS.set("repos",S.repos);LS.set("ratios",S.selectedRatios)}
+function save(){lsSet("token",S.token);lsSet("repos",S.repos);lsSet("ratios",S.ratios)}
 
-/* ── DOM helper ── */
-function h(tag,attrs,kids){
-  var el=document.createElement(tag);
-  if(attrs)Object.keys(attrs).forEach(function(k){
-    if(k==="style"&&typeof attrs[k]==="object")Object.assign(el.style,attrs[k]);
-    else if(k.indexOf("on")===0)el.addEventListener(k.slice(2).toLowerCase(),attrs[k]);
-    else if(k==="className")el.className=attrs[k];
-    else el.setAttribute(k,attrs[k]);
-  });
-  if(kids!=null){
-    if(Array.isArray(kids))kids.forEach(function(c){if(c!=null){el.appendChild(typeof c==="string"||typeof c==="number"?document.createTextNode(c):c)}});
-    else el.appendChild(typeof kids==="string"||typeof kids==="number"?document.createTextNode(kids):kids);
+/* DOM builder */
+function el(tag,props,kids){
+  var e=document.createElement(tag);
+  if(props){
+    if(props.s)Object.assign(e.style,props.s);
+    if(props.c)e.className=props.c;
+    if(props.on)for(var ev in props.on)e.addEventListener(ev,props.on[ev]);
+    if(props.attr)for(var a in props.attr)e.setAttribute(a,props.attr[a]);
   }
-  return el;
+  if(kids!=null){
+    if(!Array.isArray(kids))kids=[kids];
+    for(var i=0;i<kids.length;i++){
+      if(kids[i]==null)continue;
+      if(typeof kids[i]==="string"||typeof kids[i]==="number")e.appendChild(document.createTextNode(""+kids[i]));
+      else e.appendChild(kids[i]);
+    }
+  }
+  return e;
 }
 
+function txt(t){return document.createTextNode(t)}
+
+/* Helpers */
 function timeAgo(ts){
   if(!ts)return"";var d=Date.now()-new Date(ts).getTime();
-  if(d<60000)return"now";if(d<3600000)return Math.floor(d/60000)+"m";
-  if(d<86400000)return Math.floor(d/3600000)+"h";return Math.floor(d/86400000)+"d";
+  if(d<60000)return"now";if(d<3.6e6)return Math.floor(d/60000)+"m";
+  if(d<8.64e7)return Math.floor(d/3.6e6)+"h";return Math.floor(d/8.64e7)+"d";
 }
 function parseRepo(url){
   var c=url.trim().replace(/\.git$/,"").replace(/\/$/,"");
   var m=c.match(/(?:github\.com\/)?([^\/]+)\/([^\/]+)$/);
   return m?{owner:m[1],repo:m[2]}:null;
 }
-function curRepo(){return S.repos.find(function(r){return r.id===S.activeRepo})||null}
-
-/* ── Polling ── */
-function startPoll(){if(S.pollTimer)clearInterval(S.pollTimer);poll();S.pollTimer=setInterval(poll,POLL)}
-function poll(){
-  if(!S.token||!S.repos.length)return;
-  S.repos.forEach(function(repo){
-    (repo.activeBranches||[]).forEach(function(branch){
-      var key=repo.owner+"/"+repo.repo+":"+branch;
-      ghFetch("/repos/"+repo.owner+"/"+repo.repo+"/commits?sha="+branch+"&per_page=1",S.token).then(function(data){
-        var c=data[0];if(!c)return;
-        var old=S.prevShas[key];S.commits[key]=c;S.prevShas[key]=c.sha;
-        if(old&&old!==c.sha){S.refreshKey++;showNotif(branch,c.sha.slice(0,7),c.commit.message.split("\n")[0]);render()}
-        S.lastCheck=Date.now();
-      }).catch(function(){});
-    });
-  });
+function getRepo(){
+  for(var i=0;i<S.repos.length;i++)if(S.repos[i].id===S.activeRepo)return S.repos[i];
+  return null;
 }
 
-var notifT=null;
+/* Polling */
+function startPoll(){
+  if(S.pollTimer)clearInterval(S.pollTimer);
+  doPoll();
+  S.pollTimer=setInterval(doPoll,POLL);
+}
+function doPoll(){
+  if(!S.token||!S.repos.length)return;
+  for(var r=0;r<S.repos.length;r++){
+    var repo=S.repos[r];
+    for(var b=0;b<(repo.activeBranches||[]).length;b++){
+      (function(repo,branch){
+        var key=repo.owner+"/"+repo.repo+":"+branch;
+        ghFetch("/repos/"+repo.owner+"/"+repo.repo+"/commits?sha="+branch+"&per_page=1",S.token)
+        .then(function(data){
+          var c=data[0];if(!c)return;
+          var old=S.prevShas[key];
+          S.commits[key]=c;S.prevShas[key]=c.sha;
+          if(old&&old!==c.sha){
+            S.refreshKey++;
+            showNotif(branch,c.sha.slice(0,7),c.commit.message.split("\n")[0]);
+            render();
+          }
+          S.lastCheck=Date.now();
+        }).catch(function(){});
+      })(repo,repo.activeBranches[b]);
+    }
+  }
+}
+
+/* Notification */
 function showNotif(branch,sha,msg){
   var old=document.getElementById("notif");if(old)old.remove();
-  var el=h("div",{id:"notif",className:"notif"},[
-    h("div",{style:{width:"8px",height:"8px",borderRadius:"50%",background:"var(--ok)",marginTop:"4px",flexShrink:"0",animation:"pu 1.5s infinite"}}),
-    h("div",{},[
-      h("div",{style:{fontSize:"12px",fontWeight:"600",color:"var(--ok)"}},"Push detected — refreshing"),
-      h("div",{style:{fontSize:"11px",color:"var(--t2)",fontFamily:"var(--fm)",marginTop:"3px"}},branch+" — "+sha+" "+msg.slice(0,40))
-    ])
+  var n=el("div",{c:"notif",attr:{id:"notif"}},[
+    el("div",{s:{fontSize:"12px",fontWeight:"600",color:"#48b088"}},"Push detected — refreshing"),
+    el("div",{s:{fontSize:"11px",color:"#9a9590",fontFamily:"monospace",marginTop:"4px"}},branch+" "+sha+" "+msg.slice(0,30))
   ]);
-  document.body.appendChild(el);
-  if(notifT)clearTimeout(notifT);notifT=setTimeout(function(){el.remove()},5000);
+  document.body.appendChild(n);
+  setTimeout(function(){n.remove()},5000);
 }
 
-/* ── Build an interactive preview panel ── */
-function makePanel(ratio,url,rk,labelText,labelColor){
-  var panel=h("div",{className:"preview-panel"});
+/* Build preview panel */
+function makePreview(ratioW,ratioH,label,url,key,color){
+  var frame=el("div",{c:"preview-frame"});
 
-  // Label bar
-  var lbl=h("div",{className:"panel-label"});
-  lbl.appendChild(h("span",{style:{width:"6px",height:"6px",borderRadius:"50%",background:url?"var(--ok)":"var(--err)"}}));
-  lbl.appendChild(h("span",{},labelText||ratio.label));
-  if(labelColor)lbl.style.color=labelColor;
-  panel.appendChild(lbl);
+  var lbl=el("div",{c:"frame-label",s:color?{color:color}:{}},label);
+  frame.appendChild(lbl);
 
-  if(!url){
-    var empty=h("div",{style:{flex:"1",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--t3)",fontFamily:"var(--fm)",fontSize:"12px",padding:"40px",aspectRatio:ratio.w+"/"+ratio.h}});
-    empty.textContent="No URL set";
-    panel.appendChild(empty);
-    return panel;
+  // Calculate padding-bottom for aspect ratio (fallback for older browsers)
+  var pct=(ratioH/ratioW*100).toFixed(2)+"%";
+  var body=el("div",{c:"frame-body",s:{paddingBottom:pct}});
+
+  if(url){
+    var src=url+(url.indexOf("?")>-1?"&":"?")+"_r="+key;
+    var iframe=document.createElement("iframe");
+    iframe.src=src;
+    iframe.title=label;
+    iframe.setAttribute("sandbox","allow-scripts allow-same-origin allow-forms allow-popups allow-modals");
+    iframe.setAttribute("allow","clipboard-write");
+    iframe.style.cssText="border:none;width:100%;height:100%;position:absolute;top:0;left:0";
+
+    var loader=el("div",{s:{position:"absolute",top:"0",left:"0",right:"0",bottom:"0",display:"flex",alignItems:"center",justifyContent:"center",background:"#09090b",zIndex:"2",transition:"opacity .3s"}},[
+      el("span",{c:"spin"})
+    ]);
+
+    iframe.onload=function(){loader.style.opacity="0";setTimeout(function(){if(loader.parentNode)loader.remove()},300)};
+    iframe.onerror=function(){loader.innerHTML="<span style='color:#e05468;font-family:monospace;font-size:12px'>Failed to load</span>"};
+
+    body.appendChild(iframe);
+    body.appendChild(loader);
+  }else{
+    body.appendChild(el("div",{s:{position:"absolute",top:"0",left:"0",right:"0",bottom:"0",display:"flex",alignItems:"center",justifyContent:"center",color:"#565250",fontFamily:"monospace",fontSize:"13px"}},"No URL set"));
   }
 
-  // The iframe container respects the aspect ratio but the iframe itself is full-size and interactive
-  var container=h("div",{style:{position:"relative",width:"100%",aspectRatio:ratio.w+"/"+ratio.h,overflow:"hidden",background:"#09090b"}});
-
-  var iframe=document.createElement("iframe");
-  iframe.src=url+(url.indexOf("?")>-1?"&":"?")+"_dv="+rk;
-  iframe.title=ratio.label;
-  iframe.setAttribute("sandbox","allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-top-navigation-by-user-activation");
-  iframe.setAttribute("allow","clipboard-write; clipboard-read");
-  iframe.style.cssText="border:none;width:100%;height:100%;display:block;position:absolute;top:0;left:0;";
-
-  var loader=h("div",{style:{position:"absolute",inset:"0",display:"flex",alignItems:"center",justifyContent:"center",zIndex:"2",background:"#09090b",transition:"opacity .3s"}},[
-    h("span",{className:"spin"})
-  ]);
-
-  iframe.onload=function(){loader.style.opacity="0";setTimeout(function(){loader.remove()},300)};
-  iframe.onerror=function(){loader.innerHTML="<span style='color:var(--err);font-family:var(--fm);font-size:12px'>Failed to load</span>"};
-
-  container.appendChild(iframe);
-  container.appendChild(loader);
-  panel.appendChild(container);
-  return panel;
+  frame.appendChild(body);
+  return frame;
 }
 
-/* ══════════════════════════════
-   RENDER
-   ══════════════════════════════ */
+/* ════════════ RENDER ════════════ */
 function render(){
   var app=document.getElementById("app");
   app.innerHTML="";
 
-  // ── Topbar ──
-  var left=h("div",{style:{display:"flex",alignItems:"center",gap:"10px"}});
+  /* Topbar */
+  var left=el("div",{s:{display:"flex",alignItems:"center",gap:"10px"}});
   if(S.view!=="setup"&&S.view!=="dashboard"){
-    left.appendChild(h("button",{className:"btn bg bs",onClick:function(){S.view="dashboard";render()}},"← Back"));
+    left.appendChild(el("button",{c:"bg bs",on:{click:function(){S.view="dashboard";render()}}},"← Back"));
   }
-  left.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"8px"}},[
-    h("div",{style:{width:"26px",height:"26px",borderRadius:"7px",background:"var(--acc)",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--bg)",fontSize:"14px",fontWeight:"800"}},"⚡"),
-    h("span",{style:{fontFamily:"var(--fh)",fontWeight:"800",fontSize:"17px",letterSpacing:"-0.03em"}},"DeployView")
+  left.appendChild(el("span",{s:{fontWeight:"800",fontSize:"17px",letterSpacing:"-0.03em"}},[
+    el("span",{s:{color:"#e8a94a"}},"Deploy"),txt("View")
   ]));
 
-  var right=h("div",{style:{display:"flex",alignItems:"center",gap:"6px",flexWrap:"wrap"}});
+  var right=el("div",{s:{display:"flex",alignItems:"center",gap:"6px",flexWrap:"wrap"}});
+
   if(S.view==="dashboard"){
-    if(S.lastCheck)right.appendChild(h("span",{className:"hm",style:{fontFamily:"var(--fm)",fontSize:"10px",color:"var(--t3)"}},"polled "+timeAgo(S.lastCheck)));
-    right.appendChild(h("button",{className:"btn bg bs",onClick:poll},"↻"));
-    right.appendChild(h("button",{className:"btn bp",onClick:function(){S.repoUrl="";S.repoInfo=null;S.fetchedBranches=[];S.selectedBranches=[];S.branchUrls={};S.view="addRepo";render()}},"+ Add Repo"));
+    right.appendChild(el("button",{c:"bg bs",on:{click:function(){doPoll()}}},"↻"));
+    right.appendChild(el("button",{c:"bp",on:{click:function(){
+      S.repoUrl="";S.repoInfo=null;S.fetchedBranches=[];S.selectedBranches=[];S.branchUrls={};S.view="addRepo";render();
+    }}},"+ Add Repo"));
   }
   if(S.view==="preview"){
-    right.appendChild(h("button",{className:"btn bg bs",onClick:function(){S.compareMode=!S.compareMode;S.compareBranch="";render()}},S.compareMode?"◻ Single":"◫ Compare"));
-    right.appendChild(h("button",{className:"btn bg bs",onClick:function(){S.refreshKey++;render()}},"↻ Refresh"));
+    right.appendChild(el("button",{c:"bg bs",on:{click:function(){S.compareMode=!S.compareMode;S.compareBranch="";render()}}},S.compareMode?"Single":"Compare"));
+    right.appendChild(el("button",{c:"bg bs",on:{click:function(){S.refreshKey++;render()}}},"↻ Refresh"));
   }
   if(S.view!=="setup"){
-    right.appendChild(h("button",{className:"btn bg bs",onClick:function(){S.token="";S.view="setup";save();render()}},"🔑"));
+    right.appendChild(el("button",{c:"bg bs",on:{click:function(){S.token="";S.view="setup";save();render()}}},"Logout"));
   }
-  app.appendChild(h("div",{className:"topbar"},[left,right]));
+
+  app.appendChild(el("div",{c:"topbar"},[left,right]));
 
   /* ── SETUP ── */
   if(S.view==="setup"){
-    var ti=h("input",{type:"password",placeholder:"ghp_xxxx..."});
-    ti.addEventListener("input",function(e){S._ti=e.target.value});S._ti="";
-    var err=h("p",{style:{color:"var(--err)",fontSize:"12px",fontFamily:"var(--fm)",display:"none"}},"Invalid token.");
-    var cb=h("button",{className:"btn bp",onClick:function(){
-      if(!S._ti)return;cb.innerHTML="<span class='spin'></span>";
-      ghFetch("/user",S._ti).then(function(){S.token=S._ti;save();S.view="dashboard";startPoll();render()})
-      .catch(function(){err.style.display="block";cb.textContent="Connect"});
-    }},"Connect");
-    app.appendChild(h("div",{className:"anim",style:{maxWidth:"480px",margin:"0 auto",padding:"60px 20px",textAlign:"center"}},[
-      h("div",{style:{width:"56px",height:"56px",borderRadius:"16px",background:"var(--accd)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 20px",color:"var(--acc)",fontSize:"28px"}},"⚡"),
-      h("h1",{style:{fontFamily:"var(--fh)",fontSize:"24px",fontWeight:"800",marginBottom:"10px"}},"Connect to GitHub"),
-      h("p",{style:{color:"var(--t2)",fontSize:"14px",marginBottom:"32px",lineHeight:"1.6"}},"Personal Access Token with repo scope."),
-      h("div",{style:{display:"flex",gap:"8px",marginBottom:"12px"}},[ti,cb]),
+    var inp=document.createElement("input");
+    inp.type="password";inp.placeholder="ghp_xxxx...";
+    inp.addEventListener("input",function(e){S._tokenInput=e.target.value});
+
+    var err=el("p",{s:{color:"#e05468",fontSize:"13px",fontFamily:"monospace",display:"none",marginTop:"8px"}},"Invalid token — check scope.");
+
+    var btn=el("button",{c:"bp",on:{click:function(){
+      var t=S._tokenInput;if(!t)return;
+      btn.innerHTML="<span class='spin'></span>";
+      ghFetch("/user",t).then(function(){
+        S.token=t;save();S.view="dashboard";startPoll();render();
+      }).catch(function(){
+        err.style.display="block";btn.textContent="Connect";
+      });
+    }}},"Connect");
+
+    app.appendChild(el("div",{s:{maxWidth:"460px",margin:"0 auto",padding:"60px 20px",textAlign:"center"}},[
+      el("div",{s:{fontSize:"40px",marginBottom:"16px"}},"⚡"),
+      el("h1",{s:{fontSize:"24px",fontWeight:"800",marginBottom:"10px"}},"Connect to GitHub"),
+      el("p",{s:{color:"#9a9590",fontSize:"14px",marginBottom:"28px",lineHeight:"1.6"}},"Personal Access Token with repo scope."),
+      el("div",{s:{display:"flex",gap:"8px",marginBottom:"4px"}},[inp,btn]),
       err,
-      h("p",{style:{color:"var(--t3)",fontSize:"11px",fontFamily:"var(--fm)",marginTop:"20px",lineHeight:"1.5"}},"Stored in localStorage only.")
-    ]));return;
+      el("p",{s:{color:"#565250",fontSize:"11px",fontFamily:"monospace",marginTop:"20px"}},"Stored locally. Never shared.")
+    ]));
+    return;
   }
 
   if(S.token)startPoll();
 
   /* ── DASHBOARD ── */
   if(S.view==="dashboard"){
-    var ct=h("div",{style:{maxWidth:"960px",margin:"0 auto",padding:"24px 16px"}});
+    var ct=el("div",{s:{maxWidth:"960px",margin:"0 auto",padding:"20px 16px"}});
     if(!S.repos.length){
-      ct.appendChild(h("div",{className:"anim",style:{textAlign:"center",padding:"60px 0"}},[
-        h("div",{style:{color:"var(--t3)",marginBottom:"20px",opacity:".3",fontSize:"48px"}},"◇"),
-        h("h2",{style:{fontFamily:"var(--fh)",fontSize:"20px",fontWeight:"700",marginBottom:"10px"}},"No repositories connected"),
-        h("p",{style:{color:"var(--t3)",fontFamily:"var(--fm)",fontSize:"13px",maxWidth:"440px",margin:"0 auto 24px",lineHeight:"1.6"}},"Add a GitHub repo, pick branches, assign URLs, preview across 16:9 and 9:16 — auto-refreshing on push."),
-        h("button",{className:"btn bp",onClick:function(){S.repoUrl="";S.repoInfo=null;S.fetchedBranches=[];S.selectedBranches=[];S.branchUrls={};S.view="addRepo";render()}},"+ Add Repo")
+      ct.appendChild(el("div",{s:{textAlign:"center",padding:"60px 0"}},[
+        el("div",{s:{fontSize:"40px",marginBottom:"16px",opacity:".3"}},"◇"),
+        el("h2",{s:{fontSize:"20px",fontWeight:"700",marginBottom:"10px"}},"No repositories yet"),
+        el("p",{s:{color:"#565250",fontFamily:"monospace",fontSize:"13px",maxWidth:"440px",margin:"0 auto 24px",lineHeight:"1.6"}},"Add a GitHub repo, select branches, assign preview URLs."),
+        el("button",{c:"bp",on:{click:function(){S.repoUrl="";S.repoInfo=null;S.fetchedBranches=[];S.selectedBranches=[];S.branchUrls={};S.view="addRepo";render()}}},"+ Add Repo")
       ]));
     }else{
-      S.repos.forEach(function(repo,i){
-        var card=h("div",{className:"card anim",style:{marginBottom:"16px",animationDelay:i*50+"ms"}});
-        var inner=h("div",{style:{padding:"18px"}});
-        inner.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"14px",gap:"10px"}},[
-          h("div",{style:{minWidth:"0"}},[
-            h("h3",{style:{fontFamily:"var(--fh)",fontSize:"15px",fontWeight:"700",wordBreak:"break-all"}},repo.owner+"/"+repo.repo),
-            repo.description?h("p",{style:{color:"var(--t3)",fontSize:"12px",fontFamily:"var(--fm)",marginTop:"4px"}},repo.description):null
-          ]),
-          h("button",{className:"btn bd bs",onClick:function(){S.repos=S.repos.filter(function(r){return r.id!==repo.id});save();render()}},"✕ Remove")
-        ]));
-        (repo.activeBranches||[]).forEach(function(branch){
-          var ck=repo.owner+"/"+repo.repo+":"+branch;
-          var cm=S.commits[ck];
-          var url=(repo.branchUrls||{})[branch]||"";
-          var inp=h("input",{placeholder:"http://localhost:8081 or hosted URL",value:url,style:{padding:"7px 10px",fontSize:"12px"}});
-          inp.addEventListener("input",function(e){repo.branchUrls=repo.branchUrls||{};repo.branchUrls[branch]=e.target.value;save()});
-          var isD=branch===repo.defaultBranch;
-          inner.appendChild(h("div",{style:{background:"var(--bg)",borderRadius:"10px",padding:"12px",border:"1.5px solid var(--brd)",display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap",marginBottom:"8px"}},[
-            h("div",{style:{minWidth:"100px"}},[
-              h("span",{className:"btag",style:{background:isD?"var(--accd)":"var(--infod)",color:isD?"var(--acc)":"var(--info)"}},branch),
-              cm?h("div",{style:{marginTop:"5px",fontSize:"10px",color:"var(--t3)",fontFamily:"var(--fm)"}},cm.sha.slice(0,7)+" · "+timeAgo(cm.commit.author.date)):null
+      for(var i=0;i<S.repos.length;i++){
+        (function(repo){
+          var card=el("div",{c:"card"});
+          card.appendChild(el("div",{s:{display:"flex",justifyContent:"space-between",marginBottom:"14px"}},[
+            el("div",{},[
+              el("h3",{s:{fontSize:"15px",fontWeight:"700",wordBreak:"break-all"}},repo.owner+"/"+repo.repo),
+              repo.description?el("p",{s:{color:"#565250",fontSize:"12px",fontFamily:"monospace",marginTop:"4px"}},repo.description):null
             ]),
-            h("div",{style:{flex:"1",minWidth:"150px"}},[inp]),
-            h("button",{className:"btn bp bs",style:{opacity:url?"1":".4",pointerEvents:url?"auto":"none"},onClick:function(){
-              S.activeRepo=repo.id;S.activeBranch=branch;S.compareMode=false;S.compareBranch="";S.view="preview";render();
-            }},"▶ Preview")
+            el("button",{c:"bd bs",on:{click:function(){S.repos=S.repos.filter(function(r){return r.id!==repo.id});save();render()}}},"✕")
           ]));
-        });
-        card.appendChild(inner);ct.appendChild(card);
-      });
+
+          for(var j=0;j<(repo.activeBranches||[]).length;j++){
+            (function(branch){
+              var bUrl=(repo.branchUrls||{})[branch]||"";
+              var cm=S.commits[repo.owner+"/"+repo.repo+":"+branch];
+              var inp=document.createElement("input");
+              inp.placeholder="http://localhost:8081";inp.value=bUrl;
+              inp.style.cssText="padding:8px 10px;font-size:12px";
+              inp.addEventListener("input",function(e){
+                if(!repo.branchUrls)repo.branchUrls={};
+                repo.branchUrls[branch]=e.target.value;save();
+              });
+
+              var isD=branch===repo.defaultBranch;
+              var row=el("div",{s:{background:"#0b0c10",borderRadius:"10px",padding:"12px",border:"1.5px solid rgba(255,255,255,.06)",display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap",marginBottom:"8px"}},[
+                el("div",{s:{minWidth:"90px"}},[
+                  el("span",{c:"btag",s:{background:isD?"rgba(232,169,74,.1)":"rgba(91,159,212,.1)",color:isD?"#e8a94a":"#5b9fd4"}},branch),
+                  cm?el("div",{s:{marginTop:"4px",fontSize:"10px",color:"#565250",fontFamily:"monospace"}},cm.sha.slice(0,7)+" · "+timeAgo(cm.commit.author.date)):null
+                ]),
+                el("div",{s:{flex:"1",minWidth:"140px"}},[inp]),
+                el("button",{c:"bp bs",s:{opacity:bUrl?"1":".4",pointerEvents:bUrl?"auto":"none"},on:{click:function(){
+                  S.activeRepo=repo.id;S.activeBranch=branch;S.compareMode=false;S.compareBranch="";S.view="preview";render();
+                }}},"▶ Preview")
+              ]);
+              card.appendChild(row);
+            })(repo.activeBranches[j]);
+          }
+          ct.appendChild(card);
+        })(S.repos[i]);
+      }
     }
     app.appendChild(ct);return;
   }
 
   /* ── ADD REPO ── */
   if(S.view==="addRepo"){
-    var w=h("div",{className:"anim",style:{maxWidth:"560px",margin:"0 auto",padding:"28px 16px"}});
-    w.appendChild(h("h2",{style:{fontFamily:"var(--fh)",fontSize:"20px",fontWeight:"700",marginBottom:"20px"}},"Add Repository"));
-    var ri=h("input",{placeholder:"owner/repo or full GitHub URL",value:S.repoUrl});
+    var w=el("div",{s:{maxWidth:"540px",margin:"0 auto",padding:"24px 16px"}});
+    w.appendChild(el("h2",{s:{fontSize:"20px",fontWeight:"700",marginBottom:"20px"}},"Add Repository"));
+
+    var ri=document.createElement("input");
+    ri.placeholder="owner/repo or full GitHub URL";ri.value=S.repoUrl;
     ri.addEventListener("input",function(e){S.repoUrl=e.target.value});
-    var es=h("span",{style:{color:"var(--err)",fontSize:"12px",fontFamily:"var(--fm)",display:"none"}});
-    var fb=h("button",{className:"btn bp",onClick:doFetch},"Fetch");
+
+    var es=el("span",{s:{color:"#e05468",fontSize:"12px",fontFamily:"monospace",display:"none"}});
+    var fb=el("button",{c:"bp",on:{click:doFetch}},"Fetch");
+
     function doFetch(){
       var p=parseRepo(S.repoUrl);es.style.display="none";
-      if(!p){es.textContent="Invalid. Use owner/repo or full URL.";es.style.display="block";return}
+      if(!p){es.textContent="Invalid. Use owner/repo.";es.style.display="block";return}
       if(S.repos.some(function(r){return r.owner===p.owner&&r.repo===p.repo})){es.textContent="Already added.";es.style.display="block";return}
       fb.innerHTML="<span class='spin'></span>";
-      Promise.all([ghFetch("/repos/"+p.owner+"/"+p.repo,S.token),ghFetch("/repos/"+p.owner+"/"+p.repo+"/branches?per_page=100",S.token)])
-      .then(function(res){
+      Promise.all([
+        ghFetch("/repos/"+p.owner+"/"+p.repo,S.token),
+        ghFetch("/repos/"+p.owner+"/"+p.repo+"/branches?per_page=100",S.token)
+      ]).then(function(res){
         S.repoInfo=res[0];S.fetchedBranches=res[1].map(function(b){return b.name});
         S.selectedBranches=[res[0].default_branch];S.branchUrls={};
-        res[1].forEach(function(b){S.branchUrls[b.name]=""});fb.textContent="Fetch";render();
+        for(var i=0;i<res[1].length;i++)S.branchUrls[res[1][i].name]="";
+        fb.textContent="Fetch";render();
       }).catch(function(e){es.textContent=e.message;es.style.display="block";fb.textContent="Fetch"});
     }
-    w.appendChild(h("div",{className:"col",style:{marginBottom:"20px"}},[h("label",{className:"label"},"Repository"),h("div",{style:{display:"flex",gap:"8px"}},[ri,fb]),es]));
+
+    w.appendChild(el("div",{s:{marginBottom:"20px"}},[
+      el("div",{c:"label",s:{marginBottom:"6px"}},"Repository"),
+      el("div",{s:{display:"flex",gap:"8px"}},[ri,fb]),
+      es
+    ]));
 
     if(S.fetchedBranches.length&&S.repoInfo){
-      w.appendChild(h("div",{style:{padding:"12px",background:"var(--s1)",borderRadius:"10px",border:"1.5px solid var(--brd)",marginBottom:"18px"}},[
-        h("div",{style:{fontWeight:"700",fontFamily:"var(--fh)",fontSize:"14px",marginBottom:"4px"}},S.repoInfo.full_name),
-        h("span",{style:{color:"var(--t3)",fontSize:"12px",fontFamily:"var(--fm)"}},S.repoInfo.description||"No description")
+      w.appendChild(el("div",{c:"card",s:{marginBottom:"18px"}},[
+        el("div",{s:{fontWeight:"700",fontSize:"14px"}},S.repoInfo.full_name),
+        el("div",{s:{color:"#565250",fontSize:"12px",fontFamily:"monospace",marginTop:"4px"}},S.repoInfo.description||"No description")
       ]));
-      var bd=h("div",{style:{display:"flex",flexWrap:"wrap",gap:"8px",marginTop:"4px"}});
-      S.fetchedBranches.forEach(function(b){
-        bd.appendChild(h("div",{className:"chip"+(S.selectedBranches.indexOf(b)!==-1?" on":""),onClick:function(){
-          var i=S.selectedBranches.indexOf(b);if(i!==-1)S.selectedBranches.splice(i,1);else S.selectedBranches.push(b);render();
-        }},b));
-      });
-      w.appendChild(h("div",{className:"col",style:{marginBottom:"18px"}},[h("label",{className:"label"},"Branches to monitor"),bd]));
+
+      var bd=el("div",{s:{display:"flex",flexWrap:"wrap",gap:"8px",marginTop:"6px"}});
+      for(var i=0;i<S.fetchedBranches.length;i++){
+        (function(b){
+          var isOn=S.selectedBranches.indexOf(b)!==-1;
+          bd.appendChild(el("div",{c:"chip"+(isOn?" on":""),on:{click:function(){
+            var idx=S.selectedBranches.indexOf(b);
+            if(idx!==-1)S.selectedBranches.splice(idx,1);else S.selectedBranches.push(b);
+            render();
+          }}},b));
+        })(S.fetchedBranches[i]);
+      }
+      w.appendChild(el("div",{s:{marginBottom:"18px"}},[el("div",{c:"label",s:{marginBottom:"6px"}},"Branches to monitor"),bd]));
 
       if(S.selectedBranches.length){
-        var ud=h("div",{className:"col",style:{gap:"8px"}});
-        S.selectedBranches.forEach(function(b){
-          var inp=h("input",{placeholder:"http://localhost:8081",value:S.branchUrls[b]||"",style:{flex:"1",padding:"7px 10px",fontSize:"12px"}});
-          inp.addEventListener("input",function(e){S.branchUrls[b]=e.target.value});
-          ud.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"8px"}},[
-            h("span",{className:"btag",style:{background:"var(--infod)",color:"var(--info)",minWidth:"70px",justifyContent:"center",fontSize:"10px"}},b),inp
-          ]));
-        });
-        w.appendChild(h("div",{className:"col",style:{marginBottom:"22px"}},[h("label",{className:"label"},"Preview URL per branch"),
-          h("p",{style:{color:"var(--t3)",fontSize:"11px",fontFamily:"var(--fm)",lineHeight:"1.5"}},"Optional — set later from dashboard."),ud]));
+        var ud=el("div",{s:{display:"flex",flexDirection:"column",gap:"8px"}});
+        for(var i=0;i<S.selectedBranches.length;i++){
+          (function(b){
+            var inp=document.createElement("input");
+            inp.placeholder="http://localhost:8081";inp.value=S.branchUrls[b]||"";
+            inp.style.cssText="flex:1;padding:8px 10px;font-size:12px";
+            inp.addEventListener("input",function(e){S.branchUrls[b]=e.target.value});
+            ud.appendChild(el("div",{s:{display:"flex",alignItems:"center",gap:"8px"}},[
+              el("span",{c:"btag",s:{background:"rgba(91,159,212,.1)",color:"#5b9fd4",minWidth:"60px",textAlign:"center"}},b),
+              inp
+            ]));
+          })(S.selectedBranches[i]);
+        }
+        w.appendChild(el("div",{s:{marginBottom:"22px"}},[
+          el("div",{c:"label",s:{marginBottom:"6px"}},"Preview URL per branch"),
+          el("p",{s:{color:"#565250",fontSize:"11px",fontFamily:"monospace",marginBottom:"8px"}},"Optional — set later from dashboard."),
+          ud
+        ]));
       }
-      w.appendChild(h("div",{style:{display:"flex",gap:"10px"}},[
-        h("button",{className:"btn bg",onClick:function(){S.view="dashboard";render()}},"Cancel"),
-        h("button",{className:"btn bp",style:{flex:"1",opacity:S.selectedBranches.length?"1":".4"},onClick:function(){
+
+      w.appendChild(el("div",{s:{display:"flex",gap:"10px"}},[
+        el("button",{c:"bg",on:{click:function(){S.view="dashboard";render()}}},"Cancel"),
+        el("button",{c:"bp",s:{flex:"1",opacity:S.selectedBranches.length?"1":".4"},on:{click:function(){
           if(!S.selectedBranches.length)return;
-          S.repos.push({id:S.repoInfo.owner.login+"/"+S.repoInfo.name,owner:S.repoInfo.owner.login,repo:S.repoInfo.name,
-            description:S.repoInfo.description||"",defaultBranch:S.repoInfo.default_branch,
-            activeBranches:S.selectedBranches,branchUrls:S.branchUrls,addedAt:Date.now()});
+          S.repos.push({
+            id:S.repoInfo.owner.login+"/"+S.repoInfo.name,
+            owner:S.repoInfo.owner.login,repo:S.repoInfo.name,
+            description:S.repoInfo.description||"",
+            defaultBranch:S.repoInfo.default_branch,
+            activeBranches:S.selectedBranches.slice(),
+            branchUrls:JSON.parse(JSON.stringify(S.branchUrls)),
+            addedAt:Date.now()
+          });
           save();S.view="dashboard";render();
-        }},"✓ Add Repository")
+        }}},"✓ Add Repository")
       ]));
     }
     app.appendChild(w);return;
@@ -366,98 +406,117 @@ function render(){
 
   /* ── PREVIEW ── */
   if(S.view==="preview"){
-    var repo=curRepo();if(!repo){S.view="dashboard";render();return}
+    var repo=getRepo();
+    if(!repo){S.view="dashboard";render();return}
     var url=(repo.branchUrls||{})[S.activeBranch]||"";
     var cmpUrl=S.compareBranch?((repo.branchUrls||{})[S.compareBranch]||""):"";
 
     // Controls
-    var ctrls=h("div",{style:{padding:"10px 16px",borderBottom:"1.5px solid var(--brd)",display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap",background:"var(--s1)"}});
-    var sel=h("select",{style:{width:"140px",padding:"6px 10px",fontSize:"12px"}});
-    (repo.activeBranches||[]).forEach(function(b){var o=h("option",{value:b},b);if(b===S.activeBranch)o.selected=true;sel.appendChild(o)});
+    var ctrls=el("div",{s:{padding:"10px 16px",borderBottom:"1.5px solid rgba(255,255,255,.06)",display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap",background:"#13141a"}});
+
+    var sel=document.createElement("select");
+    sel.style.cssText="width:140px;padding:8px 10px;font-size:13px";
+    for(var i=0;i<(repo.activeBranches||[]).length;i++){
+      var o=document.createElement("option");
+      o.value=repo.activeBranches[i];o.textContent=repo.activeBranches[i];
+      if(repo.activeBranches[i]===S.activeBranch)o.selected=true;
+      sel.appendChild(o);
+    }
     sel.addEventListener("change",function(e){S.activeBranch=e.target.value;render()});
     ctrls.appendChild(sel);
 
     if(S.compareMode){
-      ctrls.appendChild(h("span",{style:{color:"var(--t3)",fontFamily:"var(--fm)",fontSize:"11px"}},"vs"));
-      var s2=h("select",{style:{width:"140px",padding:"6px 10px",fontSize:"12px"}});
-      s2.appendChild(h("option",{value:""},"Select…"));
-      (repo.activeBranches||[]).filter(function(b){return b!==S.activeBranch}).forEach(function(b){var o=h("option",{value:b},b);if(b===S.compareBranch)o.selected=true;s2.appendChild(o)});
+      ctrls.appendChild(el("span",{s:{color:"#565250",fontFamily:"monospace",fontSize:"12px"}},"vs"));
+      var s2=document.createElement("select");
+      s2.style.cssText="width:140px;padding:8px 10px;font-size:13px";
+      var o0=document.createElement("option");o0.value="";o0.textContent="Select…";s2.appendChild(o0);
+      for(var i=0;i<(repo.activeBranches||[]).length;i++){
+        if(repo.activeBranches[i]===S.activeBranch)continue;
+        var o=document.createElement("option");
+        o.value=repo.activeBranches[i];o.textContent=repo.activeBranches[i];
+        if(repo.activeBranches[i]===S.compareBranch)o.selected=true;
+        s2.appendChild(o);
+      }
       s2.addEventListener("change",function(e){S.compareBranch=e.target.value;render()});
       ctrls.appendChild(s2);
     }
 
-    ctrls.appendChild(h("div",{className:"sep hm"}));
-    ctrls.appendChild(h("div",{style:{flex:"1",display:"flex",alignItems:"center",gap:"6px",minWidth:"0"}},[
-      h("div",{style:{width:"7px",height:"7px",borderRadius:"50%",background:url?"var(--ok)":"var(--err)",flexShrink:"0"}}),
-      h("span",{style:{fontFamily:"var(--fm)",fontSize:"11px",color:url?"var(--t2)":"var(--t3)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},url||"No URL — set on dashboard")
-    ]));
+    // URL display
+    var dot=el("span",{s:{width:"8px",height:"8px",borderRadius:"50%",background:url?"#48b088":"#e05468",display:"inline-block",flexShrink:"0"}});
+    var urlTxt=el("span",{s:{fontFamily:"monospace",fontSize:"11px",color:url?"#9a9590":"#565250",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"300px",display:"inline-block"}},url||"No URL — set on dashboard");
+    ctrls.appendChild(el("div",{s:{flex:"1",display:"flex",alignItems:"center",gap:"6px",minWidth:"0"}},[dot,urlTxt]));
     app.appendChild(ctrls);
 
     // Ratio toggles
-    var ratioBar=h("div",{style:{padding:"8px 16px",borderBottom:"1.5px solid var(--brd)",display:"flex",gap:"6px",flexWrap:"wrap"}});
-    RATIOS.forEach(function(r){
-      ratioBar.appendChild(h("div",{className:"chip"+(S.selectedRatios.indexOf(r.id)!==-1?" on":""),onClick:function(){
-        var i=S.selectedRatios.indexOf(r.id);
-        if(i!==-1&&S.selectedRatios.length>1)S.selectedRatios.splice(i,1);
-        else if(i===-1)S.selectedRatios.push(r.id);
-        save();render();
-      }},r.label));
-    });
+    var ratioBar=el("div",{s:{padding:"8px 16px",borderBottom:"1.5px solid rgba(255,255,255,.06)",display:"flex",gap:"6px",flexWrap:"wrap"}});
+    var ratioList=[{id:"9:16",w:9,h:16,label:"9:16 Portrait"},{id:"16:9",w:16,h:9,label:"16:9 Landscape"}];
+    for(var i=0;i<ratioList.length;i++){
+      (function(r){
+        var isOn=S.ratios.indexOf(r.id)!==-1;
+        ratioBar.appendChild(el("div",{c:"chip"+(isOn?" on":""),on:{click:function(){
+          var idx=S.ratios.indexOf(r.id);
+          if(idx!==-1&&S.ratios.length>1)S.ratios.splice(idx,1);
+          else if(idx===-1)S.ratios.push(r.id);
+          save();render();
+        }}},r.label));
+      })(ratioList[i]);
+    }
     app.appendChild(ratioBar);
 
-    // Commit bar
-    var ck=repo.owner+"/"+repo.repo+":"+S.activeBranch;
-    var cm=S.commits[ck];
+    // Commit info
+    var cm=S.commits[repo.owner+"/"+repo.repo+":"+S.activeBranch];
     if(cm){
-      app.appendChild(h("div",{style:{padding:"7px 16px",borderBottom:"1.5px solid var(--brd)",display:"flex",alignItems:"center",gap:"8px",fontSize:"11px",fontFamily:"var(--fm)",color:"var(--t3)",flexWrap:"wrap"}},[
-        h("span",{style:{color:"var(--t2)"}},cm.sha.slice(0,7)),
-        h("span",{},cm.commit.message.split("\n")[0].slice(0,50)),
-        h("span",{style:{marginLeft:"auto"}},timeAgo(cm.commit.author.date)+" by "+cm.commit.author.name)
+      app.appendChild(el("div",{s:{padding:"8px 16px",borderBottom:"1.5px solid rgba(255,255,255,.06)",fontSize:"11px",fontFamily:"monospace",color:"#565250",display:"flex",gap:"8px",flexWrap:"wrap"}},[
+        el("span",{s:{color:"#9a9590"}},cm.sha.slice(0,7)),
+        el("span",{},cm.commit.message.split("\n")[0].slice(0,50)),
+        el("span",{s:{marginLeft:"auto"}},timeAgo(cm.commit.author.date))
       ]));
     }
 
     // Panels
-    var activeRatios=RATIOS.filter(function(r){return S.selectedRatios.indexOf(r.id)!==-1});
+    var activeRatios=ratioList.filter(function(r){return S.ratios.indexOf(r.id)!==-1});
+    var container=el("div",{s:{padding:"16px",display:"flex",flexDirection:"column",gap:"16px"}});
 
     if(S.compareMode){
-      // Side by side per ratio
-      activeRatios.forEach(function(ratio){
-        var row=h("div",{style:{display:"flex",gap:"0",borderBottom:"1.5px solid var(--brd)"}});
-        var leftCol=h("div",{style:{flex:"1",borderRight:"1.5px solid var(--brd)"}});
-        leftCol.appendChild(makePanel(ratio,url,S.refreshKey,S.activeBranch+" — "+ratio.label,"var(--acc)"));
-        row.appendChild(leftCol);
-        var rightCol=h("div",{style:{flex:"1"}});
+      for(var i=0;i<activeRatios.length;i++){
+        var r=activeRatios[i];
+        var row=el("div",{s:{display:"flex",gap:"16px",flexWrap:"wrap"}});
+        var leftW=el("div",{s:{flex:"1",minWidth:"280px"}});
+        leftW.appendChild(makePreview(r.w,r.h,S.activeBranch+" — "+r.label,url,S.refreshKey,"#e8a94a"));
+        row.appendChild(leftW);
+        var rightW=el("div",{s:{flex:"1",minWidth:"280px"}});
         if(S.compareBranch&&cmpUrl){
-          rightCol.appendChild(makePanel(ratio,cmpUrl,S.refreshKey,S.compareBranch+" — "+ratio.label,"var(--info)"));
+          rightW.appendChild(makePreview(r.w,r.h,S.compareBranch+" — "+r.label,cmpUrl,S.refreshKey,"#5b9fd4"));
         }else{
-          rightCol.appendChild(makePanel(ratio,"",S.refreshKey,S.compareBranch||"Select branch","var(--info)"));
+          rightW.appendChild(makePreview(r.w,r.h,S.compareBranch||"Select branch","",S.refreshKey,"#5b9fd4"));
         }
-        row.appendChild(rightCol);
-        app.appendChild(row);
-      });
+        row.appendChild(rightW);
+        container.appendChild(row);
+      }
     }else{
-      // Simple grid
-      var grid=h("div",{style:{display:"flex",flexWrap:"wrap",gap:"16px",padding:"16px",alignItems:"flex-start"}});
-      activeRatios.forEach(function(ratio){
-        var w=ratio.w>ratio.h?"100%":"min(400px, 100%)";
-        var wrap=h("div",{style:{width:w,flexShrink:"0"}});
-        wrap.appendChild(makePanel(ratio,url,S.refreshKey,ratio.label,null));
-        grid.appendChild(wrap);
-      });
-      app.appendChild(grid);
+      for(var i=0;i<activeRatios.length;i++){
+        var r=activeRatios[i];
+        var maxW=r.w>r.h?"100%":"400px";
+        var wrap=el("div",{s:{maxWidth:maxW}});
+        wrap.appendChild(makePreview(r.w,r.h,r.label,url,S.refreshKey,null));
+        container.appendChild(wrap);
+      }
     }
+    app.appendChild(container);
 
     if(!url){
-      app.appendChild(h("div",{style:{margin:"16px",padding:"14px",background:"var(--accd)",border:"1.5px solid rgba(232,169,74,.2)",borderRadius:"10px",fontFamily:"var(--fm)",fontSize:"12px",color:"var(--t2)",lineHeight:"1.7"}},[
-        h("strong",{style:{color:"var(--acc)"}},"No URL for \""+S.activeBranch+"\""),
-        document.createTextNode(" — set one on the dashboard. For Expo: npx expo start --web --port 8081")
+      app.appendChild(el("div",{s:{margin:"0 16px 16px",padding:"14px",background:"rgba(232,169,74,.1)",border:"1.5px solid rgba(232,169,74,.2)",borderRadius:"10px",fontFamily:"monospace",fontSize:"12px",color:"#9a9590",lineHeight:"1.7"}},[
+        el("strong",{s:{color:"#e8a94a"}},"No URL for \""+S.activeBranch+"\""),
+        txt(" — set one on the dashboard.")
       ]));
     }
   }
 }
 
+/* Init */
 render();
 if(S.token)startPoll();
+
 })();
 </script>
 </body>
