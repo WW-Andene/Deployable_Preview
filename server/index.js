@@ -256,39 +256,43 @@ app.delete("/api/repos/:owner/:repo", (req, res) => {
   res.json({ ok: true });
 });
 
-// Trigger rebuild
-app.post("/api/build/:owner/:repo/:branch", (req, res) => {
+// Trigger rebuild — branch via query param to handle slashes
+app.post("/api/build/:owner/:repo", (req, res) => {
+  const branch = req.query.branch;
+  if (!branch) return res.status(400).json({ error: "branch query param required" });
   const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
   if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
-  buildBranch(repoConfig, req.params.branch);
+  buildBranch(repoConfig, branch);
   res.json({ ok: true, message: "Build started" });
 });
 
-// Build status
-app.get("/api/status/:owner/:repo/:branch", (req, res) => {
-  const key = buildKey(req.params.owner, req.params.repo, req.params.branch);
+// Build status — branch via query param
+app.get("/api/status/:owner/:repo", (req, res) => {
+  const branch = req.query.branch || "";
+  const key = buildKey(req.params.owner, req.params.repo, branch);
   res.json(buildStatus[key] || { status: "idle" });
 });
 
-// Build log
-app.get("/api/log/:owner/:repo/:branch", (req, res) => {
-  const key = buildKey(req.params.owner, req.params.repo, req.params.branch);
+// Build log — branch via query param
+app.get("/api/log/:owner/:repo", (req, res) => {
+  const branch = req.query.branch || "";
+  const key = buildKey(req.params.owner, req.params.repo, branch);
   const s = buildStatus[key];
   res.type("text/plain").send(s ? s.log : "No build log.");
 });
 
 // ── Serve built output ──
-app.use("/preview/:owner/:repo/:branch", (req, res, next) => {
-  const outDir = getOutputDir(req.params.owner, req.params.repo, req.params.branch.replace(/\//g, "__"));
+// Branch is encoded in the URL as a safe slug (slashes replaced with __)
+app.use("/preview/:owner/:repo/:branchSlug", (req, res, next) => {
+  const outDir = getOutputDir(req.params.owner, req.params.repo, req.params.branchSlug);
   if (!fs.existsSync(outDir)) return res.status(404).send("Not built yet. Trigger a build first.");
-  // Remove X-Frame-Options so the preview iframe works
   res.removeHeader("X-Frame-Options");
   express.static(outDir)(req, res, next);
 });
 
 // SPA fallback for built apps
-app.use("/preview/:owner/:repo/:branch/*", (req, res) => {
-  const outDir = getOutputDir(req.params.owner, req.params.repo, req.params.branch.replace(/\//g, "__"));
+app.use("/preview/:owner/:repo/:branchSlug/*", (req, res) => {
+  const outDir = getOutputDir(req.params.owner, req.params.repo, req.params.branchSlug);
   const index = path.join(outDir, "index.html");
   if (fs.existsSync(index)) {
     res.removeHeader("X-Frame-Options");

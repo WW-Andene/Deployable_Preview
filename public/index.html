@@ -224,18 +224,18 @@ function render(){
                   "Not built yet"
                 ),
                 el("button",{c:"bg bs",on:{click:function(){
-                  api("POST","/api/build/"+repo.owner+"/"+repo.repo+"/"+branch);
+                  api("POST","/api/build/"+repo.owner+"/"+repo.repo+"?branch="+encodeURIComponent(branch));
                   loadRepos();
                 }}},"⟳ Build"),
                 el("button",{c:"bp bs",s:{opacity:bs.status==="ready"?"1":".4",pointerEvents:bs.status==="ready"?"auto":"none"},on:{click:function(){
                   S.activeRepo=repo;S.activeBranch=branch;S.compareMode=false;S.compareBranch="";S.view="preview";render();
                 }}},"▶ Preview"),
                 el("button",{c:"bg bs",on:{click:function(){
-                  api("GET","/api/log/"+repo.owner+"/"+repo.repo+"/"+branch).then(function(r){return r.text?r.text():r}).then(function(log){
+                  api("GET","/api/log/"+repo.owner+"/"+repo.repo+"?branch="+encodeURIComponent(branch)).then(function(r){return r.text?r.text():r}).then(function(log){
                     alert(log||"No log yet.");
                   }).catch(function(){
                     // Fetch as text
-                    fetch("/api/log/"+repo.owner+"/"+repo.repo+"/"+branch).then(function(r){return r.text()}).then(function(t){alert(t)});
+                    fetch("/api/log/"+repo.owner+"/"+repo.repo+"?branch="+encodeURIComponent(branch)).then(function(r){return r.text()}).then(function(t){alert(t)});
                   });
                 }}},"📋 Log")
               ]);
