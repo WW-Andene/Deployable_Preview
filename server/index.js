@@ -302,6 +302,27 @@ function serveIndex(outDir, res) {
   let html = fs.readFileSync(indexPath, "utf8");
   // Rewrite absolute paths to relative: /assets/ → ./assets/, /favicon → ./favicon, etc.
   html = html.replace(/(src|href|content)="\/(?!\/)/g, '$1="./');
+
+  // PWA shim: fix service worker registration and manifest paths
+  // When apps use absolute paths like register('/sw.js', {scope: '/'}),
+  // they break under /preview/... subpaths. This rewrites them to relative.
+  const pwaShim = `<script>(function(){
+if(navigator.serviceWorker){var r=navigator.serviceWorker.register.bind(navigator.serviceWorker);
+navigator.serviceWorker.register=function(u,o){
+if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith('//'))u='.'+u;
+if(o&&o.scope&&o.scope.startsWith('/')&&!o.scope.startsWith('//'))o=Object.assign({},o,{scope:'.'+o.scope});
+return r(u,o);};}
+var B=window.Blob;window.Blob=function(p,o){
+if(o&&o.type==='application/json'&&p&&p[0]){try{var m=JSON.parse(p[0]);
+if(m.start_url&&m.display){if(m.start_url==='/')m.start_url='./';
+if(!m.scope||m.scope==='/')m.scope='./';
+return new B([JSON.stringify(m)],o);}}catch(e){}}
+return new B(p,o);};window.Blob.prototype=B.prototype;
+})();</script>`;
+
+  // Inject shim right after <head> (before any other scripts)
+  html = html.replace(/<head([^>]*)>/i, '<head$1>' + pwaShim);
+
   res.removeHeader("X-Frame-Options");
   res.setHeader("Content-Security-Policy", "");
   res.setHeader("Content-Type", "text/html");
