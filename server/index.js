@@ -126,16 +126,21 @@ async function buildBranch(repoConfig, branch) {
       }
     }
 
-    // Install dependencies
+    // Install dependencies (clean node_modules first to avoid ENOTEMPTY on rebuild)
+    addLog("Cleaning node_modules...");
+    const nmDir = path.join(workDir, "node_modules");
+    if (fs.existsSync(nmDir)) {
+      await runCmd("rm -rf node_modules", workDir);
+    }
     addLog("Installing dependencies in " + (baseDir || "root") + "...");
     const hasYarnLock = fs.existsSync(path.join(workDir, "yarn.lock"));
     const hasPnpmLock = fs.existsSync(path.join(workDir, "pnpm-lock.yaml"));
     if (hasPnpmLock) {
-      await runCmd("pnpm install --frozen-lockfile || pnpm install", workDir);
+      await runCmd("pnpm install", workDir);
     } else if (hasYarnLock) {
-      await runCmd("yarn install --frozen-lockfile || yarn install", workDir);
+      await runCmd("yarn install", workDir);
     } else {
-      await runCmd("npm ci || npm install", workDir);
+      await runCmd("npm install", workDir);
     }
 
     // Build
