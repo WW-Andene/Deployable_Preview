@@ -102,18 +102,12 @@ async function buildBranch(repoConfig, branch) {
 
     // Copy repo to branch dir (clean)
     addLog("Checking out branch: " + branch);
-    // Use git worktree or just copy
     if (fs.existsSync(path.join(branchDir, ".git")) || fs.existsSync(path.join(branchDir, "package.json"))) {
-      // Already exists, just pull
       await runCmd("git checkout " + branch + " && git pull origin " + branch, branchDir).catch(() => {});
     }
-    // Fresh checkout approach: copy from main repo
     await runCmd("git worktree prune", repoDir).catch(() => {});
-
-    // Remove old worktree if exists
     try { await runCmd("git worktree remove --force " + JSON.stringify(branchDir), repoDir); } catch (e) {}
 
-    // Add worktree for this branch
     addLog("Setting up worktree for " + branch + "...");
     await runCmd("git worktree add " + JSON.stringify(branchDir) + " " + branch, repoDir);
 
@@ -122,26 +116,37 @@ async function buildBranch(repoConfig, branch) {
     buildStatus[key].commitSha = sha;
     addLog("Commit: " + sha.slice(0, 7));
 
+    // Determine the actual working directory (baseDir support)
+    const baseDir = repoConfig.baseDir || "";
+    const workDir = baseDir ? path.join(branchDir, baseDir) : branchDir;
+
+    if (baseDir) {
+      addLog("Base directory: " + baseDir);
+      if (!fs.existsSync(workDir)) {
+        throw new Error("Base directory '" + baseDir + "' not found in repo");
+      }
+    }
+
     // Install dependencies
-    addLog("Installing dependencies...");
-    const hasYarnLock = fs.existsSync(path.join(branchDir, "yarn.lock"));
-    const hasPnpmLock = fs.existsSync(path.join(branchDir, "pnpm-lock.yaml"));
+    addLog("Installing dependencies in " + (baseDir || "root") + "...");
+    const hasYarnLock = fs.existsSync(path.join(workDir, "yarn.lock"));
+    const hasPnpmLock = fs.existsSync(path.join(workDir, "pnpm-lock.yaml"));
     if (hasPnpmLock) {
-      await runCmd("pnpm install --frozen-lockfile || pnpm install", branchDir);
+      await runCmd("pnpm install --frozen-lockfile || pnpm install", workDir);
     } else if (hasYarnLock) {
-      await runCmd("yarn install --frozen-lockfile || yarn install", branchDir);
+      await runCmd("yarn install --frozen-lockfile || yarn install", workDir);
     } else {
-      await runCmd("npm ci || npm install", branchDir);
+      await runCmd("npm ci || npm install", workDir);
     }
 
     // Build
     const cmd = buildCommand || "npm run build";
     addLog("Building: " + cmd);
-    await runCmd(cmd, branchDir);
+    await runCmd(cmd, workDir);
 
-    // Determine output directory
+    // Determine output directory (search inside workDir, not repo root)
     const outName = outputDir || "dist";
-    const outPath = path.join(branchDir, outName);
+    const outPath = path.join(workDir, outName);
     const altPaths = ["dist", "build", "out", "web-build", ".next/static", "public"];
 
     let finalOut = null;
@@ -149,15 +154,15 @@ async function buildBranch(repoConfig, branch) {
       finalOut = outPath;
     } else {
       for (const alt of altPaths) {
-        const p = path.join(branchDir, alt);
+        const p = path.join(workDir, alt);
         if (fs.existsSync(p)) { finalOut = p; break; }
       }
     }
 
     if (!finalOut) {
       addLog("WARNING: No output directory found. Tried: " + outName + ", " + altPaths.join(", "));
-      addLog("Serving the entire branch directory instead.");
-      finalOut = branchDir;
+      addLog("Serving the workDir instead.");
+      finalOut = workDir;
     }
 
     // Symlink output
@@ -238,10 +243,10 @@ app.get("/api/repos", (req, res) => {
 });
 
 app.post("/api/repos", (req, res) => {
-  const { owner, repo, activeBranches, buildCommand, outputDir, description } = req.body;
+  const { owner, repo, activeBranches, buildCommand, outputDir, baseDir, description } = req.body;
   const id = owner + "/" + repo;
   if (config.repos.some((r) => r.id === id)) return res.status(400).json({ error: "Already exists" });
-  const newRepo = { id, owner, repo, activeBranches, buildCommand: buildCommand || "npm run build", outputDir: outputDir || "dist", description: description || "" };
+  const newRepo = { id, owner, repo, activeBranches, buildCommand: buildCommand || "npm run build", outputDir: outputDir || "dist", baseDir: baseDir || "", description: description || "" };
   config.repos.push(newRepo);
   saveConfig();
   // Trigger initial builds

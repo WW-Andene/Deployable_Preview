@@ -49,7 +49,7 @@ var S={
   // add repo
   repoUrl:"",repoError:"",repoLoading:false,
   fetchedBranches:[],selectedBranches:[],repoInfo:null,
-  buildCommand:"npm run build",outputDir:"dist",
+  buildCommand:"npm run build",outputDir:"dist",baseDir:"",
   // preview
   activeRepo:null,activeBranch:"",compareBranch:"",compareMode:false,
   ratios:["9:16","16:9"],refreshKey:0,
@@ -135,7 +135,7 @@ function render(){
     right.appendChild(el("button",{c:"bg bs",on:{click:function(){loadRepos()}}},"↻"));
     right.appendChild(el("button",{c:"bp",on:{click:function(){
       S.repoUrl="";S.repoError="";S.fetchedBranches=[];S.selectedBranches=[];
-      S.repoInfo=null;S.buildCommand="npm run build";S.outputDir="dist";
+      S.repoInfo=null;S.buildCommand="npm run build";S.outputDir="dist";S.baseDir="";
       S.view="addRepo";render();
     }}},"+ Add Repo"));
   }
@@ -188,7 +188,7 @@ function render(){
         el("p",{s:{color:"#565250",fontFamily:"monospace",fontSize:"13px",maxWidth:"440px",margin:"0 auto 24px",lineHeight:"1.6"}},"Add a repo, pick branches — DeployView will clone, build, and serve them. Auto-rebuilds on every push."),
         el("button",{c:"bp",on:{click:function(){
           S.repoUrl="";S.repoError="";S.fetchedBranches=[];S.selectedBranches=[];
-          S.repoInfo=null;S.buildCommand="npm run build";S.outputDir="dist";
+          S.repoInfo=null;S.buildCommand="npm run build";S.outputDir="dist";S.baseDir="";
           S.view="addRepo";render();
         }}},"+ Add Repo")
       ]));
@@ -200,7 +200,7 @@ function render(){
             el("div",{},[
               el("h3",{s:{fontSize:"15px",fontWeight:"700",wordBreak:"break-all"}},repo.owner+"/"+repo.repo),
               repo.description?el("p",{s:{color:"#565250",fontSize:"12px",fontFamily:"monospace",marginTop:"4px"}},repo.description):null,
-              el("p",{s:{color:"#565250",fontSize:"11px",fontFamily:"monospace",marginTop:"4px"}},"Build: "+repo.buildCommand+" → "+repo.outputDir)
+              el("p",{s:{color:"#565250",fontSize:"11px",fontFamily:"monospace",marginTop:"4px"}},"Build: "+(repo.baseDir?repo.baseDir+"/ → ":"")+repo.buildCommand+" → "+repo.outputDir)
             ]),
             el("button",{c:"bd bs",on:{click:function(){
               api("DELETE","/api/repos/"+repo.owner+"/"+repo.repo).then(loadRepos);
@@ -295,6 +295,15 @@ function render(){
       }
       w.appendChild(el("div",{s:{marginBottom:"18px"}},[el("div",{c:"label",s:{marginBottom:"6px"}},"Branches to monitor"),bd]));
 
+      // Base directory (subfolder where package.json lives)
+      var bdi=document.createElement("input");bdi.value=S.baseDir;bdi.placeholder="Leave empty if package.json is at root";
+      bdi.addEventListener("input",function(e){S.baseDir=e.target.value});
+      w.appendChild(el("div",{s:{marginBottom:"14px"}},[
+        el("div",{c:"label",s:{marginBottom:"6px"}},"App subdirectory"),
+        bdi,
+        el("p",{s:{color:"#565250",fontSize:"11px",fontFamily:"monospace",marginTop:"4px"}},"If your app is inside a subfolder (e.g. whispering-wishes-replit)")
+      ]));
+
       // Build command
       var bci=document.createElement("input");bci.value=S.buildCommand;bci.placeholder="npm run build";
       bci.addEventListener("input",function(e){S.buildCommand=e.target.value});
@@ -306,7 +315,7 @@ function render(){
       w.appendChild(el("div",{s:{marginBottom:"22px"}},[
         el("div",{c:"label",s:{marginBottom:"6px"}},"Output directory"),
         odi,
-        el("p",{s:{color:"#565250",fontSize:"11px",fontFamily:"monospace",marginTop:"4px"}},"Common: dist, build, out, web-build. Auto-detected if left wrong.")
+        el("p",{s:{color:"#565250",fontSize:"11px",fontFamily:"monospace",marginTop:"4px"}},"Common: dist, build, out, web-build")
       ]));
 
       // Buttons
@@ -318,6 +327,7 @@ function render(){
             owner:S.repoInfo.owner,repo:S.repoInfo.repo,
             activeBranches:S.selectedBranches,
             buildCommand:S.buildCommand,outputDir:S.outputDir,
+            baseDir:S.baseDir,
             description:S.repoInfo.description
           }).then(function(){S.view="dashboard";loadRepos()});
         }}},"✓ Add & Build")
