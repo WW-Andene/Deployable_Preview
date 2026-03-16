@@ -297,8 +297,8 @@ function findOutputDir(owner, repo, branchSlug) {
   return null;
 }
 
-// Serve index.html with injected <base> tag so Vite's absolute paths work
-function serveIndex(outDir, basePath, res) {
+// Serve index.html with absolute paths rewritten to relative
+function serveIndex(outDir, res) {
   const indexPath = path.join(outDir, "index.html");
   if (!fs.existsSync(indexPath)) {
     try {
@@ -309,15 +309,10 @@ function serveIndex(outDir, basePath, res) {
     }
   }
   let html = fs.readFileSync(indexPath, "utf8");
-  // Inject <base> tag right after <head> so all absolute paths resolve from the preview path
-  const base = '<base href="' + basePath + '">';
-  if (html.includes("<head>")) {
-    html = html.replace("<head>", "<head>" + base);
-  } else if (html.includes("<HEAD>")) {
-    html = html.replace("<HEAD>", "<HEAD>" + base);
-  }
-  // Remove any X-Frame-Options or frame-ancestors CSP that would block iframe
+  // Rewrite absolute paths to relative: /assets/ → ./assets/, /favicon → ./favicon, etc.
+  html = html.replace(/(src|href|content)="\/(?!\/)/g, '$1="./');
   res.removeHeader("X-Frame-Options");
+  res.setHeader("Content-Security-Policy", "");
   res.setHeader("Content-Type", "text/html");
   res.send(html);
 }
@@ -326,11 +321,9 @@ function serveIndex(outDir, basePath, res) {
 app.use("/preview/:owner/:repo/:branchSlug", (req, res, next) => {
   const outDir = findOutputDir(req.params.owner, req.params.repo, req.params.branchSlug);
   if (!outDir || !fs.existsSync(outDir)) return res.status(404).send("Not built yet.");
-  // If requesting root or no extension, serve index.html with base tag
   const reqPath = req.path;
   if (reqPath === "/" || reqPath === "" || (!path.extname(reqPath) && !reqPath.includes("."))) {
-    const basePath = "/preview/" + req.params.owner + "/" + req.params.repo + "/" + req.params.branchSlug + "/";
-    return serveIndex(outDir, basePath, res);
+    return serveIndex(outDir, res);
   }
   res.removeHeader("X-Frame-Options");
   express.static(outDir)(req, res, next);
@@ -340,8 +333,7 @@ app.use("/preview/:owner/:repo/:branchSlug", (req, res, next) => {
 app.use("/preview/:owner/:repo/:branchSlug/*", (req, res) => {
   const outDir = findOutputDir(req.params.owner, req.params.repo, req.params.branchSlug);
   if (!outDir) return res.status(404).send("Not built yet.");
-  const basePath = "/preview/" + req.params.owner + "/" + req.params.repo + "/" + req.params.branchSlug + "/";
-  serveIndex(outDir, basePath, res);
+  serveIndex(outDir, res);
 });
 
 // ── Start ──
