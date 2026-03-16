@@ -1,612 +1,580 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DeployView</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      --c-bg: #0b0c10; --c-s1: #13141a; --c-s2: #1a1c24; --c-s3: #22242e;
-      --c-brd: rgba(255,255,255,0.055); --c-brd2: rgba(255,255,255,0.1);
-      --c-t1: #e4e0d8; --c-t2: #9a9590; --c-t3: #565250;
-      --c-acc: #e8a94a; --c-acc2: #f0be6a; --c-acc-d: rgba(232,169,74,0.1);
-      --c-err: #e05468; --c-err-d: rgba(224,84,104,0.1);
-      --c-ok: #48b088; --c-ok-d: rgba(72,176,136,0.1);
-      --c-info: #5b9fd4; --c-info-d: rgba(91,159,212,0.1);
-      --f-head: 'Outfit', sans-serif; --f-body: 'Outfit', sans-serif;
-      --f-mono: 'IBM Plex Mono', 'JetBrains Mono', monospace;
-      --r-sm: 6px; --r-md: 10px; --r-lg: 14px;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: var(--c-bg); color: var(--c-t1); font-family: var(--f-body); min-height: 100vh; }
-    #root { min-height: 100vh; }
-
-    input, select {
-      background: var(--c-bg); border: 1.5px solid var(--c-brd); color: var(--c-t1);
-      font-family: var(--f-mono); font-size: 13px; padding: 10px 14px;
-      border-radius: var(--r-sm); outline: none; transition: border-color 0.2s, box-shadow 0.2s; width: 100%;
-    }
-    input:focus { border-color: rgba(232,169,74,0.45); box-shadow: 0 0 0 3px var(--c-acc-d); }
-    input::placeholder { color: var(--c-t3); }
-    select {
-      appearance: none; padding-right: 36px;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23565250' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-      background-repeat: no-repeat; background-position: right 12px center;
-    }
-    select option { background: var(--c-s1); color: var(--c-t1); }
-
-    .btn {
-      display: inline-flex; align-items: center; gap: 7px;
-      font-family: var(--f-head); font-size: 13px; font-weight: 600;
-      padding: 9px 18px; border-radius: var(--r-sm); border: none;
-      cursor: pointer; transition: all 0.15s; white-space: nowrap;
-    }
-    .btn-p { background: var(--c-acc); color: var(--c-bg); }
-    .btn-p:hover { background: var(--c-acc2); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(232,169,74,0.25); }
-    .btn-g { background: transparent; color: var(--c-t2); border: 1.5px solid var(--c-brd); }
-    .btn-g:hover { background: var(--c-s2); color: var(--c-t1); border-color: var(--c-brd2); }
-    .btn-d { background: var(--c-err-d); color: var(--c-err); }
-    .btn-d:hover { background: rgba(224,84,104,0.18); }
-    .btn-s { padding: 6px 12px; font-size: 12px; }
-
-    .card { background: var(--c-s1); border: 1.5px solid var(--c-brd); border-radius: var(--r-lg); transition: border-color 0.2s, box-shadow 0.25s; }
-    .card:hover { border-color: var(--c-brd2); box-shadow: 0 6px 30px rgba(0,0,0,0.35); }
-
-    .dv-spin { width: 18px; height: 18px; border: 2px solid var(--c-s3); border-top-color: var(--c-acc); border-radius: 50%; animation: spin 0.7s linear infinite; display: inline-block; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
-    .anim { animation: fadeUp 0.35s ease forwards; }
-    @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
-    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
-
-    .chip {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 5px 12px; border-radius: 100px; font-family: var(--f-mono); font-size: 11px;
-      cursor: pointer; transition: all 0.15s; border: 1.5px solid var(--c-brd);
-      background: var(--c-s1); color: var(--c-t2); user-select: none;
-    }
-    .chip.on { border-color: var(--c-acc); background: var(--c-acc-d); color: var(--c-acc); }
-    .chip:hover { border-color: var(--c-brd2); }
-
-    .topbar {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 12px 16px; border-bottom: 1.5px solid var(--c-brd);
-      background: rgba(11,12,16,0.88); backdrop-filter: blur(20px);
-      position: sticky; top: 0; z-index: 100; gap: 8; flex-wrap: wrap;
-    }
-
-    .field { display: flex; flex-direction: column; gap: 6px; }
-    .label { font-family: var(--f-mono); font-size: 11px; color: var(--c-t3); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500; }
-    .btag { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 100px; font-family: var(--f-mono); font-size: 11px; font-weight: 500; }
-    .notif { position: fixed; top: 60px; right: 12px; z-index: 200; background: var(--c-s2); border: 1.5px solid var(--c-ok); border-radius: var(--r-md); padding: 12px 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); animation: slideIn 0.3s ease; max-width: 320px; display: flex; align-items: flex-start; gap: 10px; }
-    .sep { width: 1px; height: 22px; background: var(--c-brd); flex-shrink: 0; }
-
-    @media (max-width: 640px) {
-      .topbar { padding: 10px 12px; }
-      .btn { padding: 8px 14px; font-size: 12px; }
-      .btn-s { padding: 5px 10px; font-size: 11px; }
-      .hide-mobile { display: none !important; }
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeployView</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#0b0c10;--s1:#13141a;--s2:#1a1c24;--s3:#22242e;
+  --brd:rgba(255,255,255,0.055);--brd2:rgba(255,255,255,0.1);
+  --t1:#e4e0d8;--t2:#9a9590;--t3:#565250;
+  --acc:#e8a94a;--acc2:#f0be6a;--accd:rgba(232,169,74,0.1);
+  --err:#e05468;--errd:rgba(224,84,104,0.1);
+  --ok:#48b088;--okd:rgba(72,176,136,0.1);
+  --info:#5b9fd4;--infod:rgba(91,159,212,0.1);
+  --fh:'Outfit',sans-serif;--fm:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--t1);font-family:var(--fh);min-height:100vh}
+input,select{background:var(--bg);border:1.5px solid var(--brd);color:var(--t1);font-family:var(--fm);font-size:13px;padding:10px 14px;border-radius:6px;outline:none;width:100%;transition:border-color .2s,box-shadow .2s}
+input:focus{border-color:rgba(232,169,74,.45);box-shadow:0 0 0 3px var(--accd)}
+input::placeholder{color:var(--t3)}
+select{appearance:none;padding-right:36px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23565250' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
+select option{background:var(--s1);color:var(--t1)}
+.btn{display:inline-flex;align-items:center;gap:7px;font-family:var(--fh);font-size:13px;font-weight:600;padding:9px 18px;border-radius:6px;border:none;cursor:pointer;transition:all .15s;white-space:nowrap}
+.bp{background:var(--acc);color:var(--bg)}.bp:hover{background:var(--acc2);transform:translateY(-1px);box-shadow:0 4px 16px rgba(232,169,74,.25)}
+.bg{background:transparent;color:var(--t2);border:1.5px solid var(--brd)}.bg:hover{background:var(--s2);color:var(--t1);border-color:var(--brd2)}
+.bd{background:var(--errd);color:var(--err)}.bd:hover{background:rgba(224,84,104,.18)}
+.bs{padding:6px 12px;font-size:12px}
+.card{background:var(--s1);border:1.5px solid var(--brd);border-radius:14px;transition:border-color .2s,box-shadow .25s}
+.card:hover{border-color:var(--brd2);box-shadow:0 6px 30px rgba(0,0,0,.35)}
+.spin{width:18px;height:18px;border:2px solid var(--s3);border-top-color:var(--acc);border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.anim{animation:fadeUp .35s ease forwards}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:100px;font-family:var(--fm);font-size:11px;cursor:pointer;transition:all .15s;border:1.5px solid var(--brd);background:var(--s1);color:var(--t2);user-select:none}
+.chip.on{border-color:var(--acc);background:var(--accd);color:var(--acc)}
+.chip:hover{border-color:var(--brd2)}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1.5px solid var(--brd);background:rgba(11,12,16,.88);backdrop-filter:blur(20px);position:sticky;top:0;z-index:100;gap:8px;flex-wrap:wrap}
+.label{font-family:var(--fm);font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.08em;font-weight:500}
+.btag{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:100px;font-family:var(--fm);font-size:11px;font-weight:500}
+.notif{position:fixed;top:60px;right:12px;z-index:200;background:var(--s2);border:1.5px solid var(--ok);border-radius:10px;padding:12px 16px;box-shadow:0 8px 32px rgba(0,0,0,.4);animation:slideIn .3s ease;max-width:320px;display:flex;align-items:flex-start;gap:10px}
+.sep{width:1px;height:22px;background:var(--brd);flex-shrink:0}
+.row{display:flex;align-items:center;gap:8px}
+.col{display:flex;flex-direction:column;gap:6px}
+.wrap{flex-wrap:wrap}
+.flex1{flex:1;min-width:0}
+.hidden{display:none}
+@media(max-width:640px){.topbar{padding:10px 12px}.btn{padding:8px 14px;font-size:12px}.bs{padding:5px 10px;font-size:11px}.hm{display:none!important}}
+</style>
 </head>
 <body>
-  <div id="root"></div>
+<div id="app"></div>
+<script>
+(function(){
+"use strict";
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+var DEVICES=[
+  {id:"galaxy-s24",name:"Galaxy S24",w:360,h:780,sc:.44,br:38},
+  {id:"pixel-8",name:"Pixel 8",w:412,h:915,sc:.38,br:42},
+  {id:"galaxy-a15",name:"Galaxy A15",w:384,h:854,sc:.39,br:34},
+  {id:"oneplus-12",name:"OnePlus 12",w:412,h:920,sc:.37,br:40},
+  {id:"pixel-fold",name:"Pixel Fold",w:841,h:701,sc:.30,br:20}
+];
+var POLL=15000;
 
-  <script type="text/babel">
-    const { useState, useEffect, useCallback, useRef } = React;
+/* ── Storage ── */
+var LS={
+  get:function(k){try{var v=localStorage.getItem("dv-"+k);return v?JSON.parse(v):null}catch(e){return null}},
+  set:function(k,v){try{localStorage.setItem("dv-"+k,JSON.stringify(v))}catch(e){}}
+};
 
-    /* ═══ CONFIG ═══ */
-    const ANDROID_DEVICES = [
-      { id: "galaxy-s24", name: "Galaxy S24", w: 360, h: 780, scale: 0.44, bezelR: 38 },
-      { id: "pixel-8", name: "Pixel 8", w: 412, h: 915, scale: 0.38, bezelR: 42 },
-      { id: "galaxy-a15", name: "Galaxy A15", w: 384, h: 854, scale: 0.39, bezelR: 34 },
-      { id: "oneplus-12", name: "OnePlus 12", w: 412, h: 920, scale: 0.37, bezelR: 40 },
-      { id: "pixel-fold", name: "Pixel Fold", w: 841, h: 701, scale: 0.30, bezelR: 20 },
-    ];
-    const POLL_INTERVAL = 15000;
+/* ── GitHub API ── */
+function ghFetch(path,token){
+  return fetch("https://api.github.com"+path,{
+    headers:{Authorization:"Bearer "+token,Accept:"application/vnd.github.v3+json"}
+  }).then(function(r){
+    if(!r.ok) return r.json().catch(function(){return{}}).then(function(e){throw new Error(e.message||"GitHub "+r.status)});
+    return r.json();
+  });
+}
 
-    /* ═══ LOCAL STORAGE ═══ */
-    const LS = {
-      get(k) { try { const v = localStorage.getItem('dv-'+k); return v ? JSON.parse(v) : null; } catch { return null; } },
-      set(k, v) { try { localStorage.setItem('dv-'+k, JSON.stringify(v)); } catch {} },
-    };
+/* ── State ── */
+var S={
+  token:LS.get("token")||"",
+  repos:LS.get("repos")||[],
+  devices:LS.get("devices")||["galaxy-s24","pixel-8","galaxy-a15"],
+  view:LS.get("token")?"dashboard":"setup",
+  commits:{},
+  prevShas:{},
+  lastCheck:null,
+  activeRepo:null,
+  activeBranch:"",
+  compareBranch:"",
+  compareMode:false,
+  landscape:false,
+  refreshKey:0,
+  pollTimer:null,
+  // add repo form
+  repoUrl:"",
+  repoInfo:null,
+  fetchedBranches:[],
+  selectedBranches:[],
+  branchUrls:{}
+};
 
-    /* ═══ GITHUB API ═══ */
-    async function ghFetch(path, token) {
-      const res = await fetch('https://api.github.com' + path, {
-        headers: { Authorization: 'Bearer ' + token, Accept: 'application/vnd.github.v3+json' },
-      });
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message || 'GitHub ' + res.status); }
-      return res.json();
-    }
+function save(){
+  LS.set("token",S.token);
+  LS.set("repos",S.repos);
+  LS.set("devices",S.devices);
+}
 
-    /* ═══ SVG ICON ═══ */
-    function I({ t, s = 18 }) {
-      const p = { width: s, height: s, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" };
-      const paths = {
-        plus: <><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>,
-        branch: <><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></>,
-        phone: <><rect x="5" y="2" rx="2" width="14" height="20"/><line x1="12" y1="18" x2="12.01" y2="18"/></>,
-        eye: <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>,
-        trash: <><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></>,
-        back: <><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></>,
-        deploy: <><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></>,
-        refresh: <><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></>,
-        check: <><polyline points="20 6 9 17 4 12"/></>,
-        x: <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>,
-        rotate: <><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0115-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 01-15 6.7L3 16"/></>,
-        github: <><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 00-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0020 4.77 5.07 5.07 0 0019.91 1S18.73.65 16 2.48a13.38 13.38 0 00-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 005 4.77a5.44 5.44 0 00-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 009 18.13V22"/></>,
-        key: <><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></>,
-        commit: <><circle cx="12" cy="12" r="4"/><line x1="1.05" y1="12" x2="7" y2="12"/><line x1="17.01" y1="12" x2="22.96" y2="12"/></>,
-        swap: <><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></>,
-        clock: <><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>,
-        layers: <><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>,
-        link: <><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></>,
-      };
-      return <svg {...p}>{paths[t]}</svg>;
-    }
+/* ── Helpers ── */
+function h(tag,attrs,children){
+  var el=document.createElement(tag);
+  if(attrs){Object.keys(attrs).forEach(function(k){
+    if(k==="style"&&typeof attrs[k]==="object"){Object.assign(el.style,attrs[k])}
+    else if(k.indexOf("on")===0){el.addEventListener(k.slice(2).toLowerCase(),attrs[k])}
+    else if(k==="className"){el.className=attrs[k]}
+    else if(k==="htmlFor"){el.setAttribute("for",attrs[k])}
+    else{el.setAttribute(k,attrs[k])}
+  })}
+  if(children!==undefined&&children!==null){
+    if(Array.isArray(children)){children.forEach(function(c){if(c!=null){if(typeof c==="string"||typeof c==="number")el.appendChild(document.createTextNode(c));else el.appendChild(c)}})}
+    else if(typeof children==="string"||typeof children==="number"){el.appendChild(document.createTextNode(children))}
+    else{el.appendChild(children)}
+  }
+  return el;
+}
 
-    /* ═══ DEVICE FRAME ═══ */
-    function DeviceFrame({ device, url, landscape, refreshKey }) {
-      const [loading, setLoading] = useState(true);
-      const [error, setError] = useState(false);
-      const vw = landscape ? device.h : device.w;
-      const vh = landscape ? device.w : device.h;
-      const fw = vw * device.scale;
-      const fh = vh * device.scale;
+function timeAgo(ts){
+  if(!ts)return"";var d=Date.now()-new Date(ts).getTime();
+  if(d<60000)return"now";if(d<3600000)return Math.floor(d/60000)+"m";
+  if(d<86400000)return Math.floor(d/3600000)+"h";return Math.floor(d/86400000)+"d";
+}
 
-      useEffect(() => { setLoading(true); setError(false); }, [url, refreshKey]);
+function parseRepo(url){
+  var c=url.trim().replace(/\.git$/,"").replace(/\/$/,"");
+  var m=c.match(/(?:github\.com\/)?([^\/]+)\/([^\/]+)$/);
+  return m?{owner:m[1],repo:m[2]}:null;
+}
 
-      return (
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-          <div style={{
-            background: "linear-gradient(145deg, #1c1c1e, #141416)",
-            borderRadius: device.bezelR * device.scale, padding: "22px 8px 14px",
-            position: "relative",
-            boxShadow: "0 12px 40px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)",
-            border: "1px solid rgba(255,255,255,0.05)",
-          }}>
-            <div style={{ position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)", width: 8, height: 8, borderRadius: "50%", background: "#0a0a0a", border: "1.5px solid #2a2a2c" }} />
-            <div style={{ width: fw, height: fh, borderRadius: (device.bezelR - 5) * device.scale, overflow: "hidden", background: "#09090b", position: "relative" }}>
-              {url ? (<>
-                <iframe
-                  key={url + '-' + refreshKey} src={url} title={device.name}
-                  style={{ width: vw, height: vh, border: "none", transform: 'scale(' + device.scale + ')', transformOrigin: "top left", opacity: loading ? 0 : 1, transition: "opacity 0.4s" }}
-                  onLoad={() => { setLoading(false); setError(false); }}
-                  onError={() => { setLoading(false); setError(true); }}
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                />
-                {loading && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 8 }}><div className="dv-spin" /><span style={{ color: "#555", fontSize: 10, fontFamily: "var(--f-mono)" }}>Loading...</span></div>}
-                {error && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 6, padding: 16, textAlign: "center" }}><span style={{ color: "var(--c-err)", fontSize: 18, fontWeight: 700 }}>!</span><span style={{ color: "#777", fontSize: 9, fontFamily: "var(--f-mono)", lineHeight: 1.5 }}>iframe blocked</span></div>}
-              </>) : (
-                <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 6 }}>
-                  <I t="phone" s={18} /><span style={{ color: "#444", fontSize: 10, fontFamily: "var(--f-mono)" }}>Awaiting URL</span>
-                </div>
-              )}
-            </div>
-          </div>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--c-t1)", fontFamily: "var(--f-head)" }}>{device.name}</div>
-            <div style={{ fontSize: 10, color: "var(--c-t3)", fontFamily: "var(--f-mono)", marginTop: 2 }}>{vw}×{vh}</div>
-          </div>
-        </div>
-      );
-    }
+function curRepo(){return S.repos.find(function(r){return r.id===S.activeRepo})||null}
 
-    /* ═══ COMMIT MONITOR ═══ */
-    function useCommitMonitor(repos, token) {
-      const [commits, setCommits] = useState({});
-      const [lastCheck, setLastCheck] = useState(null);
-      const [newPush, setNewPush] = useState(null);
-      const prevShas = useRef({});
+/* ── Polling ── */
+function startPoll(){
+  if(S.pollTimer)clearInterval(S.pollTimer);
+  poll();
+  S.pollTimer=setInterval(poll,POLL);
+}
 
-      const poll = useCallback(async () => {
-        if (!token || repos.length === 0) return;
-        const updated = {};
-        let detected = null;
-        for (const repo of repos) {
-          for (const branch of repo.activeBranches || []) {
-            const key = repo.owner + '/' + repo.repo + ':' + branch;
-            try {
-              const data = await ghFetch('/repos/' + repo.owner + '/' + repo.repo + '/commits?sha=' + branch + '&per_page=1', token);
-              const c = data[0];
-              if (c) {
-                updated[key] = c;
-                if (prevShas.current[key] && prevShas.current[key] !== c.sha) {
-                  detected = { repoId: repo.id, branch, commit: c };
-                }
-                prevShas.current[key] = c.sha;
-              }
-            } catch (e) { console.warn('Poll ' + key + ':', e.message); }
-          }
+function poll(){
+  if(!S.token||S.repos.length===0)return;
+  S.repos.forEach(function(repo){
+    (repo.activeBranches||[]).forEach(function(branch){
+      var key=repo.owner+"/"+repo.repo+":"+branch;
+      ghFetch("/repos/"+repo.owner+"/"+repo.repo+"/commits?sha="+branch+"&per_page=1",S.token)
+      .then(function(data){
+        var c=data[0];
+        if(!c)return;
+        var oldSha=S.prevShas[key];
+        S.commits[key]=c;
+        S.prevShas[key]=c.sha;
+        if(oldSha&&oldSha!==c.sha){
+          S.refreshKey++;
+          showNotif(branch,c.sha?c.sha.slice(0,7):"",c.commit?c.commit.message.split("\n")[0]:"push");
+          render();
         }
-        setCommits(prev => ({ ...prev, ...updated }));
-        setLastCheck(Date.now());
-        if (detected) setNewPush(detected);
-      }, [repos, token]);
+        S.lastCheck=Date.now();
+      }).catch(function(){});
+    });
+  });
+}
 
-      useEffect(() => { poll(); const iv = setInterval(poll, POLL_INTERVAL); return () => clearInterval(iv); }, [poll]);
-      return { commits, lastCheck, newPush, clearPush: () => setNewPush(null), forcePoll: poll };
+/* ── Notification ── */
+var notifTimer=null;
+function showNotif(branch,sha,msg){
+  var n=document.getElementById("notif");
+  if(n)n.remove();
+  var el=h("div",{id:"notif",className:"notif"},[
+    h("div",{style:{width:"8px",height:"8px",borderRadius:"50%",background:"var(--ok)",marginTop:"4px",flexShrink:"0",animation:"pulse 1.5s infinite"}}),
+    h("div",{},[
+      h("div",{style:{fontSize:"12px",fontWeight:"600",color:"var(--ok)",fontFamily:"var(--fh)"}},"Push detected — refreshing"),
+      h("div",{style:{fontSize:"11px",color:"var(--t2)",fontFamily:"var(--fm)",marginTop:"3px"}},branch+" — "+sha+" "+msg.slice(0,40))
+    ])
+  ]);
+  document.body.appendChild(el);
+  if(notifTimer)clearTimeout(notifTimer);
+  notifTimer=setTimeout(function(){el.remove()},5000);
+}
+
+/* ── Device Frame Builder ── */
+function makeDevice(dev,url,landscape,rk){
+  var vw=landscape?dev.h:dev.w;
+  var vh=landscape?dev.w:dev.h;
+  var fw=vw*dev.sc;
+  var fh=vh*dev.sc;
+
+  var screen=h("div",{style:{width:fw+"px",height:fh+"px",borderRadius:(dev.br-5)*dev.sc+"px",overflow:"hidden",background:"#09090b",position:"relative"}});
+
+  if(url){
+    var iframe=h("iframe",{src:url,title:dev.name,sandbox:"allow-scripts allow-same-origin allow-forms allow-popups",
+      style:{width:vw+"px",height:vh+"px",border:"none",transform:"scale("+dev.sc+")",transformOrigin:"top left",transition:"opacity .4s",opacity:"0"}});
+    var loader=h("div",{style:{position:"absolute",inset:"0",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:"8px"}},[
+      h("div",{className:"spin"}),h("span",{style:{color:"#555",fontSize:"10px",fontFamily:"var(--fm)"}},"Loading...")
+    ]);
+    iframe.onload=function(){iframe.style.opacity="1";loader.remove()};
+    iframe.onerror=function(){loader.innerHTML="<span style='color:var(--err);font-size:16px;font-weight:700'>!</span><span style='color:#777;font-size:9px;font-family:var(--fm)'>iframe blocked</span>"};
+    screen.appendChild(iframe);
+    screen.appendChild(loader);
+  }else{
+    screen.innerHTML="<div style='height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px'><span style='color:#444;font-size:10px;font-family:var(--fm)'>Awaiting URL</span></div>";
+  }
+
+  var shell=h("div",{style:{background:"linear-gradient(145deg,#1c1c1e,#141416)",borderRadius:dev.br*dev.sc+"px",padding:"22px 8px 14px",position:"relative",
+    boxShadow:"0 12px 40px rgba(0,0,0,.55),0 2px 6px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.05)"}},[
+    h("div",{style:{position:"absolute",top:"8px",left:"50%",transform:"translateX(-50%)",width:"8px",height:"8px",borderRadius:"50%",background:"#0a0a0a",border:"1.5px solid #2a2a2c"}}),
+    screen
+  ]);
+
+  return h("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",gap:"10px"}},[
+    shell,
+    h("div",{style:{textAlign:"center"}},[
+      h("div",{style:{fontSize:"12px",fontWeight:"600",color:"var(--t1)",fontFamily:"var(--fh)"}},dev.name),
+      h("div",{style:{fontSize:"10px",color:"var(--t3)",fontFamily:"var(--fm)",marginTop:"2px"}},vw+"×"+vh)
+    ])
+  ]);
+}
+
+/* ══════════════════════════════
+   RENDER
+   ══════════════════════════════ */
+function render(){
+  var app=document.getElementById("app");
+  app.innerHTML="";
+
+  /* ── Topbar ── */
+  var leftBar=h("div",{className:"row"},[]);
+  if(S.view!=="setup"&&S.view!=="dashboard"){
+    var backBtn=h("button",{className:"btn bg bs",onClick:function(){S.view="dashboard";render()}},"← Back");
+    leftBar.appendChild(backBtn);
+  }
+  var logo=h("div",{className:"row",style:{gap:"8px"}},[
+    h("div",{style:{width:"26px",height:"26px",borderRadius:"7px",background:"var(--acc)",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--bg)",fontSize:"14px",fontWeight:"800"}},"⚡"),
+    h("span",{style:{fontFamily:"var(--fh)",fontWeight:"800",fontSize:"17px",letterSpacing:"-0.03em"}},"DeployView")
+  ]);
+  leftBar.appendChild(logo);
+
+  var rightBar=h("div",{className:"row wrap",style:{gap:"6px"}});
+
+  if(S.view==="dashboard"){
+    if(S.lastCheck){
+      rightBar.appendChild(h("span",{className:"hm",style:{fontFamily:"var(--fm)",fontSize:"10px",color:"var(--t3)"}},"polled "+timeAgo(S.lastCheck)));
     }
+    rightBar.appendChild(h("button",{className:"btn bg bs",onClick:function(){poll()}},"↻"));
+    rightBar.appendChild(h("button",{className:"btn bp",onClick:function(){S.view="addRepo";S.repoUrl="";S.repoInfo=null;S.fetchedBranches=[];S.selectedBranches=[];S.branchUrls={};render()}},"+ Add Repo"));
+  }
+  if(S.view==="preview"){
+    rightBar.appendChild(h("button",{className:"btn bg bs",onClick:function(){S.landscape=!S.landscape;render()}},S.landscape?"↕ Portrait":"↔ Landscape"));
+    rightBar.appendChild(h("button",{className:"btn bg bs",onClick:function(){S.compareMode=!S.compareMode;S.compareBranch="";render()}},S.compareMode?"◻ Single":"◫ Compare"));
+    rightBar.appendChild(h("button",{className:"btn bg bs",onClick:function(){S.refreshKey++;render()}},"↻"));
+  }
+  if(S.view!=="setup"){
+    rightBar.appendChild(h("button",{className:"btn bg bs",onClick:function(){S.token="";S.view="setup";save();render()}},"🔑"));
+  }
 
-    /* ═══════════════════════════════════════════════════
-       MAIN APP
-       ═══════════════════════════════════════════════════ */
-    function App() {
-      const [token, setToken] = useState('');
-      const [tokenInput, setTokenInput] = useState('');
-      const [tokenValid, setTokenValid] = useState(null);
-      const [repos, setRepos] = useState([]);
-      const [view, setView] = useState('setup');
-      const [loaded, setLoaded] = useState(false);
+  var topbar=h("div",{className:"topbar"},[leftBar,rightBar]);
+  app.appendChild(topbar);
 
-      // Add repo
-      const [repoUrl, setRepoUrl] = useState('');
-      const [repoError, setRepoError] = useState('');
-      const [repoLoading, setRepoLoading] = useState(false);
-      const [fetchedBranches, setFetchedBranches] = useState([]);
-      const [selectedBranches, setSelectedBranches] = useState([]);
-      const [branchUrls, setBranchUrls] = useState({});
-      const [repoInfo, setRepoInfo] = useState(null);
+  /* ── SETUP ── */
+  if(S.view==="setup"){
+    var tokenInput=h("input",{type:"password",placeholder:"ghp_xxxx...",value:S.token});
+    tokenInput.addEventListener("input",function(e){S._tokenInput=e.target.value});
+    S._tokenInput=S.token;
 
-      // Preview
-      const [activeRepo, setActiveRepo] = useState(null);
-      const [activeBranch, setActiveBranch] = useState('');
-      const [landscape, setLandscape] = useState(false);
-      const [activeDevices, setActiveDevices] = useState(['galaxy-s24', 'pixel-8', 'galaxy-a15']);
-      const [refreshKey, setRefreshKey] = useState(0);
-      const [compareMode, setCompareMode] = useState(false);
-      const [compareBranch, setCompareBranch] = useState('');
-      const [notification, setNotification] = useState(null);
+    var errMsg=h("p",{id:"token-err",style:{color:"var(--err)",fontSize:"12px",fontFamily:"var(--fm)",display:"none"}},"Invalid token — check scope and try again.");
 
-      const { commits, lastCheck, newPush, clearPush, forcePoll } = useCommitMonitor(repos, token);
+    var connectBtn=h("button",{className:"btn bp",onClick:function(){
+      var t=S._tokenInput;
+      if(!t)return;
+      connectBtn.innerHTML="<span class='spin'></span>";
+      ghFetch("/user",t).then(function(){
+        S.token=t;save();S.view="dashboard";startPoll();render();
+      }).catch(function(){
+        errMsg.style.display="block";
+        connectBtn.textContent="✓ Connect";
+      });
+    }},"✓ Connect");
 
-      // Persistence
-      useEffect(() => {
-        const t = LS.get('token'); const r = LS.get('repos'); const d = LS.get('devices');
-        if (t) { setToken(t); setTokenValid(true); }
-        if (r) setRepos(r);
-        if (d) setActiveDevices(d);
-        setView(t ? 'dashboard' : 'setup');
-        setLoaded(true);
-      }, []);
-      useEffect(() => { if (loaded && token) LS.set('token', token); }, [token, loaded]);
-      useEffect(() => { if (loaded) LS.set('repos', repos); }, [repos, loaded]);
-      useEffect(() => { if (loaded) LS.set('devices', activeDevices); }, [activeDevices, loaded]);
+    var wrap=h("div",{className:"anim",style:{maxWidth:"480px",margin:"0 auto",padding:"60px 20px",textAlign:"center"}},[
+      h("div",{style:{width:"56px",height:"56px",borderRadius:"16px",background:"var(--accd)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 20px",color:"var(--acc)",fontSize:"28px"}},"⚡"),
+      h("h1",{style:{fontFamily:"var(--fh)",fontSize:"24px",fontWeight:"800",marginBottom:"10px"}},"Connect to GitHub"),
+      h("p",{style:{color:"var(--t2)",fontSize:"14px",marginBottom:"32px",lineHeight:"1.6"}},"Enter a Personal Access Token with repo scope."),
+      h("div",{style:{display:"flex",gap:"8px",marginBottom:"12px"}},[tokenInput,connectBtn]),
+      errMsg,
+      h("p",{style:{color:"var(--t3)",fontSize:"11px",fontFamily:"var(--fm)",marginTop:"20px",lineHeight:"1.5"}},"Stored in localStorage only. Never sent anywhere except GitHub API.")
+    ]);
+    app.appendChild(wrap);
+    return;
+  }
 
-      // Push auto-refresh
-      useEffect(() => {
-        if (!newPush) return;
-        setRefreshKey(k => k + 1);
-        setNotification({ branch: newPush.branch, message: newPush.commit?.commit?.message?.split('\n')[0] || 'New commit', sha: newPush.commit?.sha?.slice(0, 7) });
-        clearPush();
-        setTimeout(() => setNotification(null), 6000);
-      }, [newPush]);
+  if(S.token)startPoll();
 
-      const validateToken = async () => {
-        try { await ghFetch('/user', tokenInput); setToken(tokenInput); setTokenValid(true); setView('dashboard'); }
-        catch { setTokenValid(false); }
-      };
+  /* ── DASHBOARD ── */
+  if(S.view==="dashboard"){
+    var container=h("div",{style:{maxWidth:"960px",margin:"0 auto",padding:"24px 16px"}});
 
-      const parseRepoUrl = (url) => {
-        const c = url.trim().replace(/\.git$/, '').replace(/\/$/, '');
-        const m = c.match(/(?:github\.com\/)?([^\/]+)\/([^\/]+)$/);
-        return m ? { owner: m[1], repo: m[2] } : null;
-      };
+    if(S.repos.length===0){
+      container.appendChild(h("div",{className:"anim",style:{textAlign:"center",padding:"60px 0"}},[
+        h("div",{style:{color:"var(--t3)",marginBottom:"20px",opacity:".3",fontSize:"48px"}},"◇"),
+        h("h2",{style:{fontFamily:"var(--fh)",fontSize:"20px",fontWeight:"700",marginBottom:"10px"}},"No repositories connected"),
+        h("p",{style:{color:"var(--t3)",fontFamily:"var(--fm)",fontSize:"13px",maxWidth:"440px",margin:"0 auto 24px",lineHeight:"1.6"}},"Add a GitHub repo, select branches, assign preview URLs, and see your app across devices."),
+        h("button",{className:"btn bp",onClick:function(){S.view="addRepo";S.repoUrl="";S.repoInfo=null;S.fetchedBranches=[];S.selectedBranches=[];S.branchUrls={};render()}},"+ Add Your First Repo")
+      ]));
+    }else{
+      S.repos.forEach(function(repo,i){
+        var repoCard=h("div",{className:"card anim",style:{marginBottom:"16px",animationDelay:i*50+"ms"}});
+        var inner=h("div",{style:{padding:"18px"}});
 
-      const handleFetchRepo = async () => {
-        setRepoError(''); setRepoLoading(true);
-        const parsed = parseRepoUrl(repoUrl);
-        if (!parsed) { setRepoError('Invalid. Use owner/repo or full GitHub URL.'); setRepoLoading(false); return; }
-        if (repos.some(r => r.owner === parsed.owner && r.repo === parsed.repo)) { setRepoError('Already added.'); setRepoLoading(false); return; }
-        try {
-          const [info, branches] = await Promise.all([
-            ghFetch('/repos/' + parsed.owner + '/' + parsed.repo, token),
-            ghFetch('/repos/' + parsed.owner + '/' + parsed.repo + '/branches?per_page=100', token),
+        // Header
+        var header=h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"14px",gap:"10px"}},[
+          h("div",{style:{minWidth:"0"}},[
+            h("h3",{style:{fontFamily:"var(--fh)",fontSize:"15px",fontWeight:"700",wordBreak:"break-all"}},repo.owner+"/"+repo.repo),
+            repo.description?h("p",{style:{color:"var(--t3)",fontSize:"12px",fontFamily:"var(--fm)",marginTop:"4px"}},repo.description):null
+          ]),
+          h("button",{className:"btn bd bs",onClick:function(){S.repos=S.repos.filter(function(r){return r.id!==repo.id});save();render()}},"🗑")
+        ]);
+        inner.appendChild(header);
+
+        // Branches
+        (repo.activeBranches||[]).forEach(function(branch){
+          var ck=repo.owner+"/"+repo.repo+":"+branch;
+          var cm=S.commits[ck];
+          var url=repo.branchUrls?repo.branchUrls[branch]||"":"";
+
+          var urlInput=h("input",{placeholder:"http://localhost:8081",value:url,style:{padding:"7px 10px",fontSize:"12px"}});
+          urlInput.addEventListener("input",function(e){
+            repo.branchUrls=repo.branchUrls||{};
+            repo.branchUrls[branch]=e.target.value;
+            save();
+          });
+
+          var isDefault=branch===repo.defaultBranch;
+          var row=h("div",{style:{background:"var(--bg)",borderRadius:"10px",padding:"12px",border:"1.5px solid var(--brd)",display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap",marginBottom:"8px"}},[
+            h("div",{style:{minWidth:"100px"}},[
+              h("span",{className:"btag",style:{background:isDefault?"var(--accd)":"var(--infod)",color:isDefault?"var(--acc)":"var(--info)"}},branch),
+              cm?h("div",{style:{marginTop:"5px",fontSize:"10px",color:"var(--t3)",fontFamily:"var(--fm)"}},cm.sha.slice(0,7)+" · "+timeAgo(cm.commit.author.date)):null
+            ]),
+            h("div",{style:{flex:"1",minWidth:"150px"}},[urlInput]),
+            h("button",{className:"btn bp bs",style:{opacity:url?"1":".4",pointerEvents:url?"auto":"none"},onClick:function(){
+              S.activeRepo=repo.id;S.activeBranch=branch;S.compareMode=false;S.compareBranch="";S.view="preview";render();
+            }},"👁 Preview")
           ]);
-          setRepoInfo(info);
-          setFetchedBranches(branches.map(b => b.name));
-          setSelectedBranches([info.default_branch]);
-          const urls = {}; branches.forEach(b => { urls[b.name] = ''; }); setBranchUrls(urls);
-        } catch (e) { setRepoError(e.message); }
-        setRepoLoading(false);
-      };
+          inner.appendChild(row);
+        });
 
-      const handleAddRepo = () => {
-        if (!selectedBranches.length || !repoInfo) return;
-        setRepos(prev => [...prev, {
-          id: repoInfo.owner.login + '/' + repoInfo.name,
-          owner: repoInfo.owner.login, repo: repoInfo.name,
-          description: repoInfo.description || '',
-          defaultBranch: repoInfo.default_branch,
-          activeBranches: selectedBranches, branchUrls, addedAt: Date.now(),
-        }]);
-        resetAddForm(); setView('dashboard');
-      };
+        repoCard.appendChild(inner);
+        container.appendChild(repoCard);
+      });
+    }
+    app.appendChild(container);
+    return;
+  }
 
-      const resetAddForm = () => { setRepoUrl(''); setRepoError(''); setFetchedBranches([]); setSelectedBranches([]); setBranchUrls({}); setRepoInfo(null); };
-      const handleRemoveRepo = (id) => { setRepos(prev => prev.filter(r => r.id !== id)); if (activeRepo === id) { setActiveRepo(null); setView('dashboard'); } };
-      const handleUpdateBranchUrl = (repoId, branch, url) => { setRepos(prev => prev.map(r => r.id !== repoId ? r : { ...r, branchUrls: { ...r.branchUrls, [branch]: url } })); };
+  /* ── ADD REPO ── */
+  if(S.view==="addRepo"){
+    var wrap=h("div",{className:"anim",style:{maxWidth:"560px",margin:"0 auto",padding:"28px 16px"}});
+    wrap.appendChild(h("h2",{style:{fontFamily:"var(--fh)",fontSize:"20px",fontWeight:"700",marginBottom:"20px"}},"Add Repository"));
 
-      const openPreview = (repo, branch) => {
-        setActiveRepo(repo.id); setActiveBranch(branch || repo.activeBranches[0]); setCompareBranch(''); setCompareMode(false); setView('preview');
-      };
+    var repoInput=h("input",{placeholder:"owner/repo or full GitHub URL",value:S.repoUrl});
+    repoInput.addEventListener("input",function(e){S.repoUrl=e.target.value});
+    var errSpan=h("span",{style:{color:"var(--err)",fontSize:"12px",fontFamily:"var(--fm)",display:"none"}});
+    var fetchBtn=h("button",{className:"btn bp",onClick:doFetch},"Fetch");
 
-      const currentRepo = repos.find(r => r.id === activeRepo);
-      const previewUrl = currentRepo?.branchUrls?.[activeBranch] || '';
-      const compareUrl = currentRepo?.branchUrls?.[compareBranch] || '';
-
-      const timeAgo = (ts) => {
-        if (!ts) return ''; const d = Date.now() - new Date(ts).getTime();
-        if (d < 60000) return 'just now'; if (d < 3600000) return Math.floor(d / 60000) + 'm ago';
-        if (d < 86400000) return Math.floor(d / 3600000) + 'h ago'; return Math.floor(d / 86400000) + 'd ago';
-      };
-      const toggleDevice = (id) => setActiveDevices(prev => prev.includes(id) ? (prev.length > 1 ? prev.filter(d => d !== id) : prev) : [...prev, id]);
-
-      return (
-        <div style={{ minHeight: "100vh" }}>
-
-          {/* NOTIFICATION */}
-          {notification && (
-            <div className="notif">
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--c-ok)", marginTop: 4, flexShrink: 0, animation: "pulse 1.5s infinite" }} />
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--c-ok)", fontFamily: "var(--f-head)" }}>Push detected — auto-refreshing</div>
-                <div style={{ fontSize: 11, color: "var(--c-t2)", fontFamily: "var(--f-mono)", marginTop: 3 }}>
-                  {notification.branch} — <span style={{ color: "var(--c-t3)" }}>{notification.sha}</span> {notification.message}
-                </div>
-              </div>
-              <button onClick={() => setNotification(null)} style={{ background: "none", border: "none", color: "var(--c-t3)", cursor: "pointer", padding: 2 }}><I t="x" s={14} /></button>
-            </div>
-          )}
-
-          {/* TOPBAR */}
-          <div className="topbar">
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              {view !== 'setup' && view !== 'dashboard' && (
-                <button className="btn btn-g btn-s" onClick={() => { setView('dashboard'); resetAddForm(); }}><I t="back" s={14} /></button>
-              )}
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ width: 26, height: 26, borderRadius: 7, background: "var(--c-acc)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--c-bg)" }}><I t="deploy" s={14} /></div>
-                <span style={{ fontFamily: "var(--f-head)", fontWeight: 800, fontSize: 17, letterSpacing: "-0.03em" }}>DeployView</span>
-                {currentRepo && view === 'preview' && <span className="hide-mobile" style={{ fontFamily: "var(--f-mono)", fontSize: 11, color: "var(--c-t3)", marginLeft: 4 }}>/ {currentRepo.id}</span>}
-              </div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-              {lastCheck && view === 'dashboard' && <span className="hide-mobile" style={{ fontFamily: "var(--f-mono)", fontSize: 10, color: "var(--c-t3)" }}>polled {timeAgo(lastCheck)}</span>}
-              {view === 'dashboard' && (<>
-                <button className="btn btn-g btn-s" onClick={forcePoll} title="Force poll"><I t="refresh" s={14} /></button>
-                <button className="btn btn-p" onClick={() => { resetAddForm(); setView('addRepo'); }}><I t="plus" s={14} /> <span className="hide-mobile">Add Repo</span></button>
-              </>)}
-              {view === 'preview' && (<>
-                <button className="btn btn-g btn-s" onClick={() => setLandscape(!landscape)}><I t="rotate" s={14} /><span className="hide-mobile">{landscape ? 'Portrait' : 'Landscape'}</span></button>
-                <button className="btn btn-g btn-s" onClick={() => setCompareMode(!compareMode)}><I t="swap" s={14} /><span className="hide-mobile">{compareMode ? 'Single' : 'Compare'}</span></button>
-                <button className="btn btn-g btn-s" onClick={() => setRefreshKey(k => k + 1)}><I t="refresh" s={14} /></button>
-              </>)}
-              {view !== 'setup' && <button className="btn btn-g btn-s" onClick={() => { setToken(''); setTokenValid(null); setView('setup'); LS.set('token', ''); }} title="Disconnect"><I t="key" s={13} /></button>}
-            </div>
-          </div>
-
-          {/* SETUP */}
-          {view === 'setup' && (
-            <div className="anim" style={{ maxWidth: 480, margin: "0 auto", padding: "60px 20px", textAlign: "center" }}>
-              <div style={{ width: 56, height: 56, borderRadius: 16, background: "var(--c-acc-d)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: "var(--c-acc)" }}><I t="github" s={28} /></div>
-              <h1 style={{ fontFamily: "var(--f-head)", fontSize: 24, fontWeight: 800, marginBottom: 10, letterSpacing: "-0.03em" }}>Connect to GitHub</h1>
-              <p style={{ color: "var(--c-t2)", fontSize: 14, marginBottom: 32, lineHeight: 1.6, maxWidth: 400, margin: "0 auto 32px" }}>
-                Enter a Personal Access Token with <code style={{ background: "var(--c-s2)", padding: "2px 6px", borderRadius: 4, fontFamily: "var(--f-mono)", fontSize: 12 }}>repo</code> scope.
-              </p>
-              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-                <input type="password" placeholder="ghp_xxxx..." value={tokenInput}
-                  onChange={e => { setTokenInput(e.target.value); setTokenValid(null); }}
-                  onKeyDown={e => e.key === 'Enter' && tokenInput && validateToken()} style={{ flex: 1 }} />
-                <button className="btn btn-p" onClick={validateToken} style={{ opacity: tokenInput ? 1 : 0.4 }}><I t="check" s={14} /> Connect</button>
-              </div>
-              {tokenValid === false && <p style={{ color: "var(--c-err)", fontSize: 12, fontFamily: "var(--f-mono)" }}>Invalid token — check scope and try again.</p>}
-              <p style={{ color: "var(--c-t3)", fontSize: 11, fontFamily: "var(--f-mono)", marginTop: 20, lineHeight: 1.5 }}>Stored in localStorage. Never sent anywhere except GitHub API.</p>
-            </div>
-          )}
-
-          {/* DASHBOARD */}
-          {view === 'dashboard' && (
-            <div style={{ maxWidth: 960, margin: "0 auto", padding: "24px 16px" }}>
-              {repos.length === 0 ? (
-                <div className="anim" style={{ textAlign: "center", padding: "60px 0" }}>
-                  <div style={{ color: "var(--c-t3)", marginBottom: 20, opacity: 0.3 }}><I t="layers" s={48} /></div>
-                  <h2 style={{ fontFamily: "var(--f-head)", fontSize: 20, fontWeight: 700, marginBottom: 10 }}>No repositories connected</h2>
-                  <p style={{ color: "var(--c-t3)", fontFamily: "var(--f-mono)", fontSize: 13, maxWidth: 440, margin: "0 auto 24px", lineHeight: 1.6 }}>
-                    Add a GitHub repo, select branches, assign preview URLs, and see your app across devices — auto-refreshing on every push.
-                  </p>
-                  <button className="btn btn-p" onClick={() => { resetAddForm(); setView('addRepo'); }}><I t="plus" s={14} /> Add Your First Repo</button>
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                  {repos.map((repo, i) => (
-                    <div key={repo.id} className="card anim" style={{ animationDelay: (i * 50) + 'ms' }}>
-                      <div style={{ padding: 18 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, gap: 10 }}>
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                              <I t="github" s={16} />
-                              <h3 style={{ fontFamily: "var(--f-head)", fontSize: 15, fontWeight: 700, wordBreak: "break-all" }}>{repo.owner}/{repo.repo}</h3>
-                            </div>
-                            {repo.description && <p style={{ color: "var(--c-t3)", fontSize: 12, fontFamily: "var(--f-mono)" }}>{repo.description}</p>}
-                          </div>
-                          <button className="btn btn-d btn-s" onClick={() => handleRemoveRepo(repo.id)}><I t="trash" s={13} /></button>
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                          {repo.activeBranches.map(branch => {
-                            const ck = repo.owner + '/' + repo.repo + ':' + branch;
-                            const cm = commits[ck];
-                            const url = repo.branchUrls?.[branch] || '';
-                            return (
-                              <div key={branch} style={{ background: "var(--c-bg)", borderRadius: "var(--r-md)", padding: 12, border: "1.5px solid var(--c-brd)", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                                <div style={{ minWidth: 100 }}>
-                                  <div className="btag" style={{ background: branch === repo.defaultBranch ? "var(--c-acc-d)" : "var(--c-info-d)", color: branch === repo.defaultBranch ? "var(--c-acc)" : "var(--c-info)" }}><I t="branch" s={12} /> {branch}</div>
-                                  {cm && <div style={{ marginTop: 5, fontSize: 10, color: "var(--c-t3)", fontFamily: "var(--f-mono)" }}>{cm.sha?.slice(0,7)} · {timeAgo(cm.commit?.author?.date)}</div>}
-                                </div>
-                                <div style={{ flex: 1, minWidth: 150 }}>
-                                  <input value={url} onChange={e => handleUpdateBranchUrl(repo.id, branch, e.target.value)} placeholder="http://localhost:8081" style={{ padding: "7px 10px", fontSize: 12 }} />
-                                </div>
-                                <button className="btn btn-p btn-s" onClick={() => openPreview(repo, branch)} style={{ opacity: url ? 1 : 0.4, pointerEvents: url ? 'auto' : 'none' }}><I t="eye" s={13} /> Preview</button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ADD REPO */}
-          {view === 'addRepo' && (
-            <div className="anim" style={{ maxWidth: 560, margin: "0 auto", padding: "28px 16px" }}>
-              <h2 style={{ fontFamily: "var(--f-head)", fontSize: 20, fontWeight: 700, marginBottom: 20 }}>Add Repository</h2>
-              <div className="field" style={{ marginBottom: 20 }}>
-                <label className="label">Repository</label>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <input placeholder="owner/repo" value={repoUrl} onChange={e => setRepoUrl(e.target.value)} onKeyDown={e => e.key === 'Enter' && repoUrl && handleFetchRepo()} />
-                  <button className="btn btn-p" onClick={handleFetchRepo} style={{ opacity: repoUrl && !repoLoading ? 1 : 0.4 }}>{repoLoading ? <span className="dv-spin" /> : <><I t="github" s={14} /> Fetch</>}</button>
-                </div>
-                {repoError && <span style={{ color: "var(--c-err)", fontSize: 12, fontFamily: "var(--f-mono)" }}>{repoError}</span>}
-              </div>
-
-              {fetchedBranches.length > 0 && (<>
-                <div style={{ padding: 12, background: "var(--c-s1)", borderRadius: "var(--r-md)", border: "1.5px solid var(--c-brd)", marginBottom: 18 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}><I t="github" s={14} /><span style={{ fontWeight: 700, fontFamily: "var(--f-head)", fontSize: 14 }}>{repoInfo?.full_name}</span></div>
-                  <span style={{ color: "var(--c-t3)", fontSize: 12, fontFamily: "var(--f-mono)" }}>{repoInfo?.description || 'No description'}</span>
-                </div>
-
-                <div className="field" style={{ marginBottom: 18 }}>
-                  <label className="label">Branches to monitor</label>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
-                    {fetchedBranches.map(b => (
-                      <div key={b} className={'chip ' + (selectedBranches.includes(b) ? 'on' : '')}
-                        onClick={() => setSelectedBranches(prev => prev.includes(b) ? prev.filter(x => x !== b) : [...prev, b])}>
-                        <I t="branch" s={12} /> {b}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {selectedBranches.length > 0 && (
-                  <div className="field" style={{ marginBottom: 22 }}>
-                    <label className="label">Preview URL per branch</label>
-                    <p style={{ color: "var(--c-t3)", fontSize: 11, fontFamily: "var(--f-mono)", marginBottom: 8, lineHeight: 1.5 }}>Optional now — you can set URLs later from the dashboard.</p>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {selectedBranches.map(b => (
-                        <div key={b} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span className="btag" style={{ background: "var(--c-info-d)", color: "var(--c-info)", minWidth: 80, justifyContent: "center", fontSize: 10 }}>{b}</span>
-                          <input value={branchUrls[b] || ''} onChange={e => setBranchUrls(prev => ({ ...prev, [b]: e.target.value }))} placeholder="http://localhost:8081" style={{ flex: 1, padding: "7px 10px", fontSize: 12 }} />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div style={{ display: "flex", gap: 10 }}>
-                  <button className="btn btn-g" onClick={() => { resetAddForm(); setView('dashboard'); }}>Cancel</button>
-                  <button className="btn btn-p" style={{ flex: 1, opacity: selectedBranches.length > 0 ? 1 : 0.4 }} onClick={handleAddRepo}><I t="check" s={14} /> Add Repository</button>
-                </div>
-              </>)}
-            </div>
-          )}
-
-          {/* PREVIEW */}
-          {view === 'preview' && currentRepo && (
-            <div className="anim">
-              <div style={{ padding: "10px 16px", borderBottom: "1.5px solid var(--c-brd)", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "var(--c-s1)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <I t="branch" s={14} />
-                  <select value={activeBranch} onChange={e => setActiveBranch(e.target.value)} style={{ width: 140, padding: "6px 10px", fontSize: 12 }}>
-                    {currentRepo.activeBranches.map(b => <option key={b} value={b}>{b}</option>)}
-                  </select>
-                </div>
-                {compareMode && (<>
-                  <span style={{ color: "var(--c-t3)", fontFamily: "var(--f-mono)", fontSize: 11 }}>vs</span>
-                  <select value={compareBranch} onChange={e => setCompareBranch(e.target.value)} style={{ width: 140, padding: "6px 10px", fontSize: 12 }}>
-                    <option value="">Select…</option>
-                    {currentRepo.activeBranches.filter(b => b !== activeBranch).map(b => <option key={b} value={b}>{b}</option>)}
-                  </select>
-                </>)}
-                <div className="sep hide-mobile" />
-                <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                  <div style={{ width: 7, height: 7, borderRadius: "50%", background: previewUrl ? "var(--c-ok)" : "var(--c-err)", flexShrink: 0 }} />
-                  <span style={{ fontFamily: "var(--f-mono)", fontSize: 11, color: previewUrl ? "var(--c-t2)" : "var(--c-t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {previewUrl || "No URL — set on dashboard"}
-                  </span>
-                </div>
-              </div>
-
-              {/* Device chips */}
-              <div style={{ padding: "8px 16px", borderBottom: "1.5px solid var(--c-brd)", display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {ANDROID_DEVICES.map(d => <div key={d.id} className={'chip ' + (activeDevices.includes(d.id) ? 'on' : '')} onClick={() => toggleDevice(d.id)}>{d.name}</div>)}
-              </div>
-
-              {/* Commit bar */}
-              {(() => {
-                const cm = commits[currentRepo.owner + '/' + currentRepo.repo + ':' + activeBranch];
-                if (!cm) return null;
-                return (
-                  <div style={{ padding: "7px 16px", borderBottom: "1.5px solid var(--c-brd)", display: "flex", alignItems: "center", gap: 8, fontSize: 11, fontFamily: "var(--f-mono)", color: "var(--c-t3)", flexWrap: "wrap" }}>
-                    <I t="commit" s={12} /> <span style={{ color: "var(--c-t2)" }}>{cm.sha?.slice(0,7)}</span>
-                    <span>{cm.commit?.message?.split('\n')[0]?.slice(0,50)}</span>
-                    <span style={{ marginLeft: "auto" }}>{timeAgo(cm.commit?.author?.date)}</span>
-                  </div>
-                );
-              })()}
-
-              {/* Devices */}
-              {compareMode ? (
-                <div style={{ display: "flex", flexDirection: window.innerWidth < 700 ? "column" : "row", minHeight: "60vh" }}>
-                  <div style={{ flex: 1, borderRight: window.innerWidth >= 700 ? "1.5px solid var(--c-brd)" : "none", borderBottom: window.innerWidth < 700 ? "1.5px solid var(--c-brd)" : "none" }}>
-                    <div style={{ padding: "7px 14px", borderBottom: "1.5px solid var(--c-brd)", fontFamily: "var(--f-mono)", fontSize: 12, color: "var(--c-acc)", fontWeight: 600, background: "var(--c-acc-d)" }}><I t="branch" s={12} /> {activeBranch}</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 20, justifyContent: "center", padding: 20 }}>
-                      {ANDROID_DEVICES.filter(d => activeDevices.includes(d.id)).slice(0, 2).map(dev => (
-                        <DeviceFrame key={'a-' + dev.id} device={dev} url={previewUrl} landscape={landscape} refreshKey={refreshKey} />
-                      ))}
-                    </div>
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ padding: "7px 14px", borderBottom: "1.5px solid var(--c-brd)", fontFamily: "var(--f-mono)", fontSize: 12, color: "var(--c-info)", fontWeight: 600, background: "var(--c-info-d)" }}><I t="branch" s={12} /> {compareBranch || "Select branch"}</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 20, justifyContent: "center", padding: 20 }}>
-                      {compareBranch && compareUrl ? (
-                        ANDROID_DEVICES.filter(d => activeDevices.includes(d.id)).slice(0, 2).map(dev => (
-                          <DeviceFrame key={'b-' + dev.id} device={dev} url={compareUrl} landscape={landscape} refreshKey={refreshKey} />
-                        ))
-                      ) : <div style={{ padding: 40, color: "var(--c-t3)", fontFamily: "var(--f-mono)", fontSize: 12 }}>{!compareBranch ? "Pick a branch" : "No URL set"}</div>}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 24, justifyContent: "center", padding: 24, alignItems: "flex-start" }}>
-                  {ANDROID_DEVICES.filter(d => activeDevices.includes(d.id)).map(dev => (
-                    <DeviceFrame key={dev.id + '-' + refreshKey} device={dev} url={previewUrl} landscape={landscape} refreshKey={refreshKey} />
-                  ))}
-                </div>
-              )}
-
-              {!previewUrl && (
-                <div style={{ margin: "0 16px 20px", padding: 14, background: "var(--c-acc-d)", border: "1.5px solid rgba(232,169,74,0.2)", borderRadius: "var(--r-md)", fontFamily: "var(--f-mono)", fontSize: 12, color: "var(--c-t2)", lineHeight: 1.7 }}>
-                  <strong style={{ color: "var(--c-acc)" }}>No URL for "{activeBranch}"</strong><br/>
-                  Set one on the dashboard. For Expo: <code style={{ background: "var(--c-bg)", padding: "2px 5px", borderRadius: 4 }}>npx expo start --web --port 8081</code>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      );
+    function doFetch(){
+      var parsed=parseRepo(S.repoUrl);
+      errSpan.style.display="none";
+      if(!parsed){errSpan.textContent="Invalid. Use owner/repo or full URL.";errSpan.style.display="block";return}
+      if(S.repos.some(function(r){return r.owner===parsed.owner&&r.repo===parsed.repo})){errSpan.textContent="Already added.";errSpan.style.display="block";return}
+      fetchBtn.innerHTML="<span class='spin'></span>";
+      Promise.all([
+        ghFetch("/repos/"+parsed.owner+"/"+parsed.repo,S.token),
+        ghFetch("/repos/"+parsed.owner+"/"+parsed.repo+"/branches?per_page=100",S.token)
+      ]).then(function(res){
+        S.repoInfo=res[0];
+        S.fetchedBranches=res[1].map(function(b){return b.name});
+        S.selectedBranches=[res[0].default_branch];
+        S.branchUrls={};
+        res[1].forEach(function(b){S.branchUrls[b.name]=""});
+        fetchBtn.textContent="Fetch";
+        render();
+      }).catch(function(e){
+        errSpan.textContent=e.message;errSpan.style.display="block";
+        fetchBtn.textContent="Fetch";
+      });
     }
 
-    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
-  </script>
+    wrap.appendChild(h("div",{className:"col",style:{marginBottom:"20px"}},[
+      h("label",{className:"label"},"Repository"),
+      h("div",{style:{display:"flex",gap:"8px"}},[repoInput,fetchBtn]),
+      errSpan
+    ]));
+
+    // If branches fetched
+    if(S.fetchedBranches.length>0&&S.repoInfo){
+      // Repo info card
+      wrap.appendChild(h("div",{style:{padding:"12px",background:"var(--s1)",borderRadius:"10px",border:"1.5px solid var(--brd)",marginBottom:"18px"}},[
+        h("div",{style:{fontWeight:"700",fontFamily:"var(--fh)",fontSize:"14px",marginBottom:"4px"}},S.repoInfo.full_name),
+        h("span",{style:{color:"var(--t3)",fontSize:"12px",fontFamily:"var(--fm)"}},S.repoInfo.description||"No description")
+      ]));
+
+      // Branch selection
+      var branchDiv=h("div",{style:{display:"flex",flexWrap:"wrap",gap:"8px",marginTop:"4px"}});
+      S.fetchedBranches.forEach(function(b){
+        var isOn=S.selectedBranches.indexOf(b)!==-1;
+        var chip=h("div",{className:"chip"+(isOn?" on":""),onClick:function(){
+          if(isOn){S.selectedBranches=S.selectedBranches.filter(function(x){return x!==b})}
+          else{S.selectedBranches.push(b)}
+          render();
+        }},b);
+        branchDiv.appendChild(chip);
+      });
+      wrap.appendChild(h("div",{className:"col",style:{marginBottom:"18px"}},[
+        h("label",{className:"label"},"Branches to monitor"),
+        branchDiv
+      ]));
+
+      // URL per branch
+      if(S.selectedBranches.length>0){
+        var urlsDiv=h("div",{className:"col",style:{gap:"8px"}});
+        S.selectedBranches.forEach(function(b){
+          var inp=h("input",{placeholder:"http://localhost:8081",value:S.branchUrls[b]||"",style:{flex:"1",padding:"7px 10px",fontSize:"12px"}});
+          inp.addEventListener("input",function(e){S.branchUrls[b]=e.target.value});
+          urlsDiv.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"8px"}},[
+            h("span",{className:"btag",style:{background:"var(--infod)",color:"var(--info)",minWidth:"70px",justifyContent:"center",fontSize:"10px"}},b),
+            inp
+          ]));
+        });
+        wrap.appendChild(h("div",{className:"col",style:{marginBottom:"22px"}},[
+          h("label",{className:"label"},"Preview URL per branch"),
+          h("p",{style:{color:"var(--t3)",fontSize:"11px",fontFamily:"var(--fm)",lineHeight:"1.5"}},"Optional now — set later from dashboard."),
+          urlsDiv
+        ]));
+      }
+
+      // Buttons
+      wrap.appendChild(h("div",{style:{display:"flex",gap:"10px"}},[
+        h("button",{className:"btn bg",onClick:function(){S.view="dashboard";render()}},"Cancel"),
+        h("button",{className:"btn bp",style:{flex:"1",opacity:S.selectedBranches.length>0?"1":".4"},onClick:function(){
+          if(S.selectedBranches.length===0)return;
+          S.repos.push({
+            id:S.repoInfo.owner.login+"/"+S.repoInfo.name,
+            owner:S.repoInfo.owner.login,repo:S.repoInfo.name,
+            description:S.repoInfo.description||"",
+            defaultBranch:S.repoInfo.default_branch,
+            activeBranches:S.selectedBranches,
+            branchUrls:S.branchUrls,addedAt:Date.now()
+          });
+          save();S.view="dashboard";render();
+        }},"✓ Add Repository")
+      ]));
+    }
+    app.appendChild(wrap);
+    return;
+  }
+
+  /* ── PREVIEW ── */
+  if(S.view==="preview"){
+    var repo=curRepo();
+    if(!repo){S.view="dashboard";render();return}
+    var url=repo.branchUrls?repo.branchUrls[S.activeBranch]||"":"";
+    var cmpUrl=S.compareBranch?(repo.branchUrls?repo.branchUrls[S.compareBranch]||"":""):"";
+
+    // Controls bar
+    var controls=h("div",{style:{padding:"10px 16px",borderBottom:"1.5px solid var(--brd)",display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap",background:"var(--s1)"}});
+
+    // Branch select
+    var sel=h("select",{style:{width:"140px",padding:"6px 10px",fontSize:"12px"}});
+    (repo.activeBranches||[]).forEach(function(b){
+      var opt=h("option",{value:b},b);
+      if(b===S.activeBranch)opt.selected=true;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener("change",function(e){S.activeBranch=e.target.value;render()});
+    controls.appendChild(sel);
+
+    if(S.compareMode){
+      controls.appendChild(h("span",{style:{color:"var(--t3)",fontFamily:"var(--fm)",fontSize:"11px"}},"vs"));
+      var sel2=h("select",{style:{width:"140px",padding:"6px 10px",fontSize:"12px"}});
+      sel2.appendChild(h("option",{value:""},"Select…"));
+      (repo.activeBranches||[]).filter(function(b){return b!==S.activeBranch}).forEach(function(b){
+        var opt=h("option",{value:b},b);
+        if(b===S.compareBranch)opt.selected=true;
+        sel2.appendChild(opt);
+      });
+      sel2.addEventListener("change",function(e){S.compareBranch=e.target.value;render()});
+      controls.appendChild(sel2);
+    }
+
+    controls.appendChild(h("div",{className:"sep hm"}));
+    var dot=h("div",{style:{width:"7px",height:"7px",borderRadius:"50%",background:url?"var(--ok)":"var(--err)",flexShrink:"0"}});
+    var urlText=h("span",{style:{fontFamily:"var(--fm)",fontSize:"11px",color:url?"var(--t2)":"var(--t3)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},url||"No URL — set on dashboard");
+    controls.appendChild(h("div",{style:{flex:"1",display:"flex",alignItems:"center",gap:"6px",minWidth:"0"}},[dot,urlText]));
+
+    app.appendChild(controls);
+
+    // Device chips
+    var chipBar=h("div",{style:{padding:"8px 16px",borderBottom:"1.5px solid var(--brd)",display:"flex",gap:"6px",flexWrap:"wrap"}});
+    DEVICES.forEach(function(d){
+      var isOn=S.devices.indexOf(d.id)!==-1;
+      chipBar.appendChild(h("div",{className:"chip"+(isOn?" on":""),onClick:function(){
+        if(isOn&&S.devices.length>1){S.devices=S.devices.filter(function(x){return x!==d.id})}
+        else if(!isOn){S.devices.push(d.id)}
+        save();render();
+      }},d.name));
+    });
+    app.appendChild(chipBar);
+
+    // Commit bar
+    var ck=repo.owner+"/"+repo.repo+":"+S.activeBranch;
+    var cm=S.commits[ck];
+    if(cm){
+      app.appendChild(h("div",{style:{padding:"7px 16px",borderBottom:"1.5px solid var(--brd)",display:"flex",alignItems:"center",gap:"8px",fontSize:"11px",fontFamily:"var(--fm)",color:"var(--t3)",flexWrap:"wrap"}},[
+        h("span",{style:{color:"var(--t2)"}},cm.sha.slice(0,7)),
+        h("span",{},cm.commit.message.split("\n")[0].slice(0,50)),
+        h("span",{style:{marginLeft:"auto"}},timeAgo(cm.commit.author.date)+" by "+cm.commit.author.name)
+      ]));
+    }
+
+    // Devices
+    var active=DEVICES.filter(function(d){return S.devices.indexOf(d.id)!==-1});
+
+    if(S.compareMode){
+      var container=h("div",{style:{display:"flex",flexDirection:window.innerWidth<700?"column":"row",minHeight:"60vh"}});
+      var left=h("div",{style:{flex:"1",borderRight:window.innerWidth>=700?"1.5px solid var(--brd)":"none",borderBottom:window.innerWidth<700?"1.5px solid var(--brd)":"none"}});
+      left.appendChild(h("div",{style:{padding:"7px 14px",borderBottom:"1.5px solid var(--brd)",fontFamily:"var(--fm)",fontSize:"12px",color:"var(--acc)",fontWeight:"600",background:"var(--accd)"}},S.activeBranch));
+      var leftGrid=h("div",{style:{display:"flex",flexWrap:"wrap",gap:"20px",justifyContent:"center",padding:"20px"}});
+      active.slice(0,2).forEach(function(d){leftGrid.appendChild(makeDevice(d,url,S.landscape,S.refreshKey))});
+      left.appendChild(leftGrid);
+
+      var right=h("div",{style:{flex:"1"}});
+      right.appendChild(h("div",{style:{padding:"7px 14px",borderBottom:"1.5px solid var(--brd)",fontFamily:"var(--fm)",fontSize:"12px",color:"var(--info)",fontWeight:"600",background:"var(--infod)"}},S.compareBranch||"Select branch"));
+      var rightGrid=h("div",{style:{display:"flex",flexWrap:"wrap",gap:"20px",justifyContent:"center",padding:"20px"}});
+      if(S.compareBranch&&cmpUrl){
+        active.slice(0,2).forEach(function(d){rightGrid.appendChild(makeDevice(d,cmpUrl,S.landscape,S.refreshKey))});
+      }else{
+        rightGrid.appendChild(h("div",{style:{padding:"40px",color:"var(--t3)",fontFamily:"var(--fm)",fontSize:"12px"}},!S.compareBranch?"Pick a branch":"No URL set"));
+      }
+      right.appendChild(rightGrid);
+      container.appendChild(left);container.appendChild(right);
+      app.appendChild(container);
+    }else{
+      var grid=h("div",{style:{display:"flex",flexWrap:"wrap",gap:"24px",justifyContent:"center",padding:"24px",alignItems:"flex-start"}});
+      active.forEach(function(d){grid.appendChild(makeDevice(d,url,S.landscape,S.refreshKey))});
+      app.appendChild(grid);
+    }
+
+    // No URL tip
+    if(!url){
+      app.appendChild(h("div",{style:{margin:"0 16px 20px",padding:"14px",background:"var(--accd)",border:"1.5px solid rgba(232,169,74,.2)",borderRadius:"10px",fontFamily:"var(--fm)",fontSize:"12px",color:"var(--t2)",lineHeight:"1.7"}},[
+        h("strong",{style:{color:"var(--acc)"}},"No URL for \""+S.activeBranch+"\""),
+        h("br"),
+        h("span",{},"Set one on the dashboard. For Expo: npx expo start --web --port 8081")
+      ]));
+    }
+  }
+}
+
+/* ── Init ── */
+render();
+if(S.token)startPoll();
+
+})();
+</script>
 </body>
 </html>
