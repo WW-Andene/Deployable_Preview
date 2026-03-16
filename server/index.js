@@ -52,8 +52,7 @@ function ghApi(apiPath, token) {
 }
 
 // ── Build logic ──
-function getRepoDir(owner, repo) { return path.join(WORKSPACE, owner + "__" + repo); }
-function getBranchDir(owner, repo, branch) { return path.join(getRepoDir(owner, repo), "branches", branch.replace(/\//g, "__")); }
+function getBranchDir(owner, repo, branch) { return path.join(WORKSPACE, owner + "__" + repo + "__" + branch.replace(/\//g, "__")); }
 function buildKey(owner, repo, branch) { return owner + "/" + repo + ":" + branch; }
 
 function runCmd(cmd, cwd) {
@@ -74,7 +73,6 @@ async function buildBranch(repoConfig, branch) {
   const { owner, repo, buildCommand, outputDir } = repoConfig;
   const key = buildKey(owner, repo, branch);
   const branchDir = getBranchDir(owner, repo, branch);
-  const repoDir = getRepoDir(owner, repo);
 
   buildStatus[key] = { status: "building", log: "", lastBuild: null, commitSha: "" };
   let log = "";
@@ -86,29 +84,18 @@ async function buildBranch(repoConfig, branch) {
   }
 
   try {
-    // Clone or pull
-    if (!fs.existsSync(path.join(repoDir, ".git"))) {
-      addLog("Cloning " + owner + "/" + repo + "...");
-      fs.mkdirSync(repoDir, { recursive: true });
-      await runCmd("git clone https://" + config.token + "@github.com/" + owner + "/" + repo + ".git .", repoDir);
-      // Detach HEAD so worktrees can use any branch including the default
-      await runCmd("git checkout --detach", repoDir).catch(() => {});
+    // Simple approach: each branch gets its own full clone
+    if (!fs.existsSync(path.join(branchDir, ".git"))) {
+      // First time: clone and checkout this branch
+      addLog("Cloning " + owner + "/" + repo + " (branch: " + branch + ")...");
+      fs.mkdirSync(branchDir, { recursive: true });
+      await runCmd("git clone --branch " + JSON.stringify(branch) + " --single-branch https://" + config.token + "@github.com/" + owner + "/" + repo + ".git .", branchDir);
     } else {
-      addLog("Fetching latest...");
-      await runCmd("git fetch --all --prune", repoDir);
-      // Ensure HEAD is detached so worktrees can use any branch
-      await runCmd("git checkout --detach", repoDir).catch(() => {});
+      // Already cloned: fetch and hard reset to latest
+      addLog("Updating branch: " + branch);
+      await runCmd("git fetch origin " + JSON.stringify(branch), branchDir);
+      await runCmd("git reset --hard origin/" + JSON.stringify(branch), branchDir);
     }
-
-    // Create branch working directory
-    fs.mkdirSync(branchDir, { recursive: true });
-
-    addLog("Checking out branch: " + branch);
-    await runCmd("git worktree prune", repoDir).catch(() => {});
-    try { await runCmd("git worktree remove --force " + JSON.stringify(branchDir), repoDir); } catch (e) {}
-
-    addLog("Setting up worktree for " + branch + "...");
-    await runCmd("git worktree add " + JSON.stringify(branchDir) + " " + branch, repoDir);
 
     // Get current commit
     const sha = execSync("git rev-parse HEAD", { cwd: branchDir }).toString().trim();
@@ -126,13 +113,12 @@ async function buildBranch(repoConfig, branch) {
       }
     }
 
-    // Install dependencies (clean node_modules first to avoid ENOTEMPTY on rebuild)
-    addLog("Cleaning node_modules...");
-    const nmDir = path.join(workDir, "node_modules");
-    if (fs.existsSync(nmDir)) {
-      await runCmd("rm -rf node_modules", workDir);
-    }
-    addLog("Installing dependencies in " + (baseDir || "root") + "...");
+    // Clean old build artifacts
+    addLog("Cleaning...");
+    await runCmd("rm -rf node_modules dist build out web-build", workDir).catch(() => {});
+
+    // Install dependencies
+    addLog("Installing dependencies...");
     const hasYarnLock = fs.existsSync(path.join(workDir, "yarn.lock"));
     const hasPnpmLock = fs.existsSync(path.join(workDir, "pnpm-lock.yaml"));
     if (hasPnpmLock) {
