@@ -284,11 +284,9 @@ app.get("/api/log/:owner/:repo", (req, res) => {
 // ── Serve built output ──
 // Look up the actual output path from buildStatus
 function findOutputDir(owner, repo, branchSlug) {
-  // branchSlug has __ where / was. Try to find matching key in buildStatus.
   for (const key in buildStatus) {
     const s = buildStatus[key];
     if (!s.outputPath) continue;
-    // key format: "owner/repo:branch"
     const parts = key.split(":");
     const repoId = parts[0];
     const branch = parts.slice(1).join(":");
@@ -299,30 +297,51 @@ function findOutputDir(owner, repo, branchSlug) {
   return null;
 }
 
+// Serve index.html with injected <base> tag so Vite's absolute paths work
+function serveIndex(outDir, basePath, res) {
+  const indexPath = path.join(outDir, "index.html");
+  if (!fs.existsSync(indexPath)) {
+    try {
+      const files = fs.readdirSync(outDir);
+      return res.status(404).send("index.html not found. Files: " + files.join(", "));
+    } catch (e) {
+      return res.status(404).send("Output error: " + e.message);
+    }
+  }
+  let html = fs.readFileSync(indexPath, "utf8");
+  // Inject <base> tag right after <head> so all absolute paths resolve from the preview path
+  const base = '<base href="' + basePath + '">';
+  if (html.includes("<head>")) {
+    html = html.replace("<head>", "<head>" + base);
+  } else if (html.includes("<HEAD>")) {
+    html = html.replace("<HEAD>", "<HEAD>" + base);
+  }
+  // Remove any X-Frame-Options or frame-ancestors CSP that would block iframe
+  res.removeHeader("X-Frame-Options");
+  res.setHeader("Content-Type", "text/html");
+  res.send(html);
+}
+
+// Static assets (JS, CSS, images, etc.)
 app.use("/preview/:owner/:repo/:branchSlug", (req, res, next) => {
   const outDir = findOutputDir(req.params.owner, req.params.repo, req.params.branchSlug);
-  if (!outDir || !fs.existsSync(outDir)) return res.status(404).send("Not built yet. Trigger a build first.");
+  if (!outDir || !fs.existsSync(outDir)) return res.status(404).send("Not built yet.");
+  // If requesting root or no extension, serve index.html with base tag
+  const reqPath = req.path;
+  if (reqPath === "/" || reqPath === "" || (!path.extname(reqPath) && !reqPath.includes("."))) {
+    const basePath = "/preview/" + req.params.owner + "/" + req.params.repo + "/" + req.params.branchSlug + "/";
+    return serveIndex(outDir, basePath, res);
+  }
   res.removeHeader("X-Frame-Options");
   express.static(outDir)(req, res, next);
 });
 
-// SPA fallback for built apps
+// SPA fallback — any deep route serves index.html
 app.use("/preview/:owner/:repo/:branchSlug/*", (req, res) => {
   const outDir = findOutputDir(req.params.owner, req.params.repo, req.params.branchSlug);
   if (!outDir) return res.status(404).send("Not built yet.");
-  const index = path.join(outDir, "index.html");
-  if (fs.existsSync(index)) {
-    res.removeHeader("X-Frame-Options");
-    res.sendFile(index);
-  } else {
-    // List what's actually in the output dir for debugging
-    try {
-      const files = fs.readdirSync(outDir);
-      res.status(404).send("index.html not found. Files in output: " + files.join(", "));
-    } catch (e) {
-      res.status(404).send("Output directory error: " + e.message);
-    }
-  }
+  const basePath = "/preview/" + req.params.owner + "/" + req.params.repo + "/" + req.params.branchSlug + "/";
+  serveIndex(outDir, basePath, res);
 });
 
 // ── Start ──
