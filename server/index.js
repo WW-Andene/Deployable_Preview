@@ -54,7 +54,6 @@ function ghApi(apiPath, token) {
 // ── Build logic ──
 function getRepoDir(owner, repo) { return path.join(WORKSPACE, owner + "__" + repo); }
 function getBranchDir(owner, repo, branch) { return path.join(getRepoDir(owner, repo), "branches", branch.replace(/\//g, "__")); }
-function getOutputDir(owner, repo, branch) { return path.join(getBranchDir(owner, repo, branch), "_output"); }
 function buildKey(owner, repo, branch) { return owner + "/" + repo + ":" + branch; }
 
 function runCmd(cmd, cwd) {
@@ -165,14 +164,10 @@ async function buildBranch(repoConfig, branch) {
       finalOut = workDir;
     }
 
-    // Symlink output
-    const outputLink = getOutputDir(owner, repo, branch);
-    if (fs.existsSync(outputLink)) fs.rmSync(outputLink, { recursive: true, force: true });
-    fs.symlinkSync(finalOut, outputLink);
-
     addLog("Build complete! Output: " + path.relative(WORKSPACE, finalOut));
     buildStatus[key].status = "ready";
     buildStatus[key].lastBuild = Date.now();
+    buildStatus[key].outputPath = finalOut;
 
   } catch (e) {
     addLog("BUILD FAILED: " + e.message);
@@ -287,23 +282,46 @@ app.get("/api/log/:owner/:repo", (req, res) => {
 });
 
 // ── Serve built output ──
-// Branch is encoded in the URL as a safe slug (slashes replaced with __)
+// Look up the actual output path from buildStatus
+function findOutputDir(owner, repo, branchSlug) {
+  // branchSlug has __ where / was. Try to find matching key in buildStatus.
+  for (const key in buildStatus) {
+    const s = buildStatus[key];
+    if (!s.outputPath) continue;
+    // key format: "owner/repo:branch"
+    const parts = key.split(":");
+    const repoId = parts[0];
+    const branch = parts.slice(1).join(":");
+    if (repoId === owner + "/" + repo && branch.replace(/\//g, "__") === branchSlug) {
+      return s.outputPath;
+    }
+  }
+  return null;
+}
+
 app.use("/preview/:owner/:repo/:branchSlug", (req, res, next) => {
-  const outDir = getOutputDir(req.params.owner, req.params.repo, req.params.branchSlug);
-  if (!fs.existsSync(outDir)) return res.status(404).send("Not built yet. Trigger a build first.");
+  const outDir = findOutputDir(req.params.owner, req.params.repo, req.params.branchSlug);
+  if (!outDir || !fs.existsSync(outDir)) return res.status(404).send("Not built yet. Trigger a build first.");
   res.removeHeader("X-Frame-Options");
   express.static(outDir)(req, res, next);
 });
 
 // SPA fallback for built apps
 app.use("/preview/:owner/:repo/:branchSlug/*", (req, res) => {
-  const outDir = getOutputDir(req.params.owner, req.params.repo, req.params.branchSlug);
+  const outDir = findOutputDir(req.params.owner, req.params.repo, req.params.branchSlug);
+  if (!outDir) return res.status(404).send("Not built yet.");
   const index = path.join(outDir, "index.html");
   if (fs.existsSync(index)) {
     res.removeHeader("X-Frame-Options");
     res.sendFile(index);
   } else {
-    res.status(404).send("index.html not found in build output.");
+    // List what's actually in the output dir for debugging
+    try {
+      const files = fs.readdirSync(outDir);
+      res.status(404).send("index.html not found. Files in output: " + files.join(", "));
+    } catch (e) {
+      res.status(404).send("Output directory error: " + e.message);
+    }
   }
 });
 
