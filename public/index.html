@@ -388,16 +388,18 @@ function render(){
     var ratioList=[{id:"9:16",w:9,h:16},{id:"16:9",w:16,h:9}].filter(function(r){return S.ratios.indexOf(r.id)!==-1});
 
     function makeFrame(rw,rh,src,label,color){
-      // Fixed pixel resolutions so the app renders at real viewport size
-      var pixelW, pixelH;
-      if(rw>rh){ pixelW=1920; pixelH=1080; } // 16:9 desktop
-      else { pixelW=1080; pixelH=1920; } // 9:16 mobile (Full HD)
+      // Use CSS viewport dimensions (not physical pixels) so responsive
+      // breakpoints work correctly. A 1080×1920 phone has ~412×915 CSS viewport.
+      // Desktop monitors are ~1:1 DPR so CSS ≈ physical pixels.
+      var pixelW, pixelH, displayLabel;
+      if(rw>rh){ pixelW=1920; pixelH=1080; displayLabel="1920×1080"; } // desktop
+      else { pixelW=412; pixelH=915; displayLabel="412×915 (mobile)"; } // mobile CSS viewport
 
       var f=el("div",{c:"preview-frame"});
       var lbl=el("div",{c:"frame-label"},[
         el("span",{c:statusClass(src?"ready":"idle")}),
         el("span",{s:color?{color:color}:{}},label),
-        el("span",{s:{marginLeft:"auto",fontSize:"10px",color:"#565250"}},pixelW+"×"+pixelH)
+        el("span",{s:{marginLeft:"auto",fontSize:"10px",color:"#565250"}},displayLabel)
       ]);
       f.appendChild(lbl);
 
