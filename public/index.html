@@ -391,7 +391,7 @@ function render(){
       // Fixed pixel resolutions so the app renders at real viewport size
       var pixelW, pixelH;
       if(rw>rh){ pixelW=1920; pixelH=1080; } // 16:9 desktop
-      else { pixelW=412; pixelH=915; } // 9:16 mobile (Pixel 8 size)
+      else { pixelW=1080; pixelH=1920; } // 9:16 mobile (Full HD)
 
       var f=el("div",{c:"preview-frame"});
       var lbl=el("div",{c:"frame-label"},[
