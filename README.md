@@ -23,6 +23,8 @@ npm install
 
 # Run
 npm start
+
+cd ~/Deployable_Preview && node server/index.js
 ```
 
 Open **http://localhost:3000** in your browser.
