@@ -240,6 +240,19 @@ app.post("/api/repos", (req, res) => {
   res.json(newRepo);
 });
 
+// Add a single branch to an existing repo (used from preview view)
+app.post("/api/repos/:owner/:repo/branch", (req, res) => {
+  const { branch } = req.body;
+  if (!branch) return res.status(400).json({ error: "branch required" });
+  const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
+  if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
+  if (repoConfig.activeBranches.includes(branch)) return res.status(400).json({ error: "Branch already active" });
+  repoConfig.activeBranches.push(branch);
+  saveConfig();
+  buildBranch(repoConfig, branch);
+  res.json({ ok: true, activeBranches: repoConfig.activeBranches });
+});
+
 app.delete("/api/repos/:owner/:repo", (req, res) => {
   const id = req.params.owner + "/" + req.params.repo;
   config.repos = config.repos.filter((r) => r.id !== id);

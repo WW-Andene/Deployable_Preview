@@ -8,7 +8,7 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0b0c10;color:#e4e0d8;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
 input,select{background:#0b0c10;border:1.5px solid rgba(255,255,255,.06);color:#e4e0d8;font-family:monospace;font-size:14px;padding:12px;border-radius:6px;outline:none;width:100%}
-input:focus{border-color:rgba(232,169,74,.5);box-shadow:0 0 0 3px rgba(232,169,74,.1)}
+input:focus,select:focus{border-color:rgba(232,169,74,.5);box-shadow:0 0 0 3px rgba(232,169,74,.1)}
 input::placeholder{color:#565250}
 button{display:inline-flex;align-items:center;gap:7px;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;font-weight:600;padding:10px 20px;border-radius:6px;border:none;cursor:pointer}
 .bp{background:#e8a94a;color:#0b0c10}.bp:hover{background:#f0be6a}
@@ -18,15 +18,15 @@ button{display:inline-flex;align-items:center;gap:7px;font-family:'Segoe UI',sys
 .card{background:#13141a;border:1.5px solid rgba(255,255,255,.06);border-radius:14px;padding:18px;margin-bottom:14px}
 .spin{width:18px;height:18px;border:2px solid #22242e;border-top-color:#e8a94a;border-radius:50%;animation:sp .7s linear infinite;display:inline-block}
 @keyframes sp{to{transform:rotate(360deg)}}
-.chip{display:inline-flex;align-items:center;padding:6px 14px;border-radius:100px;font-family:monospace;font-size:12px;cursor:pointer;border:1.5px solid rgba(255,255,255,.06);background:#13141a;color:#9a9590}
+.chip{display:inline-flex;align-items:center;padding:6px 14px;border-radius:100px;font-family:monospace;font-size:12px;cursor:pointer;border:1.5px solid rgba(255,255,255,.06);background:#13141a;color:#9a9590;user-select:none}
 .chip.on{border-color:#e8a94a;background:rgba(232,169,74,.1);color:#e8a94a}
 .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1.5px solid rgba(255,255,255,.06);background:rgba(11,12,16,.9);position:sticky;top:0;z-index:100;flex-wrap:wrap;gap:8px}
 .label{font-family:monospace;font-size:11px;color:#565250;text-transform:uppercase;letter-spacing:.08em}
 .btag{display:inline-block;padding:4px 10px;border-radius:100px;font-family:monospace;font-size:11px}
-.preview-frame{border:1.5px solid rgba(255,255,255,.06);border-radius:10px;overflow:hidden;background:#09090b;margin-bottom:16px}
+.preview-frame{border:1.5px solid rgba(255,255,255,.06);border-radius:10px;overflow:hidden;background:#09090b;display:inline-block;flex-shrink:0}
 .preview-frame .frame-label{padding:8px 12px;font-family:monospace;font-size:12px;font-weight:600;border-bottom:1.5px solid rgba(255,255,255,.06);background:#13141a;color:#9a9590;display:flex;align-items:center;gap:8px}
-.preview-frame .frame-body{position:relative;width:100%;overflow:hidden}
-.preview-frame iframe{border:none;width:100%;height:100%;display:block;position:absolute;top:0;left:0}
+.preview-frame .frame-body{position:relative;overflow:hidden}
+.preview-frame iframe{border:none;display:block}
 .log-box{background:#09090b;border:1.5px solid rgba(255,255,255,.06);border-radius:8px;padding:12px;font-family:monospace;font-size:11px;color:#9a9590;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;line-height:1.6}
 .status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0}
 .status-building{background:#e8a94a;animation:pu 1s infinite}
@@ -34,6 +34,12 @@ button{display:inline-flex;align-items:center;gap:7px;font-family:'Segoe UI',sys
 .status-error{background:#e05468}
 .status-idle{background:#565250}
 @keyframes pu{0%,100%{opacity:1}50%{opacity:.4}}
+.scroll-container{overflow:auto;padding:16px}
+.add-branch-dropdown{position:absolute;top:100%;left:0;z-index:50;background:#13141a;border:1.5px solid rgba(255,255,255,.12);border-radius:8px;padding:6px 0;min-width:220px;max-height:280px;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+.dd-item{padding:8px 14px;font-family:monospace;font-size:12px;color:#9a9590;cursor:pointer;display:flex;align-items:center;gap:8px}
+.dd-item:hover{background:rgba(232,169,74,.08);color:#e8a94a}
+.dd-item.already{opacity:.35;pointer-events:none;color:#565250}
+.dd-item.already:hover{background:transparent;color:#565250}
 </style>
 </head>
 <body>
@@ -42,202 +48,234 @@ button{display:inline-flex;align-items:center;gap:7px;font-family:'Segoe UI',sys
 (function(){
 "use strict";
 
-var S={
-  view:"loading", // loading, setup, dashboard, addRepo, preview
-  repos:[],
-  hasToken:false,
-  // add repo
-  repoUrl:"",repoError:"",repoLoading:false,
-  fetchedBranches:[],selectedBranches:[],repoInfo:null,
-  buildCommand:"npm run build",outputDir:"dist",baseDir:"",
-  // preview
-  activeRepo:null,activeBranch:"",compareBranch:"",compareMode:false,
-  ratios:["9:16","16:9"],refreshKey:0,
-  pollTimer:null
+// View presets — FIXED sizes, never adapt
+var VIEW_PRESETS = {
+  "9:16":  { w: 393,  h: 873,  label: "9:16 Portrait",  res: "393 \u00d7 873" },
+  "16:9":  { w: 1920, h: 1080, label: "16:9 Landscape",  res: "1920 \u00d7 1080" },
+  "13t":   { w: 412,  h: 915,  label: "Xiaomi 13T",      res: "412 \u00d7 915 \u00b7 1220 \u00d7 2712 phys" }
 };
 
-function el(tag,props,kids){
-  var e=document.createElement(tag);
-  if(props){
-    if(props.s)Object.assign(e.style,props.s);
-    if(props.c)e.className=props.c;
-    if(props.on)for(var ev in props.on)e.addEventListener(ev,props.on[ev]);
-    if(props.attr)for(var a in props.attr)e.setAttribute(a,props.attr[a]);
+var S = {
+  view: "loading",
+  repos: [],
+  hasToken: false,
+  repoUrl: "", repoError: "", repoLoading: false,
+  fetchedBranches: [], selectedBranches: [], repoInfo: null,
+  buildCommand: "npm run build", outputDir: "dist", baseDir: "",
+  activeRepo: null, activeBranch: "", compareBranch: "", compareMode: false,
+  activeViews: ["9:16", "16:9", "13t"],
+  refreshKey: 0,
+  pollTimer: null,
+  showBranchDropdown: false,
+  availableBranches: [],
+  branchFilter: ""
+};
+
+function el(tag, props, kids) {
+  var e = document.createElement(tag);
+  if (props) {
+    if (props.s) Object.assign(e.style, props.s);
+    if (props.c) e.className = props.c;
+    if (props.on) for (var ev in props.on) e.addEventListener(ev, props.on[ev]);
+    if (props.attr) for (var a in props.attr) e.setAttribute(a, props.attr[a]);
   }
-  if(kids!=null){
-    if(!Array.isArray(kids))kids=[kids];
-    for(var i=0;i<kids.length;i++){
-      if(kids[i]==null)continue;
-      e.appendChild(typeof kids[i]==="string"||typeof kids[i]==="number"?document.createTextNode(""+kids[i]):kids[i]);
+  if (kids != null) {
+    if (!Array.isArray(kids)) kids = [kids];
+    for (var i = 0; i < kids.length; i++) {
+      if (kids[i] == null) continue;
+      e.appendChild(typeof kids[i] === "string" || typeof kids[i] === "number" ? document.createTextNode("" + kids[i]) : kids[i]);
     }
   }
   return e;
 }
 
-function api(method,path,body){
-  var opts={method:method,headers:{"Content-Type":"application/json"}};
-  if(body)opts.body=JSON.stringify(body);
-  return fetch(path,opts).then(function(r){return r.json()});
+function api(method, path, body) {
+  var opts = { method: method, headers: { "Content-Type": "application/json" } };
+  if (body) opts.body = JSON.stringify(body);
+  return fetch(path, opts).then(function(r) { return r.json(); });
 }
 
-function statusClass(s){return"status-dot status-"+(s||"idle")}
+function statusClass(s) { return "status-dot status-" + (s || "idle"); }
 
-// ── Init ──
-api("GET","/api/token").then(function(r){
-  S.hasToken=r.hasToken;
-  S.view=r.hasToken?"dashboard":"setup";
-  if(r.hasToken)loadRepos();
+// Init
+api("GET", "/api/token").then(function(r) {
+  S.hasToken = r.hasToken;
+  S.view = r.hasToken ? "dashboard" : "setup";
+  if (r.hasToken) loadRepos();
   else render();
 });
 
-function loadRepos(){
-  api("GET","/api/repos").then(function(repos){
-    S.repos=repos;render();
+function loadRepos() {
+  api("GET", "/api/repos").then(function(repos) {
+    S.repos = repos;
+    if (S.activeRepo) {
+      var updated = S.repos.find(function(r) { return r.id === S.activeRepo.id; });
+      if (updated) S.activeRepo = updated;
+    }
+    render();
   });
 }
 
-function startStatusPoll(){
-  if(S.pollTimer)clearInterval(S.pollTimer);
-  S.pollTimer=setInterval(function(){
-    api("GET","/api/repos").then(function(repos){
-      var changed=false;
-      for(var i=0;i<repos.length;i++){
-        var old=S.repos.find(function(r){return r.id===repos[i].id});
-        if(old){
-          var bs=repos[i].branchStatuses;
-          for(var b in bs){
-            var oldS=old.branchStatuses&&old.branchStatuses[b];
-            if(oldS&&oldS.status==="building"&&bs[b].status!=="building")changed=true;
+function startStatusPoll() {
+  if (S.pollTimer) clearInterval(S.pollTimer);
+  S.pollTimer = setInterval(function() {
+    api("GET", "/api/repos").then(function(repos) {
+      var changed = false;
+      for (var i = 0; i < repos.length; i++) {
+        var old = S.repos.find(function(r) { return r.id === repos[i].id; });
+        if (old) {
+          var bs = repos[i].branchStatuses;
+          for (var b in bs) {
+            var oldS = old.branchStatuses && old.branchStatuses[b];
+            if (oldS && oldS.status === "building" && bs[b].status !== "building") changed = true;
           }
         }
       }
-      S.repos=repos;
-      if(changed){S.refreshKey++;render()}
+      S.repos = repos;
+      if (S.activeRepo) {
+        var updated = S.repos.find(function(r) { return r.id === S.activeRepo.id; });
+        if (updated) S.activeRepo = updated;
+      }
+      if (changed) { S.refreshKey++; render(); }
     });
-  },5000);
+  }, 5000);
 }
 
-// ── Render ──
-function render(){
-  var app=document.getElementById("app");app.innerHTML="";
+function fetchAvailableBranches() {
+  if (!S.activeRepo) return;
+  S.availableBranches = [];
+  render();
+  api("GET", "/api/github/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/branches").then(function(r) {
+    if (r.branches) { S.availableBranches = r.branches; render(); }
+  }).catch(function() {});
+}
+
+function addBranchToRepo(branch) {
+  if (!S.activeRepo) return;
+  api("POST", "/api/repos/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/branch", { branch: branch }).then(function(r) {
+    if (r.ok) {
+      S.activeRepo.activeBranches = r.activeBranches;
+      S.showBranchDropdown = false;
+      S.branchFilter = "";
+      loadRepos();
+    }
+  });
+}
+
+// Render
+function render() {
+  var app = document.getElementById("app"); app.innerHTML = "";
 
   // Topbar
-  var left=el("div",{s:{display:"flex",alignItems:"center",gap:"10px"}});
-  if(S.view!=="setup"&&S.view!=="dashboard"&&S.view!=="loading"){
-    left.appendChild(el("button",{c:"bg bs",on:{click:function(){S.view="dashboard";render()}}},"← Back"));
+  var left = el("div", { s: { display: "flex", alignItems: "center", gap: "10px" } });
+  if (S.view !== "setup" && S.view !== "dashboard" && S.view !== "loading") {
+    left.appendChild(el("button", { c: "bg bs", on: { click: function() { S.view = "dashboard"; S.showBranchDropdown = false; render(); } } }, "\u2190 Back"));
   }
-  left.appendChild(el("span",{s:{fontWeight:"800",fontSize:"17px",letterSpacing:"-0.03em"}},[
-    el("span",{s:{color:"#e8a94a"}},"Deploy"),document.createTextNode("View")
+  left.appendChild(el("span", { s: { fontWeight: "800", fontSize: "17px", letterSpacing: "-0.03em" } }, [
+    el("span", { s: { color: "#e8a94a" } }, "Deploy"), document.createTextNode("View")
   ]));
 
-  var right=el("div",{s:{display:"flex",alignItems:"center",gap:"6px",flexWrap:"wrap"}});
-  if(S.view==="dashboard"){
-    right.appendChild(el("button",{c:"bg bs",on:{click:function(){loadRepos()}}},"↻"));
-    right.appendChild(el("button",{c:"bp",on:{click:function(){
-      S.repoUrl="";S.repoError="";S.fetchedBranches=[];S.selectedBranches=[];
-      S.repoInfo=null;S.buildCommand="npm run build";S.outputDir="dist";S.baseDir="";
-      S.view="addRepo";render();
-    }}},"+ Add Repo"));
+  var right = el("div", { s: { display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" } });
+  if (S.view === "dashboard") {
+    right.appendChild(el("button", { c: "bg bs", on: { click: function() { loadRepos(); } } }, "\u21bb"));
+    right.appendChild(el("button", { c: "bp", on: { click: function() {
+      S.repoUrl = ""; S.repoError = ""; S.fetchedBranches = []; S.selectedBranches = [];
+      S.repoInfo = null; S.buildCommand = "npm run build"; S.outputDir = "dist"; S.baseDir = "";
+      S.view = "addRepo"; render();
+    } } }, "+ Add Repo"));
   }
-  if(S.view==="preview"){
-    right.appendChild(el("button",{c:"bg bs",on:{click:function(){S.compareMode=!S.compareMode;S.compareBranch="";render()}}},S.compareMode?"Single":"Compare"));
-    right.appendChild(el("button",{c:"bg bs",on:{click:function(){S.refreshKey++;render()}}},"↻ Refresh"));
+  if (S.view === "preview") {
+    right.appendChild(el("button", { c: "bg bs", on: { click: function() { S.compareMode = !S.compareMode; S.compareBranch = ""; render(); } } }, S.compareMode ? "Single" : "Compare"));
+    right.appendChild(el("button", { c: "bg bs", on: { click: function() { S.refreshKey++; render(); } } }, "\u21bb Refresh"));
   }
-  if(S.view!=="setup"&&S.view!=="loading"){
-    right.appendChild(el("button",{c:"bg bs",on:{click:function(){
-      api("POST","/api/token",{token:""}).then(function(){S.hasToken=false;S.view="setup";render()});
-    }}},"Logout"));
+  if (S.view !== "setup" && S.view !== "loading") {
+    right.appendChild(el("button", { c: "bg bs", on: { click: function() {
+      api("POST", "/api/token", { token: "" }).then(function() { S.hasToken = false; S.view = "setup"; render(); });
+    } } }, "Logout"));
   }
-  app.appendChild(el("div",{c:"topbar"},[left,right]));
+  app.appendChild(el("div", { c: "topbar" }, [left, right]));
 
-  // ── LOADING ──
-  if(S.view==="loading"){
-    app.appendChild(el("div",{s:{textAlign:"center",padding:"80px 20px"}},[el("span",{c:"spin"})]));
+  // LOADING
+  if (S.view === "loading") {
+    app.appendChild(el("div", { s: { textAlign: "center", padding: "80px 20px" } }, [el("span", { c: "spin" })]));
     return;
   }
 
-  // ── SETUP ──
-  if(S.view==="setup"){
-    var inp=document.createElement("input");inp.type="password";inp.placeholder="ghp_xxxx...";
-    var err=el("p",{s:{color:"#e05468",fontSize:"13px",fontFamily:"monospace",display:"none",marginTop:"8px"}},"Invalid token.");
-    var btn=el("button",{c:"bp",on:{click:function(){
-      var t=inp.value;if(!t)return;btn.innerHTML="<span class='spin'></span>";
-      api("POST","/api/token",{token:t}).then(function(r){
-        if(r.ok){S.hasToken=true;S.view="dashboard";loadRepos();startStatusPoll()}
-        else{err.style.display="block";btn.textContent="Connect"}
-      }).catch(function(){err.style.display="block";btn.textContent="Connect"});
-    }}},"Connect");
-    app.appendChild(el("div",{s:{maxWidth:"460px",margin:"0 auto",padding:"60px 20px",textAlign:"center"}},[
-      el("div",{s:{fontSize:"40px",marginBottom:"16px"}},"⚡"),
-      el("h1",{s:{fontSize:"24px",fontWeight:"800",marginBottom:"10px"}},"Connect to GitHub"),
-      el("p",{s:{color:"#9a9590",fontSize:"14px",marginBottom:"28px",lineHeight:"1.6"}},"Personal Access Token with repo scope. Stored on this server only."),
-      el("div",{s:{display:"flex",gap:"8px",marginBottom:"4px"}},[inp,btn]),
+  // SETUP
+  if (S.view === "setup") {
+    var inp = document.createElement("input"); inp.type = "password"; inp.placeholder = "ghp_xxxx...";
+    var err = el("p", { s: { color: "#e05468", fontSize: "13px", fontFamily: "monospace", display: "none", marginTop: "8px" } }, "Invalid token.");
+    var btn = el("button", { c: "bp", on: { click: function() {
+      var t = inp.value; if (!t) return; btn.innerHTML = "<span class='spin'></span>";
+      api("POST", "/api/token", { token: t }).then(function(r) {
+        if (r.ok) { S.hasToken = true; S.view = "dashboard"; loadRepos(); startStatusPoll(); }
+        else { err.style.display = "block"; btn.textContent = "Connect"; }
+      }).catch(function() { err.style.display = "block"; btn.textContent = "Connect"; });
+    } } }, "Connect");
+    app.appendChild(el("div", { s: { maxWidth: "460px", margin: "0 auto", padding: "60px 20px", textAlign: "center" } }, [
+      el("div", { s: { fontSize: "40px", marginBottom: "16px" } }, "\u26a1"),
+      el("h1", { s: { fontSize: "24px", fontWeight: "800", marginBottom: "10px" } }, "Connect to GitHub"),
+      el("p", { s: { color: "#9a9590", fontSize: "14px", marginBottom: "28px", lineHeight: "1.6" } }, "Personal Access Token with repo scope. Stored on this server only."),
+      el("div", { s: { display: "flex", gap: "8px", marginBottom: "4px" } }, [inp, btn]),
       err
-    ]));return;
+    ])); return;
   }
 
   startStatusPoll();
 
-  // ── DASHBOARD ──
-  if(S.view==="dashboard"){
-    var ct=el("div",{s:{maxWidth:"960px",margin:"0 auto",padding:"20px 16px"}});
-    if(!S.repos.length){
-      ct.appendChild(el("div",{s:{textAlign:"center",padding:"60px 0"}},[
-        el("div",{s:{fontSize:"40px",marginBottom:"16px",opacity:".3"}},"⚡"),
-        el("h2",{s:{fontSize:"20px",fontWeight:"700",marginBottom:"10px"}},"No repositories yet"),
-        el("p",{s:{color:"#565250",fontFamily:"monospace",fontSize:"13px",maxWidth:"440px",margin:"0 auto 24px",lineHeight:"1.6"}},"Add a repo, pick branches — DeployView will clone, build, and serve them. Auto-rebuilds on every push."),
-        el("button",{c:"bp",on:{click:function(){
-          S.repoUrl="";S.repoError="";S.fetchedBranches=[];S.selectedBranches=[];
-          S.repoInfo=null;S.buildCommand="npm run build";S.outputDir="dist";S.baseDir="";
-          S.view="addRepo";render();
-        }}},"+ Add Repo")
+  // DASHBOARD
+  if (S.view === "dashboard") {
+    var ct = el("div", { s: { maxWidth: "960px", margin: "0 auto", padding: "20px 16px" } });
+    if (!S.repos.length) {
+      ct.appendChild(el("div", { s: { textAlign: "center", padding: "60px 0" } }, [
+        el("div", { s: { fontSize: "40px", marginBottom: "16px", opacity: ".3" } }, "\u26a1"),
+        el("h2", { s: { fontSize: "20px", fontWeight: "700", marginBottom: "10px" } }, "No repositories yet"),
+        el("p", { s: { color: "#565250", fontFamily: "monospace", fontSize: "13px", maxWidth: "440px", margin: "0 auto 24px", lineHeight: "1.6" } }, "Add a repo, pick branches \u2014 DeployView will clone, build, and serve them. Auto-rebuilds on every push."),
+        el("button", { c: "bp", on: { click: function() {
+          S.repoUrl = ""; S.repoError = ""; S.fetchedBranches = []; S.selectedBranches = [];
+          S.repoInfo = null; S.buildCommand = "npm run build"; S.outputDir = "dist"; S.baseDir = "";
+          S.view = "addRepo"; render();
+        } } }, "+ Add Repo")
       ]));
-    }else{
-      for(var i=0;i<S.repos.length;i++){
-        (function(repo){
-          var card=el("div",{c:"card"});
-          card.appendChild(el("div",{s:{display:"flex",justifyContent:"space-between",marginBottom:"14px"}},[
-            el("div",{},[
-              el("h3",{s:{fontSize:"15px",fontWeight:"700",wordBreak:"break-all"}},repo.owner+"/"+repo.repo),
-              repo.description?el("p",{s:{color:"#565250",fontSize:"12px",fontFamily:"monospace",marginTop:"4px"}},repo.description):null,
-              el("p",{s:{color:"#565250",fontSize:"11px",fontFamily:"monospace",marginTop:"4px"}},"Build: "+(repo.baseDir?repo.baseDir+"/ → ":"")+repo.buildCommand+" → "+repo.outputDir)
+    } else {
+      for (var i = 0; i < S.repos.length; i++) {
+        (function(repo) {
+          var card = el("div", { c: "card" });
+          card.appendChild(el("div", { s: { display: "flex", justifyContent: "space-between", marginBottom: "14px" } }, [
+            el("div", {}, [
+              el("h3", { s: { fontSize: "15px", fontWeight: "700", wordBreak: "break-all" } }, repo.owner + "/" + repo.repo),
+              repo.description ? el("p", { s: { color: "#565250", fontSize: "12px", fontFamily: "monospace", marginTop: "4px" } }, repo.description) : null,
+              el("p", { s: { color: "#565250", fontSize: "11px", fontFamily: "monospace", marginTop: "4px" } }, "Build: " + (repo.baseDir ? repo.baseDir + "/ \u2192 " : "") + repo.buildCommand + " \u2192 " + repo.outputDir)
             ]),
-            el("button",{c:"bd bs",on:{click:function(){
-              api("DELETE","/api/repos/"+repo.owner+"/"+repo.repo).then(loadRepos);
-            }}},"✕ Remove")
+            el("button", { c: "bd bs", on: { click: function() {
+              api("DELETE", "/api/repos/" + repo.owner + "/" + repo.repo).then(loadRepos);
+            } } }, "\u2715 Remove")
           ]));
 
-          for(var j=0;j<(repo.activeBranches||[]).length;j++){
-            (function(branch){
-              var bs=(repo.branchStatuses||{})[branch]||{status:"idle"};
-              var previewUrl="/preview/"+repo.owner+"/"+repo.repo+"/"+branch.replace(/\//g,"__")+"/";
-
-              var row=el("div",{s:{background:"#0b0c10",borderRadius:"10px",padding:"12px",border:"1.5px solid rgba(255,255,255,.06)",display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap",marginBottom:"8px"}},[
-                el("div",{s:{minWidth:"100px",display:"flex",alignItems:"center",gap:"8px"}},[
-                  el("span",{c:statusClass(bs.status)}),
-                  el("span",{c:"btag",s:{background:bs.status==="ready"?"rgba(72,176,136,.1)":bs.status==="building"?"rgba(232,169,74,.1)":bs.status==="error"?"rgba(224,84,104,.1)":"rgba(255,255,255,.05)",color:bs.status==="ready"?"#48b088":bs.status==="building"?"#e8a94a":bs.status==="error"?"#e05468":"#565250"}},branch),
+          for (var j = 0; j < (repo.activeBranches || []).length; j++) {
+            (function(branch) {
+              var bs = (repo.branchStatuses || {})[branch] || { status: "idle" };
+              var previewUrl = "/preview/" + repo.owner + "/" + repo.repo + "/" + branch.replace(/\//g, "__") + "/";
+              var row = el("div", { s: { background: "#0b0c10", borderRadius: "10px", padding: "12px", border: "1.5px solid rgba(255,255,255,.06)", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "8px" } }, [
+                el("div", { s: { minWidth: "100px", display: "flex", alignItems: "center", gap: "8px" } }, [
+                  el("span", { c: statusClass(bs.status) }),
+                  el("span", { c: "btag", s: { background: bs.status === "ready" ? "rgba(72,176,136,.1)" : bs.status === "building" ? "rgba(232,169,74,.1)" : bs.status === "error" ? "rgba(224,84,104,.1)" : "rgba(255,255,255,.05)", color: bs.status === "ready" ? "#48b088" : bs.status === "building" ? "#e8a94a" : bs.status === "error" ? "#e05468" : "#565250" } }, branch)
                 ]),
-                el("span",{s:{fontFamily:"monospace",fontSize:"11px",color:"#565250",flex:"1"}},
-                  bs.status==="building"?"Building...":
-                  bs.status==="ready"?"Ready — "+previewUrl:
-                  bs.status==="error"?"Build failed":
-                  "Not built yet"
+                el("span", { s: { fontFamily: "monospace", fontSize: "11px", color: "#565250", flex: "1" } },
+                  bs.status === "building" ? "Building..." :
+                  bs.status === "ready" ? "Ready \u2014 " + previewUrl :
+                  bs.status === "error" ? "Build failed" : "Not built yet"
                 ),
-                el("button",{c:"bg bs",on:{click:function(){
-                  api("POST","/api/build/"+repo.owner+"/"+repo.repo+"?branch="+encodeURIComponent(branch));
+                el("button", { c: "bg bs", on: { click: function() {
+                  api("POST", "/api/build/" + repo.owner + "/" + repo.repo + "?branch=" + encodeURIComponent(branch));
                   loadRepos();
-                }}},"⟳ Build"),
-                el("button",{c:"bp bs",s:{opacity:bs.status==="ready"?"1":".4",pointerEvents:bs.status==="ready"?"auto":"none"},on:{click:function(){
-                  S.activeRepo=repo;S.activeBranch=branch;S.compareMode=false;S.compareBranch="";S.view="preview";render();
-                }}},"▶ Preview"),
-                el("button",{c:"bg bs",on:{click:function(){
-                  api("GET","/api/log/"+repo.owner+"/"+repo.repo+"?branch="+encodeURIComponent(branch)).then(function(r){return r.text?r.text():r}).then(function(log){
-                    alert(log||"No log yet.");
-                  }).catch(function(){
-                    // Fetch as text
-                    fetch("/api/log/"+repo.owner+"/"+repo.repo+"?branch="+encodeURIComponent(branch)).then(function(r){return r.text()}).then(function(t){alert(t)});
-                  });
-                }}},"📋 Log")
+                } } }, "\u27f3 Build"),
+                el("button", { c: "bp bs", s: { opacity: bs.status === "ready" ? "1" : ".4", pointerEvents: bs.status === "ready" ? "auto" : "none" }, on: { click: function() {
+                  S.activeRepo = repo; S.activeBranch = branch; S.compareMode = false; S.compareBranch = ""; S.view = "preview"; render();
+                } } }, "\u25b6 Preview"),
+                el("button", { c: "bg bs", on: { click: function() {
+                  fetch("/api/log/" + repo.owner + "/" + repo.repo + "?branch=" + encodeURIComponent(branch)).then(function(r) { return r.text(); }).then(function(t) { alert(t); });
+                } } }, "\ud83d\udccb Log")
               ]);
               card.appendChild(row);
             })(repo.activeBranches[j]);
@@ -246,202 +284,261 @@ function render(){
         })(S.repos[i]);
       }
     }
-    app.appendChild(ct);return;
+    app.appendChild(ct); return;
   }
 
-  // ── ADD REPO ──
-  if(S.view==="addRepo"){
-    var w=el("div",{s:{maxWidth:"540px",margin:"0 auto",padding:"24px 16px"}});
-    w.appendChild(el("h2",{s:{fontSize:"20px",fontWeight:"700",marginBottom:"20px"}},"Add Repository"));
+  // ADD REPO
+  if (S.view === "addRepo") {
+    var w = el("div", { s: { maxWidth: "540px", margin: "0 auto", padding: "24px 16px" } });
+    w.appendChild(el("h2", { s: { fontSize: "20px", fontWeight: "700", marginBottom: "20px" } }, "Add Repository"));
 
-    var ri=document.createElement("input");ri.placeholder="owner/repo or full GitHub URL";ri.value=S.repoUrl;
-    ri.addEventListener("input",function(e){S.repoUrl=e.target.value});
+    var ri = document.createElement("input"); ri.placeholder = "owner/repo or full GitHub URL"; ri.value = S.repoUrl;
+    ri.addEventListener("input", function(e) { S.repoUrl = e.target.value; });
 
-    var es=el("span",{s:{color:"#e05468",fontSize:"12px",fontFamily:"monospace",display:"none"}});
-    var fb=el("button",{c:"bp",on:{click:function(){
-      es.style.display="none";
-      var c=S.repoUrl.trim().replace(/\.git$/,"").replace(/\/$/,"");
-      var m=c.match(/(?:github\.com\/)?([^\/]+)\/([^\/]+)$/);
-      if(!m){es.textContent="Invalid. Use owner/repo.";es.style.display="block";return}
-      fb.innerHTML="<span class='spin'></span>";
-      api("GET","/api/github/"+m[1]+"/"+m[2]+"/branches").then(function(r){
-        if(r.error){es.textContent=r.error;es.style.display="block";fb.textContent="Fetch";return}
-        S.repoInfo={owner:m[1],repo:m[2],description:r.description,defaultBranch:r.defaultBranch};
-        S.fetchedBranches=r.branches;
-        S.selectedBranches=[r.defaultBranch];
-        fb.textContent="Fetch";render();
-      }).catch(function(e){es.textContent=e.message;es.style.display="block";fb.textContent="Fetch"});
-    }}},"Fetch");
+    var es = el("span", { s: { color: "#e05468", fontSize: "12px", fontFamily: "monospace", display: "none" } });
+    var fb = el("button", { c: "bp", on: { click: function() {
+      es.style.display = "none";
+      var c = S.repoUrl.trim().replace(/\.git$/, "").replace(/\/$/, "");
+      var m = c.match(/(?:github\.com\/)?([^\/]+)\/([^\/]+)$/);
+      if (!m) { es.textContent = "Invalid. Use owner/repo."; es.style.display = "block"; return; }
+      fb.innerHTML = "<span class='spin'></span>";
+      api("GET", "/api/github/" + m[1] + "/" + m[2] + "/branches").then(function(r) {
+        if (r.error) { es.textContent = r.error; es.style.display = "block"; fb.textContent = "Fetch"; return; }
+        S.repoInfo = { owner: m[1], repo: m[2], description: r.description, defaultBranch: r.defaultBranch };
+        S.fetchedBranches = r.branches;
+        S.selectedBranches = [r.defaultBranch];
+        fb.textContent = "Fetch"; render();
+      }).catch(function(e) { es.textContent = e.message; es.style.display = "block"; fb.textContent = "Fetch"; });
+    } } }, "Fetch");
 
-    w.appendChild(el("div",{s:{marginBottom:"20px"}},[
-      el("div",{c:"label",s:{marginBottom:"6px"}},"Repository"),
-      el("div",{s:{display:"flex",gap:"8px"}},[ri,fb]),es
+    w.appendChild(el("div", { s: { marginBottom: "20px" } }, [
+      el("div", { c: "label", s: { marginBottom: "6px" } }, "Repository"),
+      el("div", { s: { display: "flex", gap: "8px" } }, [ri, fb]), es
     ]));
 
-    if(S.fetchedBranches.length&&S.repoInfo){
-      w.appendChild(el("div",{c:"card",s:{marginBottom:"18px"}},[
-        el("div",{s:{fontWeight:"700",fontSize:"14px"}},S.repoInfo.owner+"/"+S.repoInfo.repo),
-        el("div",{s:{color:"#565250",fontSize:"12px",fontFamily:"monospace",marginTop:"4px"}},S.repoInfo.description||"No description")
+    if (S.fetchedBranches.length && S.repoInfo) {
+      w.appendChild(el("div", { c: "card", s: { marginBottom: "18px" } }, [
+        el("div", { s: { fontWeight: "700", fontSize: "14px" } }, S.repoInfo.owner + "/" + S.repoInfo.repo),
+        el("div", { s: { color: "#565250", fontSize: "12px", fontFamily: "monospace", marginTop: "4px" } }, S.repoInfo.description || "No description")
       ]));
 
-      // Branches
-      var bd=el("div",{s:{display:"flex",flexWrap:"wrap",gap:"8px",marginTop:"6px"}});
-      for(var i=0;i<S.fetchedBranches.length;i++){
-        (function(b){
-          bd.appendChild(el("div",{c:"chip"+(S.selectedBranches.indexOf(b)!==-1?" on":""),on:{click:function(){
-            var idx=S.selectedBranches.indexOf(b);if(idx!==-1)S.selectedBranches.splice(idx,1);else S.selectedBranches.push(b);render();
-          }}},b));
+      var bd = el("div", { s: { display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "6px" } });
+      for (var i = 0; i < S.fetchedBranches.length; i++) {
+        (function(b) {
+          bd.appendChild(el("div", { c: "chip" + (S.selectedBranches.indexOf(b) !== -1 ? " on" : ""), on: { click: function() {
+            var idx = S.selectedBranches.indexOf(b); if (idx !== -1) S.selectedBranches.splice(idx, 1); else S.selectedBranches.push(b); render();
+          } } }, b));
         })(S.fetchedBranches[i]);
       }
-      w.appendChild(el("div",{s:{marginBottom:"18px"}},[el("div",{c:"label",s:{marginBottom:"6px"}},"Branches to monitor"),bd]));
+      w.appendChild(el("div", { s: { marginBottom: "18px" } }, [el("div", { c: "label", s: { marginBottom: "6px" } }, "Branches to monitor"), bd]));
 
-      // Base directory (subfolder where package.json lives)
-      var bdi=document.createElement("input");bdi.value=S.baseDir;bdi.placeholder="Leave empty if package.json is at root";
-      bdi.addEventListener("input",function(e){S.baseDir=e.target.value});
-      w.appendChild(el("div",{s:{marginBottom:"14px"}},[
-        el("div",{c:"label",s:{marginBottom:"6px"}},"App subdirectory"),
+      var bdi = document.createElement("input"); bdi.value = S.baseDir; bdi.placeholder = "Leave empty if package.json is at root";
+      bdi.addEventListener("input", function(e) { S.baseDir = e.target.value; });
+      w.appendChild(el("div", { s: { marginBottom: "14px" } }, [
+        el("div", { c: "label", s: { marginBottom: "6px" } }, "App subdirectory"),
         bdi,
-        el("p",{s:{color:"#565250",fontSize:"11px",fontFamily:"monospace",marginTop:"4px"}},"If your app is inside a subfolder (e.g. whispering-wishes-replit)")
+        el("p", { s: { color: "#565250", fontSize: "11px", fontFamily: "monospace", marginTop: "4px" } }, "If your app is inside a subfolder (e.g. whispering-wishes-replit)")
       ]));
 
-      // Build command
-      var bci=document.createElement("input");bci.value=S.buildCommand;bci.placeholder="npm run build";
-      bci.addEventListener("input",function(e){S.buildCommand=e.target.value});
-      w.appendChild(el("div",{s:{marginBottom:"14px"}},[el("div",{c:"label",s:{marginBottom:"6px"}},"Build command"),bci]));
+      var bci = document.createElement("input"); bci.value = S.buildCommand; bci.placeholder = "npm run build";
+      bci.addEventListener("input", function(e) { S.buildCommand = e.target.value; });
+      w.appendChild(el("div", { s: { marginBottom: "14px" } }, [el("div", { c: "label", s: { marginBottom: "6px" } }, "Build command"), bci]));
 
-      // Output dir
-      var odi=document.createElement("input");odi.value=S.outputDir;odi.placeholder="dist";
-      odi.addEventListener("input",function(e){S.outputDir=e.target.value});
-      w.appendChild(el("div",{s:{marginBottom:"22px"}},[
-        el("div",{c:"label",s:{marginBottom:"6px"}},"Output directory"),
+      var odi = document.createElement("input"); odi.value = S.outputDir; odi.placeholder = "dist";
+      odi.addEventListener("input", function(e) { S.outputDir = e.target.value; });
+      w.appendChild(el("div", { s: { marginBottom: "22px" } }, [
+        el("div", { c: "label", s: { marginBottom: "6px" } }, "Output directory"),
         odi,
-        el("p",{s:{color:"#565250",fontSize:"11px",fontFamily:"monospace",marginTop:"4px"}},"Common: dist, build, out, web-build")
+        el("p", { s: { color: "#565250", fontSize: "11px", fontFamily: "monospace", marginTop: "4px" } }, "Common: dist, build, out, web-build")
       ]));
 
-      // Buttons
-      w.appendChild(el("div",{s:{display:"flex",gap:"10px"}},[
-        el("button",{c:"bg",on:{click:function(){S.view="dashboard";render()}}},"Cancel"),
-        el("button",{c:"bp",s:{flex:"1"},on:{click:function(){
-          if(!S.selectedBranches.length)return;
-          api("POST","/api/repos",{
-            owner:S.repoInfo.owner,repo:S.repoInfo.repo,
-            activeBranches:S.selectedBranches,
-            buildCommand:S.buildCommand,outputDir:S.outputDir,
-            baseDir:S.baseDir,
-            description:S.repoInfo.description
-          }).then(function(){S.view="dashboard";loadRepos()});
-        }}},"✓ Add & Build")
+      w.appendChild(el("div", { s: { display: "flex", gap: "10px" } }, [
+        el("button", { c: "bg", on: { click: function() { S.view = "dashboard"; render(); } } }, "Cancel"),
+        el("button", { c: "bp", s: { flex: "1" }, on: { click: function() {
+          if (!S.selectedBranches.length) return;
+          api("POST", "/api/repos", {
+            owner: S.repoInfo.owner, repo: S.repoInfo.repo,
+            activeBranches: S.selectedBranches,
+            buildCommand: S.buildCommand, outputDir: S.outputDir,
+            baseDir: S.baseDir, description: S.repoInfo.description
+          }).then(function() { S.view = "dashboard"; loadRepos(); });
+        } } }, "\u2713 Add & Build")
       ]));
     }
-    app.appendChild(w);return;
+    app.appendChild(w); return;
   }
 
-  // ── PREVIEW ──
-  if(S.view==="preview"&&S.activeRepo){
-    var repo=S.activeRepo;
-    var baseUrl="/preview/"+repo.owner+"/"+repo.repo+"/";
-    var url=baseUrl+S.activeBranch.replace(/\//g,"__")+"/";
-    var cmpUrl=S.compareBranch?baseUrl+S.compareBranch.replace(/\//g,"__")+"/":"";
+  // PREVIEW
+  if (S.view === "preview" && S.activeRepo) {
+    var repo = S.activeRepo;
+    var baseUrl = "/preview/" + repo.owner + "/" + repo.repo + "/";
+    var url = baseUrl + S.activeBranch.replace(/\//g, "__") + "/";
+    var cmpUrl = S.compareBranch ? baseUrl + S.compareBranch.replace(/\//g, "__") + "/" : "";
 
-    // Controls
-    var ctrls=el("div",{s:{padding:"10px 16px",borderBottom:"1.5px solid rgba(255,255,255,.06)",display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap",background:"#13141a"}});
-    var sel=document.createElement("select");sel.style.cssText="width:150px;padding:8px;font-size:13px;font-family:monospace;background:#0b0c10;border:1.5px solid rgba(255,255,255,.06);color:#e4e0d8;border-radius:6px";
-    for(var i=0;i<(repo.activeBranches||[]).length;i++){
-      var o=document.createElement("option");o.value=repo.activeBranches[i];o.textContent=repo.activeBranches[i];
-      if(repo.activeBranches[i]===S.activeBranch)o.selected=true;sel.appendChild(o);
+    // Controls bar
+    var ctrls = el("div", { s: { padding: "10px 16px", borderBottom: "1.5px solid rgba(255,255,255,.06)", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", background: "#13141a" } });
+
+    var sel = document.createElement("select");
+    sel.style.cssText = "width:150px;padding:8px;font-size:13px;font-family:monospace;background:#0b0c10;border:1.5px solid rgba(255,255,255,.06);color:#e4e0d8;border-radius:6px";
+    for (var i = 0; i < (repo.activeBranches || []).length; i++) {
+      var o = document.createElement("option"); o.value = repo.activeBranches[i]; o.textContent = repo.activeBranches[i];
+      if (repo.activeBranches[i] === S.activeBranch) o.selected = true; sel.appendChild(o);
     }
-    sel.addEventListener("change",function(e){S.activeBranch=e.target.value;render()});
+    sel.addEventListener("change", function(e) { S.activeBranch = e.target.value; render(); });
     ctrls.appendChild(sel);
 
-    if(S.compareMode){
-      ctrls.appendChild(el("span",{s:{color:"#565250",fontFamily:"monospace",fontSize:"12px"}},"vs"));
-      var s2=document.createElement("select");s2.style.cssText=sel.style.cssText;
-      s2.appendChild(el("option",{attr:{value:""}},"Select…"));
-      for(var i=0;i<(repo.activeBranches||[]).length;i++){
-        if(repo.activeBranches[i]===S.activeBranch)continue;
-        var o=document.createElement("option");o.value=repo.activeBranches[i];o.textContent=repo.activeBranches[i];
-        if(repo.activeBranches[i]===S.compareBranch)o.selected=true;s2.appendChild(o);
+    if (S.compareMode) {
+      ctrls.appendChild(el("span", { s: { color: "#565250", fontFamily: "monospace", fontSize: "12px" } }, "vs"));
+      var s2 = document.createElement("select"); s2.style.cssText = sel.style.cssText;
+      s2.appendChild(el("option", { attr: { value: "" } }, "Select\u2026"));
+      for (var i = 0; i < (repo.activeBranches || []).length; i++) {
+        if (repo.activeBranches[i] === S.activeBranch) continue;
+        var o = document.createElement("option"); o.value = repo.activeBranches[i]; o.textContent = repo.activeBranches[i];
+        if (repo.activeBranches[i] === S.compareBranch) o.selected = true; s2.appendChild(o);
       }
-      s2.addEventListener("change",function(e){S.compareBranch=e.target.value;render()});
+      s2.addEventListener("change", function(e) { S.compareBranch = e.target.value; render(); });
       ctrls.appendChild(s2);
     }
 
-    var bs=(repo.branchStatuses||{})[S.activeBranch]||{};
-    ctrls.appendChild(el("div",{s:{flex:"1",display:"flex",alignItems:"center",gap:"6px"}},[
-      el("span",{c:statusClass(bs.status)}),
-      el("span",{s:{fontFamily:"monospace",fontSize:"11px",color:bs.status==="ready"?"#48b088":"#565250"}},bs.status==="ready"?url:"Build "+bs.status)
+    // Add Branch button with dropdown
+    var addBtnWrap = el("div", { s: { position: "relative" } });
+    var addBtn = el("button", { c: "bg bs", on: { click: function(evt) {
+      evt.stopPropagation();
+      S.showBranchDropdown = !S.showBranchDropdown;
+      S.branchFilter = "";
+      if (S.showBranchDropdown && S.availableBranches.length === 0) fetchAvailableBranches();
+      render();
+    } } }, "+ Branch");
+    addBtnWrap.appendChild(addBtn);
+
+    if (S.showBranchDropdown) {
+      var dd = el("div", { c: "add-branch-dropdown" });
+      var searchInput = document.createElement("input");
+      searchInput.style.cssText = "padding:6px 10px;margin:4px 6px;font-size:12px;width:calc(100% - 12px);border-radius:4px;background:#0b0c10;border:1.5px solid rgba(255,255,255,.06);color:#e4e0d8;font-family:monospace;outline:none";
+      searchInput.placeholder = "Filter branches...";
+      searchInput.value = S.branchFilter;
+      searchInput.addEventListener("input", function(e) { S.branchFilter = e.target.value; render(); });
+      searchInput.addEventListener("click", function(e) { e.stopPropagation(); });
+      dd.appendChild(searchInput);
+
+      if (S.availableBranches.length === 0) {
+        dd.appendChild(el("div", { s: { padding: "12px 14px", textAlign: "center" } }, [el("span", { c: "spin" })]));
+      } else {
+        var filtered = S.availableBranches.filter(function(b) {
+          if (S.branchFilter) return b.toLowerCase().indexOf(S.branchFilter.toLowerCase()) !== -1;
+          return true;
+        });
+        for (var i = 0; i < filtered.length; i++) {
+          (function(b) {
+            var isActive = (repo.activeBranches || []).indexOf(b) !== -1;
+            dd.appendChild(el("div", { c: "dd-item" + (isActive ? " already" : ""), on: { click: function(e) {
+              e.stopPropagation();
+              if (!isActive) addBranchToRepo(b);
+            } } }, [
+              el("span", { s: { color: isActive ? "#565250" : "#e8a94a", fontSize: "10px", flexShrink: "0" } }, isActive ? "\u2713" : "+"),
+              document.createTextNode(b)
+            ]));
+          })(filtered[i]);
+        }
+        if (filtered.length === 0) {
+          dd.appendChild(el("div", { s: { padding: "10px 14px", color: "#565250", fontFamily: "monospace", fontSize: "12px" } }, "No matching branches"));
+        }
+      }
+      addBtnWrap.appendChild(dd);
+
+      // Close on outside click
+      setTimeout(function() {
+        function closeHandler(e) {
+          if (!addBtnWrap.contains(e.target)) {
+            S.showBranchDropdown = false;
+            document.removeEventListener("click", closeHandler, true);
+            render();
+          }
+        }
+        document.addEventListener("click", closeHandler, true);
+      }, 10);
+    }
+    ctrls.appendChild(addBtnWrap);
+
+    // Status indicator
+    var bs = (repo.branchStatuses || {})[S.activeBranch] || {};
+    ctrls.appendChild(el("div", { s: { flex: "1", display: "flex", alignItems: "center", gap: "6px" } }, [
+      el("span", { c: statusClass(bs.status) }),
+      el("span", { s: { fontFamily: "monospace", fontSize: "11px", color: bs.status === "ready" ? "#48b088" : "#565250" } }, bs.status === "ready" ? url : "Build " + (bs.status || "idle"))
     ]));
     app.appendChild(ctrls);
 
-    // Ratio toggles
-    var ratioBar=el("div",{s:{padding:"8px 16px",borderBottom:"1.5px solid rgba(255,255,255,.06)",display:"flex",gap:"6px"}});
-    [{id:"9:16",l:"9:16 Portrait"},{id:"16:9",l:"16:9 Landscape"}].forEach(function(r){
-      var isOn=S.ratios.indexOf(r.id)!==-1;
-      ratioBar.appendChild(el("div",{c:"chip"+(isOn?" on":""),on:{click:function(){
-        var idx=S.ratios.indexOf(r.id);if(idx!==-1&&S.ratios.length>1)S.ratios.splice(idx,1);else if(idx===-1)S.ratios.push(r.id);render();
-      }}},r.l));
-    });
+    // View toggles
+    var ratioBar = el("div", { s: { padding: "8px 16px", borderBottom: "1.5px solid rgba(255,255,255,.06)", display: "flex", gap: "6px" } });
+    var presetKeys = Object.keys(VIEW_PRESETS);
+    for (var pi = 0; pi < presetKeys.length; pi++) {
+      (function(key) {
+        var preset = VIEW_PRESETS[key];
+        var isOn = S.activeViews.indexOf(key) !== -1;
+        ratioBar.appendChild(el("div", { c: "chip" + (isOn ? " on" : ""), on: { click: function() {
+          var idx = S.activeViews.indexOf(key);
+          if (idx !== -1 && S.activeViews.length > 1) S.activeViews.splice(idx, 1);
+          else if (idx === -1) S.activeViews.push(key);
+          render();
+        } } }, preset.label));
+      })(presetKeys[pi]);
+    }
     app.appendChild(ratioBar);
 
-    // Panels
-    var container=el("div",{s:{padding:"16px",display:"flex",flexDirection:"column",gap:"16px"}});
-    var ratioList=[{id:"9:16",w:9,h:16},{id:"16:9",w:16,h:9}].filter(function(r){return S.ratios.indexOf(r.id)!==-1});
+    // Frames — FIXED SIZE, scrollable container
+    var container = el("div", { s: { padding: "16px", display: "flex", flexDirection: "column", gap: "20px" } });
+    var activePresets = presetKeys.filter(function(k) { return S.activeViews.indexOf(k) !== -1; });
 
-    function makeFrame(rw,rh,src,label,color){
-      // Use CSS viewport dimensions (not physical pixels) so responsive
-      // breakpoints work correctly. A 1080×1920 phone has ~412×915 CSS viewport.
-      // Desktop monitors are ~1:1 DPR so CSS ≈ physical pixels.
-      var pixelW, pixelH, displayLabel;
-      if(rw>rh){ pixelW=1920; pixelH=1080; displayLabel="1920×1080"; } // desktop
-      else { pixelW=393; pixelH=873; displayLabel="393×873 (mobile)"; } // mobile CSS viewport
+    function makeFrame(presetKey, src, label, color) {
+      var preset = VIEW_PRESETS[presetKey];
+      var pixelW = preset.w;
+      var pixelH = preset.h;
 
-      var f=el("div",{c:"preview-frame"});
-      var lbl=el("div",{c:"frame-label"},[
-        el("span",{c:statusClass(src?"ready":"idle")}),
-        el("span",{s:color?{color:color}:{}},label),
-        el("span",{s:{marginLeft:"auto",fontSize:"10px",color:"#565250"}},displayLabel)
-      ]);
-      f.appendChild(lbl);
+      var f = el("div", { c: "preview-frame" });
+      f.appendChild(el("div", { c: "frame-label" }, [
+        el("span", { c: statusClass(src ? "ready" : "idle") }),
+        el("span", { s: color ? { color: color } : {} }, label),
+        el("span", { s: { marginLeft: "auto", fontSize: "10px", color: "#565250" } }, preset.res)
+      ]));
 
-      // Container that scales the iframe to fit
-      var containerW=f.parentNode?f.parentNode.offsetWidth:window.innerWidth-32;
-      if(containerW<100)containerW=window.innerWidth-32;
-      var scale=Math.min(containerW/pixelW, 1);
-      var scaledH=pixelH*scale;
+      var body = el("div", { c: "frame-body", s: {
+        width: pixelW + "px",
+        height: pixelH + "px"
+      } });
 
-      var body=el("div",{c:"frame-body",s:{
-        width:containerW+"px",
-        height:scaledH+"px",
-        overflow:"hidden",
-        position:"relative"
-      }});
-
-      if(src&&bs.status==="ready"){
-        var iframe=document.createElement("iframe");
-        iframe.src=src+"?_r="+S.refreshKey;iframe.title=label;
-        iframe.setAttribute("sandbox","allow-scripts allow-same-origin allow-forms allow-popups allow-modals");
-        iframe.style.cssText="border:none;width:"+pixelW+"px;height:"+pixelH+"px;position:absolute;top:0;left:0;transform:scale("+scale+");transform-origin:top left;";
-        var loader=el("div",{s:{position:"absolute",inset:"0",display:"flex",alignItems:"center",justifyContent:"center",background:"#09090b",zIndex:"2",transition:"opacity .3s"}},[el("span",{c:"spin"})]);
-        iframe.onload=function(){loader.style.opacity="0";setTimeout(function(){if(loader.parentNode)loader.remove()},300)};
-        body.appendChild(iframe);body.appendChild(loader);
-      }else{
-        body.appendChild(el("div",{s:{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",color:"#565250",fontFamily:"monospace",fontSize:"13px"}},bs.status==="building"?"Building...":"Not built yet"));
+      if (src && bs.status === "ready") {
+        var iframe = document.createElement("iframe");
+        iframe.src = src + "?_r=" + S.refreshKey;
+        iframe.title = label;
+        iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups allow-modals");
+        iframe.style.cssText = "border:none;width:" + pixelW + "px;height:" + pixelH + "px;display:block;";
+        var loader = el("div", { s: { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", background: "#09090b", zIndex: "2", transition: "opacity .3s" } }, [el("span", { c: "spin" })]);
+        iframe.onload = function() { loader.style.opacity = "0"; setTimeout(function() { if (loader.parentNode) loader.remove(); }, 300); };
+        body.appendChild(iframe);
+        body.appendChild(loader);
+      } else {
+        body.appendChild(el("div", { s: { display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "#565250", fontFamily: "monospace", fontSize: "13px" } }, bs.status === "building" ? "Building..." : "Not built yet"));
       }
-      f.appendChild(body);return f;
+      f.appendChild(body);
+      return f;
     }
 
-    if(S.compareMode){
-      ratioList.forEach(function(r){
-        var row=el("div",{s:{display:"flex",gap:"16px",flexWrap:"wrap"}});
-        row.appendChild(el("div",{s:{flex:"1",minWidth:"280px"}},[makeFrame(r.w,r.h,url,S.activeBranch+" — "+r.id,"#e8a94a")]));
-        var rightSrc=S.compareBranch?cmpUrl:"";
-        row.appendChild(el("div",{s:{flex:"1",minWidth:"280px"}},[makeFrame(r.w,r.h,rightSrc,S.compareBranch||"Select branch","#5b9fd4")]));
-        container.appendChild(row);
+    if (S.compareMode) {
+      activePresets.forEach(function(key) {
+        var preset = VIEW_PRESETS[key];
+        var scrollWrap = el("div", { s: { overflowX: "auto", overflowY: "hidden", paddingBottom: "8px" } });
+        var row = el("div", { s: { display: "inline-flex", gap: "16px", flexWrap: "nowrap" } });
+        row.appendChild(makeFrame(key, url, S.activeBranch + " \u2014 " + preset.label, "#e8a94a"));
+        var rightSrc = S.compareBranch ? cmpUrl : "";
+        row.appendChild(makeFrame(key, rightSrc, S.compareBranch || "Select branch", "#5b9fd4"));
+        scrollWrap.appendChild(row);
+        container.appendChild(scrollWrap);
       });
-    }else{
-      ratioList.forEach(function(r){
-        var maxW=r.w>r.h?"100%":"400px";
-        container.appendChild(el("div",{s:{maxWidth:maxW}},[makeFrame(r.w,r.h,url,r.id,null)]));
+    } else {
+      activePresets.forEach(function(key) {
+        var scrollWrap = el("div", { s: { overflowX: "auto", overflowY: "hidden", paddingBottom: "8px" } });
+        scrollWrap.appendChild(makeFrame(key, url, VIEW_PRESETS[key].label, null));
+        container.appendChild(scrollWrap);
       });
     }
     app.appendChild(container);
