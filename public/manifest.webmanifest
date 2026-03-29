@@ -1,0 +1,25 @@
+{
+  "name": "Whispering Wishes — Wuthering Waves Companion",
+  "short_name": "Whispering Wishes",
+  "description": "Gacha calculator, planner & collection tracker for Wuthering Waves. Probability engine, pity tracking, and resource planning.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080c14",
+  "theme_color": "#080c14",
+  "orientation": "portrait-primary",
+  "categories": ["games", "utilities"],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "type": "image/png",
+      "sizes": "180x180",
+      "purpose": "any maskable"
+    }
+  ]
+}

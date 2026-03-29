@@ -1,0 +1,5 @@
+# Whispering Wishes — Wuthering Waves Companion
+User-agent: *
+Allow: /
+
+Sitemap: https://whisperingwishes.vercel.app/sitemap.xml
