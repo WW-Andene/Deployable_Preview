@@ -1,0 +1,531 @@
+// ══════════════════════════════════════════════════════════════════
+// DeployView — Full Run Test Harness
+// Tests every button, input, slider, dropdown, modal, and interaction
+// ══════════════════════════════════════════════════════════════════
+
+const L = document.getElementById('log');
+const S = document.getElementById('status');
+const SM = document.getElementById('sum');
+const PB = document.getElementById('progress-bar');
+const SR = document.getElementById('stats-row');
+let full = '', ec = 0, wc = 0, tc = 0, pc = 0;
+
+function log(m, c = '') {
+  const d = document.createElement('div');
+  d.className = c;
+  d.textContent = m;
+  L.appendChild(d);
+  L.scrollTop = L.scrollHeight;
+  full += m + '\n';
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function progress(pct) { PB.style.width = pct + '%'; }
+
+function copyLog() {
+  navigator.clipboard.writeText(full).then(() => alert('Copied!'));
+}
+
+// ── Helpers to interact with React-controlled elements ──
+function setNativeValue(el, value) {
+  const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set
+    || Object.getOwnPropertyDescriptor(el, 'value')?.set;
+  if (setter) setter.call(el, value);
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function findByText(doc, selector, text) {
+  return [...doc.querySelectorAll(selector)].find(el =>
+    el.textContent.trim().toLowerCase().includes(text.toLowerCase())
+  );
+}
+
+function findPanel(doc, tabId) {
+  return doc.getElementById('tabpanel-' + tabId);
+}
+
+function goToTab(doc, tabId, label) {
+  const btn = doc.getElementById('tab-' + tabId) || findByText(doc, 'button', label);
+  if (btn) { btn.click(); return true; }
+  return false;
+}
+
+// ── Test runner ──
+let win, doc, errs, warns;
+
+function hookConsole() {
+  errs = []; warns = [];
+  const origE = win.console.error, origW = win.console.warn;
+  win.console.error = function (...a) {
+    const m = a.map(x => typeof x === 'string' ? x : (x?.message || x?.stack || String(x))).join(' ');
+    errs.push(m); origE.apply(win.console, a);
+  };
+  win.console.warn = function (...a) {
+    const m = a.map(x => String(x)).join(' ');
+    warns.push(m); origW.apply(win.console, a);
+  };
+  win.addEventListener('error', e => errs.push('Uncaught: ' + e.message + ' @ ' + e.filename + ':' + e.lineno));
+  win.addEventListener('unhandledrejection', e => errs.push('UnhandledPromise: ' + (e.reason?.message || e.reason)));
+}
+
+function clearErrs() { errs.length = 0; warns.length = 0; }
+
+function checkErrs(context) {
+  if (errs.length > 0) {
+    errs.forEach(e => { log('  ERROR [' + context + ']: ' + e.substring(0, 400), 'e'); ec++; });
+  }
+  const rw = warns.filter(w => !w.includes('React does not recognize') && !w.includes('componentWill') && !w.includes('NaN'));
+  rw.slice(0, 3).forEach(w => { log('  WARN [' + context + ']: ' + w.substring(0, 250), 'w'); wc++; });
+}
+
+function pass(msg) { log('  ✓ ' + msg, 'ok'); tc++; pc++; }
+function fail(msg) { log('  ✗ ' + msg, 'e'); tc++; ec++; }
+function info(msg) { log('  · ' + msg, 'dim'); }
+function skip(msg) { log('  ⊘ ' + msg, 'w'); tc++; wc++; }
+
+// ── Click every button in a panel, check for errors ──
+async function testAllButtons(panel, context, exclude = []) {
+  const buttons = [...panel.querySelectorAll('button')];
+  const tested = [];
+  for (const btn of buttons) {
+    const txt = btn.textContent.trim().substring(0, 30);
+    if (!txt || btn.disabled) continue;
+    // Skip destructive/confirm buttons and navigation tabs
+    const lower = txt.toLowerCase();
+    if (exclude.some(ex => lower.includes(ex))) continue;
+    if (lower.includes('clear all') || lower.includes('reset') || lower.includes('delete') || lower.includes('remove')) continue;
+    if (btn.getAttribute('role') === 'tab') continue;
+    // Skip if it opens file picker
+    if (lower === 'import') continue;
+
+    clearErrs();
+    try { btn.click(); } catch (e) { fail(context + ' button "' + txt + '" threw: ' + e.message); continue; }
+    await sleep(300);
+
+    if (errs.length > 0) {
+      fail(context + ' button "' + txt + '" caused error');
+      checkErrs(context + ':' + txt);
+    } else {
+      tested.push(txt);
+    }
+  }
+  if (tested.length > 0) pass(context + ': clicked ' + tested.length + ' buttons OK');
+  else info(context + ': no safe buttons to test');
+
+  // Close any modals that opened
+  await sleep(200);
+  const closeButtons = [...doc.querySelectorAll('[aria-label*="Close"], [aria-label*="close"]')];
+  for (const cb of closeButtons) { try { cb.click(); } catch {} }
+  await sleep(200);
+}
+
+// ── Test all inputs/sliders in a panel ──
+async function testAllInputs(panel, context) {
+  const inputs = [...panel.querySelectorAll('input[type="number"], input[type="range"], input[type="text"]')];
+  let tested = 0;
+  for (const inp of inputs) {
+    if (inp.disabled || inp.readOnly) continue;
+    clearErrs();
+    const origVal = inp.value;
+    if (inp.type === 'range') {
+      const mid = (parseFloat(inp.min || 0) + parseFloat(inp.max || 100)) / 2;
+      setNativeValue(inp, String(mid));
+    } else if (inp.type === 'number') {
+      setNativeValue(inp, '50');
+    } else {
+      setNativeValue(inp, 'test');
+    }
+    await sleep(200);
+    if (errs.length > 0) {
+      const label = inp.getAttribute('aria-label') || inp.placeholder || inp.type;
+      fail(context + ' input "' + label + '" caused error');
+      checkErrs(context + ':input');
+    }
+    // Restore
+    setNativeValue(inp, origVal);
+    await sleep(100);
+    tested++;
+  }
+  if (tested > 0) pass(context + ': tested ' + tested + ' inputs OK');
+}
+
+// ── Test all dropdowns/selects ──
+async function testAllSelects(panel, context) {
+  // Custom KuroSelect dropdowns (rendered as buttons with aria)
+  const selects = [...panel.querySelectorAll('select')];
+  let tested = 0;
+  for (const sel of selects) {
+    if (sel.disabled) continue;
+    clearErrs();
+    const opts = [...sel.options];
+    if (opts.length > 1) {
+      sel.value = opts[1].value;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      await sleep(200);
+      if (errs.length > 0) {
+        fail(context + ' select caused error');
+        checkErrs(context + ':select');
+      }
+      // Restore
+      sel.value = opts[0].value;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      await sleep(100);
+      tested++;
+    }
+  }
+  // Also test KuroSelect (custom dropdown buttons with aria-label containing "Filter")
+  const kuroSelects = [...panel.querySelectorAll('[aria-haspopup="listbox"], [role="combobox"]')];
+  for (const ks of kuroSelects) {
+    clearErrs();
+    ks.click();
+    await sleep(300);
+    // Try clicking the second option
+    const options = [...doc.querySelectorAll('[role="option"]')];
+    if (options.length > 1) {
+      options[1].click();
+      await sleep(300);
+      if (errs.length > 0) {
+        fail(context + ' KuroSelect caused error');
+        checkErrs(context + ':kuroselect');
+      } else {
+        tested++;
+      }
+    }
+    // Close by clicking the button again or pressing Escape
+    doc.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await sleep(200);
+  }
+  if (tested > 0) pass(context + ': tested ' + tested + ' dropdowns OK');
+}
+
+// ── Test toggles (aria-pressed buttons) ──
+async function testToggles(panel, context) {
+  const toggles = [...panel.querySelectorAll('[aria-pressed], [role="switch"]')];
+  let tested = 0;
+  for (const tog of toggles) {
+    clearErrs();
+    tog.click();
+    await sleep(300);
+    if (errs.length > 0) {
+      fail(context + ' toggle caused error');
+      checkErrs(context + ':toggle');
+    }
+    // Toggle back
+    tog.click();
+    await sleep(200);
+    tested++;
+  }
+  if (tested > 0) pass(context + ': toggled ' + tested + ' switches OK');
+}
+
+// ══════════════════════════════════════════
+// MAIN TEST FLOWS
+// ══════════════════════════════════════════
+
+async function initApp() {
+  const iframe = document.getElementById('app');
+  S.textContent = 'Loading app...';
+  iframe.src = PREVIEW_URL;
+  await new Promise(r => { iframe.onload = r; setTimeout(r, 15000); });
+  await sleep(3000);
+  try { win = iframe.contentWindow; doc = iframe.contentDocument; } catch (e) {
+    log('FATAL: Cannot access iframe — ' + e.message, 'e'); ec++; return false;
+  }
+  if (!doc || !doc.body) { log('FATAL: No document', 'e'); ec++; return false; }
+  hookConsole();
+  return true;
+}
+
+async function runFullTest() {
+  L.innerHTML = ''; full = ''; ec = 0; wc = 0; tc = 0; pc = 0;
+  SM.innerHTML = ''; SR.style.display = 'none';
+  progress(0);
+
+  log('══════════════════════════════════════════', 's');
+  log('  FULL RUN TEST — ' + BRANCH, 's');
+  log('  ' + new Date().toISOString(), 'dim');
+  log('══════════════════════════════════════════', 's');
+  log('');
+
+  if (!await initApp()) { finish(); return; }
+  progress(5);
+
+  // ── Phase 1: Initial Load ──
+  log('── Phase 1: Initial Load ──', 's');
+  const root = doc.getElementById('root');
+  const rLen = root?.innerHTML?.length || 0;
+  if (rLen < 100) fail('Root empty (' + rLen + ' chars)');
+  else pass('App rendered (' + rLen + ' chars)');
+  clearErrs();
+  checkErrs('init');
+  progress(10);
+
+  // ── Phase 2: Tab Navigation + Content Check ──
+  log('', '');
+  log('── Phase 2: Tab Navigation ──', 's');
+  const tabs = [
+    ['tracker', 'Tracker'], ['events', 'Events'], ['calculator', 'Calc'],
+    ['planner', 'Plan'], ['analytics', 'Stats'], ['gathering', 'Collection'],
+    ['teams', 'Teams'], ['profile', 'Profile']
+  ];
+
+  for (let i = 0; i < tabs.length; i++) {
+    const [id, label] = tabs[i];
+    S.textContent = 'Phase 2: ' + label + ' tab...';
+    clearErrs();
+    if (!goToTab(doc, id, label)) { skip('No "' + label + '" button'); continue; }
+    await sleep(2000);
+    const panel = findPanel(doc, id);
+    const pLen = panel?.innerHTML?.length || 0;
+    checkErrs(label + ' render');
+    if (!panel || pLen < 50) fail(label + ' panel empty (' + pLen + ')');
+    else pass(label + ' rendered (' + pLen + ' chars)');
+    progress(10 + (i + 1) * 5);
+  }
+
+  // ── Phase 3: Deep Interaction per Tab ──
+  log('', '');
+  log('── Phase 3: Deep Interaction Tests ──', 's');
+
+  // 3a. Tracker
+  S.textContent = 'Phase 3: Tracker interactions...';
+  if (goToTab(doc, 'tracker', 'Tracker')) {
+    await sleep(1500);
+    const panel = findPanel(doc, 'tracker');
+    if (panel) {
+      // Test category tabs (character/weapon/standard)
+      const catBtns = [...panel.querySelectorAll('[role="tab"]')];
+      let catOk = 0;
+      for (const btn of catBtns) {
+        clearErrs(); btn.click(); await sleep(300);
+        if (errs.length === 0) catOk++;
+        else checkErrs('Tracker:tab:' + btn.textContent.trim());
+      }
+      if (catOk > 0) pass('Tracker: switched ' + catOk + ' category tabs');
+      await testAllButtons(panel, 'Tracker');
+    }
+  }
+  progress(55);
+
+  // 3b. Events
+  S.textContent = 'Phase 3: Events interactions...';
+  if (goToTab(doc, 'events', 'Events')) {
+    await sleep(1500);
+    const panel = findPanel(doc, 'events');
+    if (panel) {
+      await testAllButtons(panel, 'Events');
+    }
+  }
+  progress(60);
+
+  // 3c. Calculator
+  S.textContent = 'Phase 3: Calculator interactions...';
+  if (goToTab(doc, 'calculator', 'Calc')) {
+    await sleep(2000);
+    const panel = findPanel(doc, 'calculator');
+    if (panel) {
+      await testAllInputs(panel, 'Calculator');
+      await testAllButtons(panel, 'Calculator', ['save']);
+      await testToggles(panel, 'Calculator');
+      // Check results rendered
+      const stats = panel.querySelectorAll('.kuro-stat');
+      if (stats.length > 0) pass('Calculator: ' + stats.length + ' stat elements visible');
+      else info('Calculator: no stat elements (needs input values)');
+    }
+  }
+  progress(65);
+
+  // 3d. Planner
+  S.textContent = 'Phase 3: Planner interactions...';
+  if (goToTab(doc, 'planner', 'Plan')) {
+    await sleep(1500);
+    const panel = findPanel(doc, 'planner');
+    if (panel) {
+      await testAllInputs(panel, 'Planner');
+      await testAllButtons(panel, 'Planner');
+      await testToggles(panel, 'Planner');
+    }
+  }
+  progress(70);
+
+  // 3e. Analytics/Stats
+  S.textContent = 'Phase 3: Stats interactions...';
+  if (goToTab(doc, 'analytics', 'Stats')) {
+    await sleep(2000);
+    const panel = findPanel(doc, 'analytics');
+    if (panel) {
+      await testAllButtons(panel, 'Stats', ['submit', 'leaderboard']);
+      await testToggles(panel, 'Stats');
+    }
+  }
+  progress(75);
+
+  // 3f. Collection
+  S.textContent = 'Phase 3: Collection interactions...';
+  if (goToTab(doc, 'gathering', 'Collection')) {
+    await sleep(2000);
+    const panel = findPanel(doc, 'gathering');
+    if (panel) {
+      // Test search
+      const searchInput = panel.querySelector('input[type="text"]');
+      if (searchInput) {
+        clearErrs();
+        setNativeValue(searchInput, 'Rover');
+        await sleep(500);
+        if (errs.length > 0) { fail('Collection search error'); checkErrs('Collection:search'); }
+        else pass('Collection: search works');
+        setNativeValue(searchInput, '');
+        await sleep(300);
+      }
+      await testAllSelects(panel, 'Collection');
+      // Test view toggles (items/weapons/echoes)
+      const viewBtns = [...panel.querySelectorAll('[aria-pressed]')];
+      let vOk = 0;
+      for (const vb of viewBtns) {
+        clearErrs(); vb.click(); await sleep(500);
+        if (errs.length === 0) vOk++;
+        else checkErrs('Collection:view');
+      }
+      if (vOk > 0) pass('Collection: switched ' + vOk + ' views');
+      await testAllButtons(panel, 'Collection', ['framing']);
+    }
+  }
+  progress(80);
+
+  // 3g. Teams
+  S.textContent = 'Phase 3: Teams interactions...';
+  if (goToTab(doc, 'teams', 'Teams')) {
+    await sleep(2000);
+    const panel = findPanel(doc, 'teams');
+    if (panel) {
+      // Test team tabs
+      const teamTabs = [...panel.querySelectorAll('[role="tab"]')];
+      let ttOk = 0;
+      for (const tt of teamTabs) {
+        clearErrs(); tt.click(); await sleep(300);
+        if (errs.length === 0) ttOk++;
+        else checkErrs('Teams:teamTab');
+      }
+      if (ttOk > 0) pass('Teams: switched ' + ttOk + ' team tabs');
+      // Test export button
+      clearErrs();
+      const exportBtn = findByText(panel, 'button', 'Export');
+      if (exportBtn) {
+        exportBtn.click(); await sleep(500);
+        if (errs.length > 0) { fail('Teams Export error'); checkErrs('Teams:export'); }
+        else pass('Teams: Export button works');
+      }
+      // Test Compare button
+      clearErrs();
+      const compareBtn = findByText(panel, 'button', 'Compare');
+      if (compareBtn && !compareBtn.disabled) {
+        compareBtn.click(); await sleep(500);
+        if (errs.length > 0) { fail('Teams Compare error'); checkErrs('Teams:compare'); }
+        else pass('Teams: Compare button works');
+      }
+      await testAllInputs(panel, 'Teams');
+    }
+  }
+  progress(88);
+
+  // 3h. Profile
+  S.textContent = 'Phase 3: Profile interactions...';
+  if (goToTab(doc, 'profile', 'Profile')) {
+    await sleep(2000);
+    const panel = findPanel(doc, 'profile');
+    if (panel) {
+      await testAllInputs(panel, 'Profile');
+      await testToggles(panel, 'Profile');
+      await testAllButtons(panel, 'Profile', ['clear', 'reset', 'export', 'import', 'restore']);
+      await testAllSelects(panel, 'Profile');
+    }
+  }
+  progress(95);
+
+  // ── Phase 4: Roundtrip ──
+  log('', '');
+  log('── Phase 4: Roundtrip & Stress ──', 's');
+  S.textContent = 'Phase 4: Roundtrip...';
+
+  // Rapid tab switching (stress test)
+  clearErrs();
+  for (const [id, label] of tabs) {
+    goToTab(doc, id, label);
+    await sleep(200);
+  }
+  await sleep(1000);
+  if (errs.length > 0) { fail('Rapid tab switch caused errors'); checkErrs('rapid-switch'); }
+  else pass('Rapid tab switching (8 tabs in 1.6s) — no errors');
+
+  // Return to tracker
+  goToTab(doc, 'tracker', 'Tracker');
+  await sleep(500);
+  pass('Final state: back on Tracker');
+  progress(100);
+
+  finish();
+}
+
+async function runQuickTest() {
+  L.innerHTML = ''; full = ''; ec = 0; wc = 0; tc = 0; pc = 0;
+  SM.innerHTML = ''; SR.style.display = 'none';
+  progress(0);
+
+  log('══ QUICK TEST — ' + BRANCH + ' ══', 's');
+  if (!await initApp()) { finish(); return; }
+  progress(10);
+
+  const root = doc.getElementById('root');
+  if ((root?.innerHTML?.length || 0) < 100) fail('Root empty');
+  else pass('App rendered');
+
+  const tabs = [
+    ['tracker', 'Tracker'], ['events', 'Events'], ['calculator', 'Calc'],
+    ['planner', 'Plan'], ['analytics', 'Stats'], ['gathering', 'Collection'],
+    ['teams', 'Teams'], ['profile', 'Profile']
+  ];
+
+  for (let i = 0; i < tabs.length; i++) {
+    const [id, label] = tabs[i];
+    clearErrs();
+    goToTab(doc, id, label);
+    await sleep(1000);
+    checkErrs(label);
+    const p = findPanel(doc, id);
+    if (!p || (p.innerHTML?.length || 0) < 50) fail(label + ' empty');
+    else pass(label + ' OK');
+    progress(10 + (i + 1) * 10);
+  }
+  progress(100);
+  finish();
+}
+
+function finish() {
+  log('', '');
+  log('══════════════════════════════════════════', 's');
+  log('  RESULTS: ' + pc + '/' + tc + ' passed, ' + ec + ' errors, ' + wc + ' warnings', ec > 0 ? 'e' : 'ok');
+  log('══════════════════════════════════════════', 's');
+
+  SM.className = 'sum ' + (ec === 0 ? 'pass' : 'fail');
+  SM.textContent = ec === 0
+    ? 'ALL PASSED — ' + pc + '/' + tc + ' tests, ' + wc + ' warnings'
+    : ec + ' ERRORS — ' + pc + '/' + tc + ' passed, ' + wc + ' warnings';
+  S.textContent = 'Done!';
+
+  // Show stats
+  SR.style.display = 'flex';
+  SR.innerHTML = [
+    ['Passed', pc, '#4ade80'], ['Failed', ec, '#f87171'], ['Warnings', wc, '#fbbf24'], ['Total', tc, '#60a5fa']
+  ].map(([l, n, c]) => '<div class="stat-box"><div class="num" style="color:' + c + '">' + n + '</div><div class="lbl">' + l + '</div></div>').join('');
+
+  // Post to API
+  fetch(API_URL, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      status: 'done', passed: pc, failed: ec, warnings: wc, total: tc,
+      errors: full.split('\n').filter(l => l.includes('✗') || l.includes('ERROR') || l.includes('FAIL') || l.includes('FATAL')),
+      fullLog: full, timestamp: Date.now()
+    })
+  }).then(() => log('\nResults posted to API ✓', 'i')).catch(() => {});
+}

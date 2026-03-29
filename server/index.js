@@ -383,174 +383,66 @@ app.post("/api/test-results/:owner/:repo/:branchSlug", (req, res) => {
   res.json({ ok: true });
 });
 
-// Serve the test harness page
+// Serve the test harness page — inline JS for comprehensive UI testing
 app.get("/test/:owner/:repo/:branchSlug", (req, res) => {
   const { owner, repo, branchSlug } = req.params;
   const previewUrl = "/preview/" + owner + "/" + repo + "/" + branchSlug + "/";
   const apiUrl = "/api/test-results/" + owner + "/" + repo + "/" + branchSlug;
+
+  // Load the full test harness from the external file
+  const harnessPath = path.join(__dirname, "test-harness.js");
+  let harnessJS = "";
+  try { harnessJS = fs.readFileSync(harnessPath, "utf8"); } catch (e) { harnessJS = "document.body.innerHTML='<h1>test-harness.js not found</h1>';"; }
 
   res.setHeader("Content-Type", "text/html");
   res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Test Harness — ${repo} / ${branchSlug}</title>
+<title>Full Run Test — ${repo} / ${branchSlug}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'Courier New',monospace;background:#0a0e17;color:#e0e0e0;padding:12px}
   h1{color:#edaf18;font-size:16px;margin-bottom:6px}
+  .controls{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+  .controls button{background:#edaf18;color:#000;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:bold;font-family:inherit;font-size:13px}
+  .controls button:hover{background:#ffc942}
+  .controls button.sec{background:#1a1e28;color:#edaf18;border:1px solid #edaf18}
+  .controls button.sec:hover{background:#2a2e38}
   #status{color:#60a5fa;font-size:13px;margin:6px 0}
-  #log{background:#111520;border:1px solid #222;border-radius:8px;padding:10px;height:350px;overflow-y:auto;font-size:11px;line-height:1.6;white-space:pre-wrap}
-  .e{color:#f87171} .w{color:#fbbf24} .ok{color:#4ade80} .i{color:#60a5fa} .s{color:#c084fc;font-weight:bold;margin-top:6px}
+  #progress{width:100%;height:4px;background:#1a1e28;border-radius:2px;margin:4px 0;overflow:hidden}
+  #progress-bar{height:100%;background:#edaf18;width:0%;transition:width 0.3s}
+  #log{background:#111520;border:1px solid #222;border-radius:8px;padding:10px;height:400px;overflow-y:auto;font-size:11px;line-height:1.6;white-space:pre-wrap}
+  .e{color:#f87171} .w{color:#fbbf24} .ok{color:#4ade80} .i{color:#60a5fa} .s{color:#c084fc;font-weight:bold;margin-top:8px}
+  .dim{color:#565250}
   iframe{width:100%;height:500px;border:1px solid #333;border-radius:8px;margin-top:8px;background:#000}
-  button{background:#edaf18;color:#000;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-weight:bold;font-family:inherit;margin:4px 2px}
-  button:hover{background:#ffc942}
-  .sum{margin-top:8px;padding:10px;border-radius:8px;font-weight:bold}
+  .sum{margin-top:8px;padding:10px;border-radius:8px;font-weight:bold;font-size:14px}
   .sum.pass{background:#064e3b;color:#4ade80;border:1px solid #4ade80}
   .sum.fail{background:#450a0a;color:#f87171;border:1px solid #f87171}
+  .stats{display:flex;gap:12px;margin:8px 0;font-size:12px}
+  .stat-box{padding:6px 12px;border-radius:6px;background:#1a1e28;border:1px solid #222}
+  .stat-box .num{font-size:18px;font-weight:bold}
+  .stat-box .lbl{color:#666;font-size:10px;text-transform:uppercase}
 </style>
 </head>
 <body>
-<h1>Test Harness — ${branchSlug}</h1>
-<button onclick="runTest()">Run Full Test</button>
-<button onclick="runTest(true)" style="background:#2a2e38;color:#edaf18;border:1px solid #edaf18">Quick Test (errors only)</button>
+<h1>\u26a1 Full Run Test — ${branchSlug}</h1>
+<div class="controls">
+  <button onclick="runFullTest()">Run Full Test</button>
+  <button class="sec" onclick="runQuickTest()">Quick Test</button>
+  <button class="sec" onclick="copyLog()">Copy Report</button>
+</div>
+<div id="progress"><div id="progress-bar"></div></div>
 <div id="status">Click "Run Full Test" to start</div>
+<div id="stats-row" class="stats" style="display:none"></div>
 <div id="log"></div>
 <div id="sum"></div>
 <iframe id="app" src="${previewUrl}"></iframe>
-
 <script>
-const L=document.getElementById('log'),S=document.getElementById('status'),SM=document.getElementById('sum');
-let full='',ec=0,wc=0;
-function log(m,c=''){const d=document.createElement('div');d.className=c;d.textContent=m;L.appendChild(d);L.scrollTop=L.scrollHeight;full+=m+'\\n'}
-function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
-
-async function runTest(quick){
-  L.innerHTML='';full='';ec=0;wc=0;SM.innerHTML='';
-  log('═══ RUNTIME TEST REPORT ═══','s');
-  log('Branch: ${branchSlug}');
-  log('Time: '+new Date().toISOString());
-  log('');
-
-  const iframe=document.getElementById('app');
-  S.textContent='Waiting for app to load...';
-
-  // Reload iframe fresh
-  iframe.src='${previewUrl}';
-  await new Promise(r=>{iframe.onload=r;setTimeout(r,15000)});
-  await sleep(3000);
-
-  let win,doc;
-  try{win=iframe.contentWindow;doc=iframe.contentDocument}catch(e){
-    log('FATAL: Cannot access iframe: '+e.message,'e');ec++;finish();return;
-  }
-  if(!doc||!doc.body){log('FATAL: No document','e');ec++;finish();return}
-
-  // Hook console
-  const errs=[],warns=[];
-  const origE=win.console.error,origW=win.console.warn;
-  win.console.error=function(...a){const m=a.map(x=>typeof x==='string'?x:(x?.message||x?.stack||String(x))).join(' ');errs.push(m);origE.apply(win.console,a)};
-  win.console.warn=function(...a){const m=a.map(x=>String(x)).join(' ');warns.push(m);origW.apply(win.console,a)};
-  win.addEventListener('error',e=>errs.push('Uncaught: '+e.message+' @ '+e.filename+':'+e.lineno));
-  win.addEventListener('unhandledrejection',e=>errs.push('UnhandledPromise: '+(e.reason?.message||e.reason)));
-
-  // Check initial render
-  log('--- PHASE 1: Initial Load ---','s');
-  const root=doc.getElementById('root');
-  const rLen=root?.innerHTML?.length||0;
-  if(rLen<100){log('FAIL: Root empty ('+rLen+' chars)','e');ec++}
-  else log('OK: Rendered '+rLen+' chars','ok');
-
-  // Check initial errors
-  if(errs.length>0){errs.forEach(e=>{log('INIT ERROR: '+e.substring(0,400),'e');ec++});errs.length=0}
-
-  // Tab test
-  log('','');log('--- PHASE 2: Tab Navigation ---','s');
-  const tabs=[
-    ['tracker','Tracker'],['events','Events'],['calculator','Calc'],
-    ['planner','Plan'],['analytics','Stats'],['gathering','Collection'],
-    ['teams','Teams'],['profile','Profile']
-  ];
-
-  for(const [id,label] of tabs){
-    S.textContent='Testing: '+label+'...';
-    errs.length=0;warns.length=0;
-
-    // Find tab button by id or text
-    let btn=doc.getElementById('tab-'+id);
-    if(!btn){const all=[...doc.querySelectorAll('button')];btn=all.find(b=>b.textContent.trim().toLowerCase().includes(label.toLowerCase()))}
-    if(!btn){log('SKIP: No "'+label+'" button found','w');wc++;continue}
-
-    btn.click();
-    await sleep(quick?1000:2500);
-
-    // Check panel
-    const panel=doc.getElementById('tabpanel-'+id);
-    const pLen=panel?.innerHTML?.length||0;
-
-    if(errs.length>0){
-      errs.forEach(e=>{log('ERROR ['+label+']: '+e.substring(0,400),'e');ec++});
-    }
-    if(!panel||pLen<50){log('FAIL ['+label+']: Panel empty/missing ('+pLen+' chars)','e');ec++}
-    else log('OK ['+label+']: '+pLen+' chars','ok');
-
-    // Non-react warnings
-    if(!quick){
-      const rw=warns.filter(w=>!w.includes('React does not recognize')&&!w.includes('componentWill'));
-      rw.slice(0,2).forEach(w=>{log('WARN ['+label+']: '+w.substring(0,200),'w');wc++});
-    }
-  }
-
-  if(!quick){
-    log('','');log('--- PHASE 3: Interaction Smoke ---','s');
-    errs.length=0;
-
-    // Switch back to tracker (roundtrip test)
-    const tb=doc.getElementById('tab-tracker')||[...doc.querySelectorAll('button')].find(b=>b.textContent.includes('Tracker'));
-    if(tb){tb.click();await sleep(1500)}
-    if(errs.length>0){errs.forEach(e=>{log('ERROR [roundtrip]: '+e.substring(0,400),'e');ec++})}
-    else log('OK: Tab roundtrip works','ok');
-
-    // Try clicking some interactive elements
-    errs.length=0;
-    const calcBtn=doc.getElementById('tab-calculator')||[...doc.querySelectorAll('button')].find(b=>b.textContent.includes('Calc'));
-    if(calcBtn){
-      calcBtn.click();await sleep(2000);
-      // Try changing an input
-      const inputs=doc.querySelectorAll('#tabpanel-calculator input[type="number"]');
-      if(inputs.length>0){
-        const inp=inputs[0];
-        const nativeSet=Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype,'value').set;
-        nativeSet.call(inp,'100');
-        inp.dispatchEvent(new win.Event('input',{bubbles:true}));
-        inp.dispatchEvent(new win.Event('change',{bubbles:true}));
-        await sleep(1500);
-      }
-      if(errs.length>0){errs.forEach(e=>{log('ERROR [calc interaction]: '+e.substring(0,400),'e');ec++})}
-      else log('OK: Calculator input interaction','ok');
-    }
-  }
-
-  finish();
-}
-
-async function finish(){
-  log('','');log('═══════════════════════════════════════','s');
-  log('TOTAL: '+ec+' errors, '+wc+' warnings',ec>0?'e':'ok');
-  log('═══════════════════════════════════════','s');
-  SM.className='sum '+(ec===0?'pass':'fail');
-  SM.textContent=ec===0?'ALL PASSED — 0 errors, '+wc+' warnings':ec+' ERRORS, '+wc+' warnings';
-  S.textContent='Done!';
-
-  // Post results to API so Claude can fetch them
-  try{
-    await fetch('${apiUrl}',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({status:'done',errors:full.split('\\n').filter(l=>l.startsWith('ERROR')||l.startsWith('FAIL')||l.startsWith('FATAL')||l.startsWith('INIT ERROR')),warnings:full.split('\\n').filter(l=>l.startsWith('WARN')||l.startsWith('SKIP')),errorCount:ec,warningCount:wc,fullLog:full,timestamp:Date.now()})
-    });
-    log('\\nResults posted to API ✓','i');
-  }catch(e){log('Could not post results: '+e.message,'w')}
-}
+const PREVIEW_URL='${previewUrl}';
+const API_URL='${apiUrl}';
+const BRANCH='${branchSlug}';
+${harnessJS}
 <\/script>
 </body>
 </html>`);
