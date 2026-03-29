@@ -187,6 +187,10 @@ function render() {
   if (S.view === "preview") {
     right.appendChild(el("button", { c: "bg bs", on: { click: function() { S.compareMode = !S.compareMode; S.compareBranch = ""; render(); } } }, S.compareMode ? "Single" : "Compare"));
     right.appendChild(el("button", { c: "bg bs", on: { click: function() { S.refreshKey++; render(); } } }, "\u21bb Refresh"));
+    right.appendChild(el("button", { c: "bp bs", on: { click: function() {
+      var slug = S.activeBranch.replace(/\//g, "__");
+      window.open("/test/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/" + slug, "_blank");
+    } } }, "\u26a1 Run Test"));
   }
   if (S.view !== "setup" && S.view !== "loading") {
     right.appendChild(el("button", { c: "bg bs", on: { click: function() {
