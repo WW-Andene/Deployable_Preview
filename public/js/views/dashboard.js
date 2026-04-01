@@ -7,7 +7,7 @@ DV.views.dashboard = function(app) {
     ct.appendChild(el("div", { s: { textAlign: "center", padding: "60px 0" } }, [
       el("div", { s: { fontSize: "40px", marginBottom: "16px", opacity: ".3" } }, "\u26a1"),
       el("h2", { s: { fontSize: "20px", fontWeight: "700", marginBottom: "10px" } }, "No repositories yet"),
-      el("p", { s: { color: "#565250", fontFamily: "monospace", fontSize: "13px", maxWidth: "440px", margin: "0 auto 24px", lineHeight: "1.6" } }, "Add a repo, pick branches \u2014 DeployView will clone, build, and serve them. Auto-rebuilds on every push."),
+      el("p", { s: { color: "var(--tx3)", fontFamily: "monospace", fontSize: "13px", maxWidth: "440px", margin: "0 auto 24px", lineHeight: "1.6" } }, "Add a repo, pick branches \u2014 DeployView will clone, build, and serve them. Auto-rebuilds on every push."),
       el("button", { c: "bp", on: { click: function() {
         S.repoUrl = ""; S.repoError = ""; S.fetchedBranches = []; S.selectedBranches = [];
         S.repoInfo = null; S.buildCommand = "npm run build"; S.outputDir = "dist"; S.baseDir = "";
@@ -22,8 +22,8 @@ DV.views.dashboard = function(app) {
         card.appendChild(el("div", { s: { display: "flex", justifyContent: "space-between", marginBottom: "14px" } }, [
           el("div", {}, [
             el("h3", { s: { fontSize: "15px", fontWeight: "700", wordBreak: "break-all" } }, repo.owner + "/" + repo.repo),
-            repo.description ? el("p", { s: { color: "#565250", fontSize: "12px", fontFamily: "monospace", marginTop: "4px" } }, repo.description) : null,
-            el("p", { s: { color: "#565250", fontSize: "11px", fontFamily: "monospace", marginTop: "4px" } }, "Build: " + (repo.buildCommand || "npm run build") + " \u2192 " + (repo.outputDir || "dist"))
+            repo.description ? el("p", { s: { color: "var(--tx3)", fontSize: "12px", fontFamily: "monospace", marginTop: "4px" } }, repo.description) : null,
+            el("p", { s: { color: "var(--tx3)", fontSize: "11px", fontFamily: "monospace", marginTop: "4px" } }, "Build: " + (repo.buildCommand || "npm run build") + " \u2192 " + (repo.outputDir || "dist"))
           ]),
           el("button", { c: "bd bs", on: { click: function() {
             api("DELETE", "/api/repos/" + repo.owner + "/" + repo.repo).then(DV.loadRepos);
@@ -39,12 +39,12 @@ DV.views.dashboard = function(app) {
             var branchMode = bs.mode || "static";
             var label = branchName + (branchBaseDir ? " \u2192 " + branchBaseDir : "") + (branchMode === "server" ? " [server]" : "");
             var previewUrl = "/preview/" + repo.owner + "/" + repo.repo + "/" + slug + "/";
-            var row = el("div", { s: { background: "#0b0c10", borderRadius: "10px", padding: "12px", border: "1.5px solid rgba(255,255,255,.06)", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "8px" } }, [
+            var row = el("div", { s: { background: "var(--bg)", borderRadius: "10px", padding: "12px", border: "1.5px solid var(--border)", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "8px" } }, [
               el("div", { s: { minWidth: "100px", display: "flex", alignItems: "center", gap: "8px" } }, [
                 el("span", { c: statusClass(bs.status) }),
-                el("span", { c: "btag", s: { background: bs.status === "ready" ? "rgba(72,176,136,.1)" : bs.status === "running" ? "rgba(91,159,212,.1)" : bs.status === "building" ? "rgba(232,169,74,.1)" : bs.status === "error" ? "rgba(224,84,104,.1)" : "rgba(255,255,255,.05)", color: bs.status === "ready" ? "#48b088" : bs.status === "running" ? "#5b9fd4" : bs.status === "building" ? "#e8a94a" : bs.status === "error" ? "#e05468" : "#565250" } }, label)
+                el("span", { c: "btag", s: { background: bs.status === "ready" ? "var(--ok-dim)" : bs.status === "running" ? "var(--run-dim)" : bs.status === "building" ? "var(--accent-dim)" : bs.status === "error" ? "var(--err-dim)" : "var(--border)", color: bs.status === "ready" ? "var(--ok)" : bs.status === "running" ? "var(--run)" : bs.status === "building" ? "var(--accent)" : bs.status === "error" ? "var(--err)" : "var(--tx3)" } }, label)
               ]),
-              el("span", { s: { fontFamily: "monospace", fontSize: "11px", color: "#565250", flex: "1" } },
+              el("span", { s: { fontFamily: "monospace", fontSize: "11px", color: "var(--tx3)", flex: "1" } },
                 bs.status === "building" ? (branchMode === "server" ? "Starting..." : "Building...") :
                 bs.status === "running" ? "Running \u2014 port " + (bs.serverPort || "?") :
                 bs.status === "ready" ? "Ready \u2014 " + previewUrl :

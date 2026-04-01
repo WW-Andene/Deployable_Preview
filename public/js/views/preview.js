@@ -8,11 +8,11 @@ DV.views.preview = function(app) {
   var url = baseUrl + S.activeBranch + "/";
   var cmpUrl = S.compareBranch ? baseUrl + S.compareBranch + "/" : "";
 
-  var ctrls = el("div", { s: { padding: "10px 16px", borderBottom: "1.5px solid rgba(255,255,255,.06)", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", background: "#13141a" } });
+  var ctrls = el("div", { s: { padding: "10px 16px", borderBottom: "1.5px solid var(--border)", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", background: "var(--sf1)" } });
 
   var slugs = Object.keys(repo.branchStatuses || {});
   var sel = document.createElement("select");
-  sel.style.cssText = "width:auto;min-width:150px;padding:8px;font-size:13px;font-family:monospace;background:#0b0c10;border:1.5px solid rgba(255,255,255,.06);color:#e4e0d8;border-radius:6px";
+  sel.style.cssText = "width:auto;min-width:150px;padding:8px;font-size:13px;font-family:monospace;background:var(--bg);border:1.5px solid var(--border);color:var(--tx1);border-radius:6px";
   for (var i = 0; i < slugs.length; i++) {
     var bsInfo = repo.branchStatuses[slugs[i]] || {};
     var label = bsInfo.branch + (bsInfo.baseDir ? " \u2192 " + bsInfo.baseDir : "");
@@ -23,7 +23,7 @@ DV.views.preview = function(app) {
   ctrls.appendChild(sel);
 
   if (S.compareMode) {
-    ctrls.appendChild(el("span", { s: { color: "#565250", fontFamily: "monospace", fontSize: "12px" } }, "vs"));
+    ctrls.appendChild(el("span", { s: { color: "var(--tx3)", fontFamily: "monospace", fontSize: "12px" } }, "vs"));
     var s2 = document.createElement("select"); s2.style.cssText = sel.style.cssText;
     s2.appendChild(el("option", { attr: { value: "" } }, "Select\u2026"));
     for (var i = 0; i < slugs.length; i++) {
@@ -58,7 +58,7 @@ DV.views.preview = function(app) {
 
     if ((S.addBranchMode || "static") === "server") {
       var startCmdInput = document.createElement("input");
-      startCmdInput.style.cssText = "padding:6px 10px;margin:4px 6px;font-size:12px;width:calc(100% - 12px);border-radius:4px;background:#0b0c10;border:1.5px solid rgba(91,159,212,.3);color:#e4e0d8;font-family:monospace;outline:none";
+      startCmdInput.style.cssText = "padding:6px 10px;margin:4px 6px;font-size:12px;width:calc(100% - 12px);border-radius:4px;background:var(--bg);border:1.5px solid var(--run-dim);color:var(--tx1);font-family:monospace;outline:none";
       startCmdInput.placeholder = "Start command (npm start)";
       startCmdInput.value = S.addBranchStartCmd || "";
       startCmdInput.addEventListener("input", function(e) { S.addBranchStartCmd = e.target.value; });
@@ -67,7 +67,7 @@ DV.views.preview = function(app) {
     }
 
     var rootDirInput = document.createElement("input");
-    rootDirInput.style.cssText = "padding:6px 10px;margin:4px 6px;font-size:12px;width:calc(100% - 12px);border-radius:4px;background:#0b0c10;border:1.5px solid rgba(232,169,74,.3);color:#e4e0d8;font-family:monospace;outline:none";
+    rootDirInput.style.cssText = "padding:6px 10px;margin:4px 6px;font-size:12px;width:calc(100% - 12px);border-radius:4px;background:var(--bg);border:1.5px solid var(--accent-mid);color:var(--tx1);font-family:monospace;outline:none";
     rootDirInput.placeholder = "Root dir (empty = repo root)";
     rootDirInput.value = S.addBranchBaseDir || "";
     rootDirInput.addEventListener("input", function(e) { S.addBranchBaseDir = e.target.value; });
@@ -75,7 +75,7 @@ DV.views.preview = function(app) {
     dd.appendChild(rootDirInput);
 
     var searchInput = document.createElement("input");
-    searchInput.style.cssText = "padding:6px 10px;margin:4px 6px;font-size:12px;width:calc(100% - 12px);border-radius:4px;background:#0b0c10;border:1.5px solid rgba(255,255,255,.06);color:#e4e0d8;font-family:monospace;outline:none";
+    searchInput.style.cssText = "padding:6px 10px;margin:4px 6px;font-size:12px;width:calc(100% - 12px);border-radius:4px;background:var(--bg);border:1.5px solid var(--border);color:var(--tx1);font-family:monospace;outline:none";
     searchInput.placeholder = "Filter branches...";
     searchInput.value = S.branchFilter;
     searchInput.addEventListener("input", function(e) { S.branchFilter = e.target.value; DV.render(); });
@@ -103,13 +103,13 @@ DV.views.preview = function(app) {
             e.stopPropagation();
             if (!isDuplicate) DV.addBranchToRepo(b, S.addBranchBaseDir || "", S.addBranchMode || "static", S.addBranchStartCmd || "");
           } } }, [
-            el("span", { s: { color: isDuplicate ? "#565250" : "#e8a94a", fontSize: "10px", flexShrink: "0" } }, isDuplicate ? "\u2713" : "+"),
+            el("span", { s: { color: isDuplicate ? "var(--tx3)" : "var(--accent)", fontSize: "10px", flexShrink: "0" } }, isDuplicate ? "\u2713" : "+"),
             document.createTextNode(b),
-            pendingBaseDir ? el("span", { s: { color: "#565250", fontSize: "10px", marginLeft: "6px" } }, "\u2192 " + pendingBaseDir) : null
+            pendingBaseDir ? el("span", { s: { color: "var(--tx3)", fontSize: "10px", marginLeft: "6px" } }, "\u2192 " + pendingBaseDir) : null
           ]));
         })(filtered[i]);
       }
-      if (!filtered.length) dd.appendChild(el("div", { s: { padding: "10px 14px", color: "#565250", fontFamily: "monospace", fontSize: "12px" } }, "No matching branches"));
+      if (!filtered.length) dd.appendChild(el("div", { s: { padding: "10px 14px", color: "var(--tx3)", fontFamily: "monospace", fontSize: "12px" } }, "No matching branches"));
     }
     addBtnWrap.appendChild(dd);
 
@@ -132,12 +132,12 @@ DV.views.preview = function(app) {
   var bs = (repo.branchStatuses || {})[S.activeBranch] || {};
   ctrls.appendChild(el("div", { s: { flex: "1", display: "flex", alignItems: "center", gap: "6px" } }, [
     el("span", { c: statusClass(bs.status) }),
-    el("span", { s: { fontFamily: "monospace", fontSize: "11px", color: (bs.status === "ready" || bs.status === "running") ? "#48b088" : "#565250" } }, (bs.status === "ready" || bs.status === "running") ? url : (bs.status || "idle"))
+    el("span", { s: { fontFamily: "monospace", fontSize: "11px", color: (bs.status === "ready" || bs.status === "running") ? "var(--ok)" : "var(--tx3)" } }, (bs.status === "ready" || bs.status === "running") ? url : (bs.status || "idle"))
   ]));
   app.appendChild(ctrls);
 
   // View toggles
-  var ratioBar = el("div", { s: { padding: "8px 16px", borderBottom: "1.5px solid rgba(255,255,255,.06)", display: "flex", gap: "6px", flexWrap: "wrap" } });
+  var ratioBar = el("div", { s: { padding: "8px 16px", borderBottom: "1.5px solid var(--border)", display: "flex", gap: "6px", flexWrap: "wrap" } });
   var presetKeys = Object.keys(VIEW_PRESETS);
   for (var pi = 0; pi < presetKeys.length; pi++) {
     (function(key) {
@@ -164,7 +164,7 @@ DV.views.preview = function(app) {
     f.appendChild(el("div", { c: "frame-label" }, [
       el("span", { c: statusClass(src ? "ready" : "idle") }),
       el("span", { s: color ? { color: color } : {} }, label),
-      el("span", { s: { marginLeft: "auto", fontSize: "10px", color: "#565250" } }, preset.res)
+      el("span", { s: { marginLeft: "auto", fontSize: "10px", color: "var(--tx3)" } }, preset.res)
     ]));
     var body = el("div", { c: "frame-body", s: { width: pixelW + "px", height: pixelH + "px", transform: sc !== 1 ? "scale(" + sc + ")" : "none", transformOrigin: "top left" } });
     if (src && (bs.status === "ready" || bs.status === "running")) {
@@ -172,11 +172,11 @@ DV.views.preview = function(app) {
       iframe.src = src + "?_r=" + S.refreshKey; iframe.title = label;
       iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups allow-modals");
       iframe.style.cssText = "border:none;width:" + pixelW + "px;height:" + pixelH + "px;display:block;";
-      var loader = el("div", { s: { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", background: "#09090b", zIndex: "2", transition: "opacity .3s" } }, [el("span", { c: "spin" })]);
+      var loader = el("div", { s: { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)", zIndex: "2", transition: "opacity .3s" } }, [el("span", { c: "spin" })]);
       iframe.onload = function() { loader.style.opacity = "0"; setTimeout(function() { if (loader.parentNode) loader.remove(); }, 300); };
       body.appendChild(iframe); body.appendChild(loader);
     } else {
-      body.appendChild(el("div", { s: { display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "#565250", fontFamily: "monospace", fontSize: "13px" } }, bs.status === "building" ? "Building..." : "Not built yet"));
+      body.appendChild(el("div", { s: { display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--tx3)", fontFamily: "monospace", fontSize: "13px" } }, bs.status === "building" ? "Building..." : "Not built yet"));
     }
     if (sc !== 1) {
       var wrapper = el("div", { s: { width: Math.floor(pixelW * sc) + "px", height: Math.floor(pixelH * sc) + "px", overflow: "hidden" } });
@@ -189,8 +189,8 @@ DV.views.preview = function(app) {
     activePresets.forEach(function(key) {
       var scrollWrap = el("div", { s: { overflowX: "auto", overflowY: "hidden", paddingBottom: "8px" } });
       var row = el("div", { s: { display: "inline-flex", gap: "16px", flexWrap: "nowrap" } });
-      row.appendChild(makeFrame(key, url, S.activeBranch + " \u2014 " + VIEW_PRESETS[key].label, "#e8a94a"));
-      row.appendChild(makeFrame(key, S.compareBranch ? cmpUrl : "", S.compareBranch || "Select branch", "#5b9fd4"));
+            row.appendChild(makeFrame(key, url, S.activeBranch + " \u2014 " + VIEW_PRESETS[key].label, "var(--accent)"));
+      row.appendChild(makeFrame(key, S.compareBranch ? cmpUrl : "", S.compareBranch || "Select branch", "var(--run)"));
       scrollWrap.appendChild(row); container.appendChild(scrollWrap);
     });
   } else {

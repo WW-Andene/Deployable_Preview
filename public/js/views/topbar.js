@@ -7,7 +7,7 @@ DV.views.topbar = function(app) {
     left.appendChild(el("button", { c: "bg bs", on: { click: function() { S.view = "dashboard"; S.showBranchDropdown = false; DV.render(); } } }, "\u2190 Back"));
   }
   left.appendChild(el("span", { s: { fontWeight: "800", fontSize: "17px", letterSpacing: "-0.03em" } }, [
-    el("span", { s: { color: "#e8a94a" } }, "Deploy"), document.createTextNode("View")
+    el("span", { s: { color: "var(--accent)" } }, "Deploy"), document.createTextNode("View")
   ]));
 
   var right = el("div", { s: { display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" } });

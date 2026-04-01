@@ -8,7 +8,7 @@ DV.views.addRepo = function(app) {
   var ri = document.createElement("input"); ri.placeholder = "owner/repo or full GitHub URL"; ri.value = S.repoUrl;
   ri.addEventListener("input", function(e) { S.repoUrl = e.target.value; });
 
-  var es = el("span", { s: { color: "#e05468", fontSize: "12px", fontFamily: "monospace", display: "none" } });
+  var es = el("span", { s: { color: "var(--err)", fontSize: "12px", fontFamily: "monospace", display: "none" } });
   var fb = el("button", { c: "bp", on: { click: function() {
     es.style.display = "none";
     var c = S.repoUrl.trim().replace(/\.git$/, "").replace(/\/$/, "");
@@ -32,7 +32,7 @@ DV.views.addRepo = function(app) {
   if (S.fetchedBranches.length && S.repoInfo) {
     w.appendChild(el("div", { c: "card", s: { marginBottom: "18px" } }, [
       el("div", { s: { fontWeight: "700", fontSize: "14px" } }, S.repoInfo.owner + "/" + S.repoInfo.repo),
-      el("div", { s: { color: "#565250", fontSize: "12px", fontFamily: "monospace", marginTop: "4px" } }, S.repoInfo.description || "No description")
+      el("div", { s: { color: "var(--tx3)", fontSize: "12px", fontFamily: "monospace", marginTop: "4px" } }, S.repoInfo.description || "No description")
     ]));
 
     var bd = el("div", { s: { display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "6px" } });
@@ -55,7 +55,7 @@ DV.views.addRepo = function(app) {
     bdi.addEventListener("input", function(e) { S.baseDir = e.target.value; });
     w.appendChild(el("div", { s: { marginBottom: "14px" } }, [
       el("div", { c: "label", s: { marginBottom: "6px" } }, "App subdirectory"), bdi,
-      el("p", { s: { color: "#565250", fontSize: "11px", fontFamily: "monospace", marginTop: "4px" } }, "If your app is inside a subfolder")
+      el("p", { s: { color: "var(--tx3)", fontSize: "11px", fontFamily: "monospace", marginTop: "4px" } }, "If your app is inside a subfolder")
     ]));
 
     if (S.mode === "static") {
@@ -66,13 +66,13 @@ DV.views.addRepo = function(app) {
       var odi = document.createElement("input"); odi.value = S.outputDir; odi.placeholder = "dist";
       odi.addEventListener("input", function(e) { S.outputDir = e.target.value; });
       w.appendChild(el("div", { s: { marginBottom: "14px" } }, [el("div", { c: "label", s: { marginBottom: "6px" } }, "Output directory"), odi,
-        el("p", { s: { color: "#565250", fontSize: "11px", fontFamily: "monospace", marginTop: "4px" } }, "Common: dist, build, out, web-build")
+        el("p", { s: { color: "var(--tx3)", fontSize: "11px", fontFamily: "monospace", marginTop: "4px" } }, "Common: dist, build, out, web-build")
       ]));
     } else {
       var sci = document.createElement("input"); sci.value = S.startCommand; sci.placeholder = "npm start";
       sci.addEventListener("input", function(e) { S.startCommand = e.target.value; });
       w.appendChild(el("div", { s: { marginBottom: "14px" } }, [el("div", { c: "label", s: { marginBottom: "6px" } }, "Start command"), sci,
-        el("p", { s: { color: "#565250", fontSize: "11px", fontFamily: "monospace", marginTop: "4px" } }, "DeployView sets PORT env var automatically")
+        el("p", { s: { color: "var(--tx3)", fontSize: "11px", fontFamily: "monospace", marginTop: "4px" } }, "DeployView sets PORT env var automatically")
       ]));
     }
 
@@ -80,7 +80,7 @@ DV.views.addRepo = function(app) {
     evi.addEventListener("input", function(e) { S.envVars = e.target.value; });
     w.appendChild(el("div", { s: { marginBottom: "22px" } }, [
       el("div", { c: "label", s: { marginBottom: "6px" } }, "Environment variables"), evi,
-      el("p", { s: { color: "#565250", fontSize: "11px", fontFamily: "monospace", marginTop: "4px" } }, "One per line: KEY=value")
+      el("p", { s: { color: "var(--tx3)", fontSize: "11px", fontFamily: "monospace", marginTop: "4px" } }, "One per line: KEY=value")
     ]));
 
     w.appendChild(el("div", { s: { display: "flex", gap: "10px" } }, [
