@@ -1,0 +1,11 @@
+exclude:
+  - Claude_Skills
+  - Claude_Skills.zip
+  - node_modules
+  - workspace
+  - logs
+  - server
+  - package.json
+  - package-lock.json
+  - deployview.json
+  - README.md
