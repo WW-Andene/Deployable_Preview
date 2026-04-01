@@ -50,9 +50,9 @@ button{display:inline-flex;align-items:center;gap:7px;font-family:'Segoe UI',sys
 
 // View presets — FIXED sizes, never adapt
 var VIEW_PRESETS = {
+  "13t":   { w: 412,  h: 915,  label: "Xiaomi 13T",      res: "412 \u00d7 915 \u00b7 1220 \u00d7 2712 phys", scale: 0.9 },
   "9:16":  { w: 393,  h: 873,  label: "9:16 Portrait",  res: "393 \u00d7 873" },
-  "16:9":  { w: 1920, h: 1080, label: "16:9 Landscape",  res: "1920 \u00d7 1080" },
-  "13t":   { w: 412,  h: 915,  label: "Xiaomi 13T",      res: "412 \u00d7 915 \u00b7 1220 \u00d7 2712 phys" }
+  "16:9":  { w: 1920, h: 1080, label: "16:9 Landscape",  res: "1920 \u00d7 1080" }
 };
 
 var S = {
@@ -63,7 +63,7 @@ var S = {
   fetchedBranches: [], selectedBranches: [], repoInfo: null,
   buildCommand: "npm run build", outputDir: "dist", baseDir: "",
   activeRepo: null, activeBranch: "", compareBranch: "", compareMode: false,
-  activeViews: ["9:16", "16:9", "13t"],
+  activeViews: ["13t"],
   refreshKey: 0,
   pollTimer: null,
   showBranchDropdown: false,
@@ -529,6 +529,7 @@ function render() {
       var preset = VIEW_PRESETS[presetKey];
       var pixelW = preset.w;
       var pixelH = preset.h;
+      var sc = preset.scale || 1;
 
       var f = el("div", { c: "preview-frame" });
       f.appendChild(el("div", { c: "frame-label" }, [
@@ -537,9 +538,12 @@ function render() {
         el("span", { s: { marginLeft: "auto", fontSize: "10px", color: "#565250" } }, preset.res)
       ]));
 
+      // Inner body at full resolution, scaled down via transform
       var body = el("div", { c: "frame-body", s: {
         width: pixelW + "px",
-        height: pixelH + "px"
+        height: pixelH + "px",
+        transform: sc !== 1 ? "scale(" + sc + ")" : "none",
+        transformOrigin: "top left"
       } });
 
       if (src && bs.status === "ready") {
@@ -555,7 +559,15 @@ function render() {
       } else {
         body.appendChild(el("div", { s: { display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "#565250", fontFamily: "monospace", fontSize: "13px" } }, bs.status === "building" ? "Building..." : "Not built yet"));
       }
-      f.appendChild(body);
+
+      // Outer wrapper sized to scaled dimensions so layout doesn't overflow
+      if (sc !== 1) {
+        var wrapper = el("div", { s: { width: Math.floor(pixelW * sc) + "px", height: Math.floor(pixelH * sc) + "px", overflow: "hidden" } });
+        wrapper.appendChild(body);
+        f.appendChild(wrapper);
+      } else {
+        f.appendChild(body);
+      }
       return f;
     }
 
