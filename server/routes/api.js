@@ -1,0 +1,191 @@
+const express = require("express");
+const { exec } = require("child_process");
+const router = express.Router();
+
+const { getConfig, saveConfig, parseEnvVars } = require("../config");
+const { ghApi } = require("../github");
+const { buildStatus, branchSlug, buildKey, getBranchDir, deployBranch } = require("../build");
+const { runningServers, killServer } = require("../process");
+const { loadLog, logStreams } = require("../logs");
+
+// Token
+router.post("/token", (req, res) => {
+  const config = getConfig();
+  config.token = req.body.token || "";
+  saveConfig();
+  ghApi("/user", config.token)
+    .then((user) => res.json({ ok: true, user: user.login }))
+    .catch((e) => { config.token = ""; saveConfig(); res.status(401).json({ error: e.message }); });
+});
+
+router.get("/token", (req, res) => {
+  res.json({ hasToken: !!getConfig().token });
+});
+
+// GitHub branches
+router.get("/github/:owner/:repo/branches", async (req, res) => {
+  try {
+    const config = getConfig();
+    const branches = await ghApi("/repos/" + req.params.owner + "/" + req.params.repo + "/branches?per_page=100", config.token);
+    const info = await ghApi("/repos/" + req.params.owner + "/" + req.params.repo, config.token);
+    res.json({ branches: branches.map((b) => b.name), defaultBranch: info.default_branch, description: info.description });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Repos CRUD
+router.get("/repos", (req, res) => {
+  const config = getConfig();
+  const withStatus = config.repos.map((r) => {
+    const branchStatuses = {};
+    for (const bc of r.activeBranches || []) {
+      const slug = branchSlug(bc);
+      const srv = runningServers[buildKey(r.owner, r.repo, bc)];
+      branchStatuses[slug] = { ...(buildStatus[buildKey(r.owner, r.repo, bc)] || { status: "idle" }), branch: bc.branch, baseDir: bc.baseDir || "", buildCommand: bc.buildCommand || "", outputDir: bc.outputDir || "", mode: bc.mode || "static", startCommand: bc.startCommand || "", envVars: bc.envVars || "", serverPort: srv ? srv.port : null };
+    }
+    return { ...r, branchStatuses };
+  });
+  res.json(withStatus);
+});
+
+router.post("/repos", (req, res) => {
+  const config = getConfig();
+  const { owner, repo, activeBranches, buildCommand, outputDir, baseDir, description, mode, startCommand, envVars } = req.body;
+  const id = owner + "/" + repo;
+  if (config.repos.some((r) => r.id === id)) return res.status(400).json({ error: "Already exists" });
+  const branchConfigs = (activeBranches || []).map((b) => {
+    if (typeof b === "object") return b;
+    return { branch: b, baseDir: baseDir || "", buildCommand: "", outputDir: "", mode: mode || "static", startCommand: startCommand || "", envVars: envVars || "" };
+  });
+  const newRepo = { id, owner, repo, activeBranches: branchConfigs, buildCommand: buildCommand || "npm run build", outputDir: outputDir || "dist", baseDir: baseDir || "", description: description || "", startCommand: startCommand || "" };
+  config.repos.push(newRepo);
+  saveConfig();
+  for (const bc of branchConfigs) deployBranch(newRepo, bc);
+  res.json(newRepo);
+});
+
+router.post("/repos/:owner/:repo/branch", (req, res) => {
+  const config = getConfig();
+  const { branch, baseDir, buildCommand, outputDir, mode, startCommand, envVars } = req.body;
+  if (!branch) return res.status(400).json({ error: "branch required" });
+  const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
+  if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
+  const bd = baseDir || "";
+  if (repoConfig.activeBranches.some((bc) => bc.branch === branch && (bc.baseDir || "") === bd))
+    return res.status(400).json({ error: "Branch with this root directory already active" });
+  const bc = { branch, baseDir: bd, buildCommand: buildCommand || "", outputDir: outputDir || "", mode: mode || "static", startCommand: startCommand || "", envVars: envVars || "" };
+  repoConfig.activeBranches.push(bc);
+  saveConfig();
+  deployBranch(repoConfig, bc);
+  res.json({ ok: true, activeBranches: repoConfig.activeBranches });
+});
+
+router.delete("/repos/:owner/:repo", (req, res) => {
+  const config = getConfig();
+  config.repos = config.repos.filter((r) => r.id !== req.params.owner + "/" + req.params.repo);
+  saveConfig();
+  res.json({ ok: true });
+});
+
+router.delete("/repos/:owner/:repo/branch", (req, res) => {
+  const config = getConfig();
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: "slug query param required" });
+  const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
+  if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
+  const idx = repoConfig.activeBranches.findIndex((bc) => branchSlug(bc) === slug);
+  if (idx === -1) return res.status(404).json({ error: "Branch config not found" });
+  const bc = repoConfig.activeBranches[idx];
+  const key = buildKey(req.params.owner, req.params.repo, bc);
+  killServer(key);
+  delete buildStatus[key];
+  const dir = getBranchDir(req.params.owner, req.params.repo, bc);
+  exec("rm -rf " + JSON.stringify(dir), () => {});
+  repoConfig.activeBranches.splice(idx, 1);
+  saveConfig();
+  res.json({ ok: true, activeBranches: repoConfig.activeBranches });
+});
+
+// Stop server
+router.post("/stop/:owner/:repo", (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: "slug query param required" });
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  if (runningServers[key]) { runningServers[key].manualStop = true; killServer(key); }
+  if (buildStatus[key]) buildStatus[key].status = "stopped";
+  res.json({ ok: true });
+});
+
+// Edit branch config
+router.put("/repos/:owner/:repo/branch", (req, res) => {
+  const config = getConfig();
+  const { slug, baseDir, buildCommand, outputDir, mode, startCommand, envVars } = req.body;
+  if (!slug) return res.status(400).json({ error: "slug required" });
+  const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
+  if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
+  const bc = repoConfig.activeBranches.find((b) => branchSlug(b) === slug);
+  if (!bc) return res.status(404).json({ error: "Branch config not found" });
+  if (baseDir !== undefined) bc.baseDir = baseDir;
+  if (buildCommand !== undefined) bc.buildCommand = buildCommand;
+  if (outputDir !== undefined) bc.outputDir = outputDir;
+  if (mode !== undefined) bc.mode = mode;
+  if (startCommand !== undefined) bc.startCommand = startCommand;
+  if (envVars !== undefined) bc.envVars = envVars;
+  saveConfig();
+  res.json({ ok: true, branch: bc });
+});
+
+// Webhook
+router.post("/webhook", (req, res) => {
+  const config = getConfig();
+  if (req.headers["x-github-event"] !== "push") return res.json({ ok: true, skipped: true });
+  const ref = (req.body.ref || "").replace("refs/heads/", "");
+  const fullName = req.body.repository && req.body.repository.full_name;
+  if (!ref || !fullName) return res.status(400).json({ error: "Invalid payload" });
+  const [owner, repo] = fullName.split("/");
+  const repoConfig = config.repos.find((r) => r.owner === owner && r.repo === repo);
+  if (!repoConfig) return res.json({ ok: true, skipped: true });
+  let triggered = 0;
+  for (const bc of repoConfig.activeBranches) { if (bc.branch === ref) { deployBranch(repoConfig, bc); triggered++; } }
+  console.log("[WEBHOOK] " + fullName + ":" + ref + " — " + triggered + " build(s)");
+  res.json({ ok: true, triggered });
+});
+
+// SSE log stream
+router.get("/logs/stream", (req, res) => {
+  const key = req.query.key || "";
+  res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+  res.write("data: " + JSON.stringify({ connected: true, key }) + "\n\n");
+  const stream = { res, key, closed: false };
+  logStreams.push(stream);
+  req.on("close", () => { stream.closed = true; });
+});
+
+// Build trigger
+router.post("/build/:owner/:repo", (req, res) => {
+  const config = getConfig();
+  const slug = req.query.slug || req.query.branch;
+  if (!slug) return res.status(400).json({ error: "slug query param required" });
+  const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
+  if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
+  const bc = repoConfig.activeBranches.find((b) => branchSlug(b) === slug);
+  if (!bc) return res.status(404).json({ error: "Branch config not found" });
+  deployBranch(repoConfig, bc);
+  res.json({ ok: true, message: (bc.mode === "server" ? "Server restart" : "Build") + " started" });
+});
+
+// Status & log
+router.get("/status/:owner/:repo", (req, res) => {
+  const slug = req.query.slug || req.query.branch || "";
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  res.json(buildStatus[key] || { status: "idle" });
+});
+
+router.get("/log/:owner/:repo", (req, res) => {
+  const slug = req.query.slug || req.query.branch || "";
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  const s = buildStatus[key];
+  const log = s && s.log ? s.log : loadLog(key);
+  res.type("text/plain").send(log || "No build log.");
+});
+
+module.exports = router;
