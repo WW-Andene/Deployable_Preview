@@ -73,6 +73,8 @@ var S = {
   addBranchBaseDir: ""
 };
 
+var _dropdownCloseHandler = null;
+
 function el(tag, props, kids) {
   var e = document.createElement(tag);
   if (props) {
@@ -169,6 +171,11 @@ function addBranchToRepo(branch, baseDir, mode, startCommand) {
 
 // Render
 function render() {
+  // Clean up stale dropdown close handler before rebuilding DOM
+  if (_dropdownCloseHandler) {
+    document.removeEventListener("click", _dropdownCloseHandler, true);
+    _dropdownCloseHandler = null;
+  }
   var app = document.getElementById("app"); app.innerHTML = "";
 
   // Topbar
@@ -439,7 +446,7 @@ function render() {
 
     // Add Branch button with dropdown
     var addBtnWrap = el("div", { s: { position: "relative" } });
-    var addBtn = el("button", { c: "bg bs", on: { click: function(evt) {
+    var addBtn = el("button", { c: "bg bs", attr: { "data-dd-toggle": "1" }, on: { click: function(evt) {
       evt.stopPropagation();
       S.showBranchDropdown = !S.showBranchDropdown;
       S.branchFilter = "";
@@ -524,16 +531,18 @@ function render() {
       }
       addBtnWrap.appendChild(dd);
 
-      // Close on outside click
+      // Close on outside click — use live DOM query to avoid stale refs after re-render
       setTimeout(function() {
-        function closeHandler(e) {
-          if (!addBtnWrap.contains(e.target)) {
-            S.showBranchDropdown = false;
-            document.removeEventListener("click", closeHandler, true);
-            render();
-          }
-        }
-        document.addEventListener("click", closeHandler, true);
+        _dropdownCloseHandler = function(e) {
+          var liveDropdown = document.querySelector('.add-branch-dropdown');
+          var liveBtn = e.target.closest && e.target.closest('[data-dd-toggle]');
+          if ((liveDropdown && liveDropdown.contains(e.target)) || liveBtn) return;
+          S.showBranchDropdown = false;
+          document.removeEventListener("click", _dropdownCloseHandler, true);
+          _dropdownCloseHandler = null;
+          render();
+        };
+        document.addEventListener("click", _dropdownCloseHandler, true);
       }, 10);
     }
     ctrls.appendChild(addBtnWrap);
