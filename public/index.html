@@ -33,6 +33,7 @@ button{display:inline-flex;align-items:center;gap:7px;font-family:'Segoe UI',sys
 .status-ready{background:#48b088}
 .status-error{background:#e05468}
 .status-idle{background:#565250}
+.status-running{background:#5b9fd4;animation:pu 2s infinite}
 @keyframes pu{0%,100%{opacity:1}50%{opacity:.4}}
 .scroll-container{overflow:auto;padding:16px}
 .add-branch-dropdown{position:absolute;top:100%;left:0;z-index:50;background:#13141a;border:1.5px solid rgba(255,255,255,.12);border-radius:8px;padding:6px 0;min-width:220px;max-height:280px;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.5)}
@@ -61,7 +62,7 @@ var S = {
   hasToken: false,
   repoUrl: "", repoError: "", repoLoading: false,
   fetchedBranches: [], selectedBranches: [], repoInfo: null,
-  buildCommand: "npm run build", outputDir: "dist", baseDir: "",
+  buildCommand: "npm run build", outputDir: "dist", baseDir: "", mode: "static", startCommand: "npm start",
   activeRepo: null, activeBranch: "", compareBranch: "", compareMode: false,
   activeViews: ["13t"],
   refreshKey: 0,
@@ -151,14 +152,16 @@ function fetchAvailableBranches() {
   }).catch(function() {});
 }
 
-function addBranchToRepo(branch, baseDir) {
+function addBranchToRepo(branch, baseDir, mode, startCommand) {
   if (!S.activeRepo) return;
-  api("POST", "/api/repos/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/branch", { branch: branch, baseDir: baseDir || "" }).then(function(r) {
+  api("POST", "/api/repos/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/branch", { branch: branch, baseDir: baseDir || "", mode: mode || "static", startCommand: startCommand || "" }).then(function(r) {
     if (r.ok) {
       S.activeRepo.activeBranches = r.activeBranches;
       S.showBranchDropdown = false;
       S.branchFilter = "";
       S.addBranchBaseDir = "";
+      S.addBranchMode = "static";
+      S.addBranchStartCmd = "";
       loadRepos();
     }
   });
@@ -183,6 +186,7 @@ function render() {
     right.appendChild(el("button", { c: "bp", on: { click: function() {
       S.repoUrl = ""; S.repoError = ""; S.fetchedBranches = []; S.selectedBranches = [];
       S.repoInfo = null; S.buildCommand = "npm run build"; S.outputDir = "dist"; S.baseDir = "";
+      S.mode = "static"; S.startCommand = "npm start";
       S.view = "addRepo"; render();
     } } }, "+ Add Repo"));
   }
@@ -263,7 +267,8 @@ function render() {
               var bs = repo.branchStatuses[slug] || { status: "idle" };
               var branchName = bs.branch || slug;
               var branchBaseDir = bs.baseDir || "";
-              var label = branchName + (branchBaseDir ? " \u2192 " + branchBaseDir : "");
+              var branchMode = bs.mode || "static";
+              var label = branchName + (branchBaseDir ? " \u2192 " + branchBaseDir : "") + (branchMode === "server" ? " [server]" : "");
               var previewUrl = "/preview/" + repo.owner + "/" + repo.repo + "/" + slug + "/";
               var row = el("div", { s: { background: "#0b0c10", borderRadius: "10px", padding: "12px", border: "1.5px solid rgba(255,255,255,.06)", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "8px" } }, [
                 el("div", { s: { minWidth: "100px", display: "flex", alignItems: "center", gap: "8px" } }, [
@@ -271,15 +276,16 @@ function render() {
                   el("span", { c: "btag", s: { background: bs.status === "ready" ? "rgba(72,176,136,.1)" : bs.status === "building" ? "rgba(232,169,74,.1)" : bs.status === "error" ? "rgba(224,84,104,.1)" : "rgba(255,255,255,.05)", color: bs.status === "ready" ? "#48b088" : bs.status === "building" ? "#e8a94a" : bs.status === "error" ? "#e05468" : "#565250" } }, label)
                 ]),
                 el("span", { s: { fontFamily: "monospace", fontSize: "11px", color: "#565250", flex: "1" } },
-                  bs.status === "building" ? "Building..." :
+                  bs.status === "building" ? (branchMode === "server" ? "Starting..." : "Building...") :
+                  bs.status === "running" ? "Running \u2014 port " + (bs.serverPort || "?") :
                   bs.status === "ready" ? "Ready \u2014 " + previewUrl :
-                  bs.status === "error" ? "Build failed" : "Not built yet"
+                  bs.status === "error" ? (branchMode === "server" ? "Server failed" : "Build failed") : "Not started yet"
                 ),
                 el("button", { c: "bg bs", on: { click: function() {
                   api("POST", "/api/build/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug));
                   loadRepos();
                 } } }, "\u27f3 Build"),
-                el("button", { c: "bp bs", s: { opacity: bs.status === "ready" ? "1" : ".4", pointerEvents: bs.status === "ready" ? "auto" : "none" }, on: { click: function() {
+                el("button", { c: "bp bs", s: { opacity: (bs.status === "ready" || bs.status === "running") ? "1" : ".4", pointerEvents: (bs.status === "ready" || bs.status === "running") ? "auto" : "none" }, on: { click: function() {
                   S.activeRepo = repo; S.activeBranch = slug; S.compareMode = false; S.compareBranch = ""; S.view = "preview"; render();
                 } } }, "\u25b6 Preview"),
                 el("button", { c: "bg bs", on: { click: function() {
@@ -341,6 +347,12 @@ function render() {
       }
       w.appendChild(el("div", { s: { marginBottom: "18px" } }, [el("div", { c: "label", s: { marginBottom: "6px" } }, "Branches to monitor"), bd]));
 
+      // Mode toggle: Static Build vs Running Server
+      var modeRow = el("div", { s: { display: "flex", gap: "8px", marginBottom: "18px" } });
+      modeRow.appendChild(el("div", { c: "chip" + (S.mode === "static" ? " on" : ""), on: { click: function() { S.mode = "static"; render(); } } }, "Static Build"));
+      modeRow.appendChild(el("div", { c: "chip" + (S.mode === "server" ? " on" : ""), on: { click: function() { S.mode = "server"; render(); } } }, "Running Server"));
+      w.appendChild(el("div", { s: { marginBottom: "14px" } }, [el("div", { c: "label", s: { marginBottom: "6px" } }, "Mode"), modeRow]));
+
       var bdi = document.createElement("input"); bdi.value = S.baseDir; bdi.placeholder = "Leave empty if package.json is at root";
       bdi.addEventListener("input", function(e) { S.baseDir = e.target.value; });
       w.appendChild(el("div", { s: { marginBottom: "14px" } }, [
@@ -349,17 +361,27 @@ function render() {
         el("p", { s: { color: "#565250", fontSize: "11px", fontFamily: "monospace", marginTop: "4px" } }, "If your app is inside a subfolder (e.g. whispering-wishes-replit)")
       ]));
 
-      var bci = document.createElement("input"); bci.value = S.buildCommand; bci.placeholder = "npm run build";
-      bci.addEventListener("input", function(e) { S.buildCommand = e.target.value; });
-      w.appendChild(el("div", { s: { marginBottom: "14px" } }, [el("div", { c: "label", s: { marginBottom: "6px" } }, "Build command"), bci]));
+      if (S.mode === "static") {
+        var bci = document.createElement("input"); bci.value = S.buildCommand; bci.placeholder = "npm run build";
+        bci.addEventListener("input", function(e) { S.buildCommand = e.target.value; });
+        w.appendChild(el("div", { s: { marginBottom: "14px" } }, [el("div", { c: "label", s: { marginBottom: "6px" } }, "Build command"), bci]));
 
-      var odi = document.createElement("input"); odi.value = S.outputDir; odi.placeholder = "dist";
-      odi.addEventListener("input", function(e) { S.outputDir = e.target.value; });
-      w.appendChild(el("div", { s: { marginBottom: "22px" } }, [
-        el("div", { c: "label", s: { marginBottom: "6px" } }, "Output directory"),
-        odi,
-        el("p", { s: { color: "#565250", fontSize: "11px", fontFamily: "monospace", marginTop: "4px" } }, "Common: dist, build, out, web-build")
-      ]));
+        var odi = document.createElement("input"); odi.value = S.outputDir; odi.placeholder = "dist";
+        odi.addEventListener("input", function(e) { S.outputDir = e.target.value; });
+        w.appendChild(el("div", { s: { marginBottom: "22px" } }, [
+          el("div", { c: "label", s: { marginBottom: "6px" } }, "Output directory"),
+          odi,
+          el("p", { s: { color: "#565250", fontSize: "11px", fontFamily: "monospace", marginTop: "4px" } }, "Common: dist, build, out, web-build")
+        ]));
+      } else {
+        var sci = document.createElement("input"); sci.value = S.startCommand; sci.placeholder = "npm start";
+        sci.addEventListener("input", function(e) { S.startCommand = e.target.value; });
+        w.appendChild(el("div", { s: { marginBottom: "22px" } }, [
+          el("div", { c: "label", s: { marginBottom: "6px" } }, "Start command"),
+          sci,
+          el("p", { s: { color: "#565250", fontSize: "11px", fontFamily: "monospace", marginTop: "4px" } }, "DeployView will set PORT env var automatically. e.g. node server.js, npm start")
+        ]));
+      }
 
       w.appendChild(el("div", { s: { display: "flex", gap: "10px" } }, [
         el("button", { c: "bg", on: { click: function() { S.view = "dashboard"; render(); } } }, "Cancel"),
@@ -369,9 +391,10 @@ function render() {
             owner: S.repoInfo.owner, repo: S.repoInfo.repo,
             activeBranches: S.selectedBranches,
             buildCommand: S.buildCommand, outputDir: S.outputDir,
-            baseDir: S.baseDir, description: S.repoInfo.description
+            baseDir: S.baseDir, description: S.repoInfo.description,
+            mode: S.mode, startCommand: S.startCommand
           }).then(function() { S.view = "dashboard"; loadRepos(); });
-        } } }, "\u2713 Add & Build")
+        } } }, S.mode === "server" ? "\u2713 Add & Start" : "\u2713 Add & Build")
       ]));
     }
     app.appendChild(w); return;
@@ -421,6 +444,8 @@ function render() {
       S.showBranchDropdown = !S.showBranchDropdown;
       S.branchFilter = "";
       S.addBranchBaseDir = "";
+      S.addBranchMode = "static";
+      S.addBranchStartCmd = "";
       if (S.showBranchDropdown && S.availableBranches.length === 0) fetchAvailableBranches();
       render();
     } } }, "+ Branch");
@@ -428,6 +453,23 @@ function render() {
 
     if (S.showBranchDropdown) {
       var dd = el("div", { c: "add-branch-dropdown" });
+
+      // Mode toggle in dropdown
+      var ddModeRow = el("div", { s: { display: "flex", gap: "4px", margin: "4px 6px" } });
+      ddModeRow.appendChild(el("div", { c: "chip" + ((S.addBranchMode || "static") === "static" ? " on" : ""), s: { fontSize: "10px", padding: "4px 10px" }, on: { click: function(e) { e.stopPropagation(); S.addBranchMode = "static"; render(); } } }, "Static"));
+      ddModeRow.appendChild(el("div", { c: "chip" + ((S.addBranchMode || "static") === "server" ? " on" : ""), s: { fontSize: "10px", padding: "4px 10px" }, on: { click: function(e) { e.stopPropagation(); S.addBranchMode = "server"; render(); } } }, "Server"));
+      dd.appendChild(ddModeRow);
+
+      // Start command input (only in server mode)
+      if ((S.addBranchMode || "static") === "server") {
+        var startCmdInput = document.createElement("input");
+        startCmdInput.style.cssText = "padding:6px 10px;margin:4px 6px;font-size:12px;width:calc(100% - 12px);border-radius:4px;background:#0b0c10;border:1.5px solid rgba(91,159,212,.3);color:#e4e0d8;font-family:monospace;outline:none";
+        startCmdInput.placeholder = "Start command (npm start)";
+        startCmdInput.value = S.addBranchStartCmd || "";
+        startCmdInput.addEventListener("input", function(e) { S.addBranchStartCmd = e.target.value; });
+        startCmdInput.addEventListener("click", function(e) { e.stopPropagation(); });
+        dd.appendChild(startCmdInput);
+      }
 
       // Root dir input for multi-root support
       var rootDirInput = document.createElement("input");
@@ -468,7 +510,7 @@ function render() {
             var isDuplicate = activeSet[b + ":" + pendingBaseDir];
             dd.appendChild(el("div", { c: "dd-item" + (isDuplicate ? " already" : ""), on: { click: function(e) {
               e.stopPropagation();
-              if (!isDuplicate) addBranchToRepo(b, S.addBranchBaseDir || "");
+              if (!isDuplicate) addBranchToRepo(b, S.addBranchBaseDir || "", S.addBranchMode || "static", S.addBranchStartCmd || "");
             } } }, [
               el("span", { s: { color: isDuplicate ? "#565250" : "#e8a94a", fontSize: "10px", flexShrink: "0" } }, isDuplicate ? "\u2713" : "+"),
               document.createTextNode(b),
