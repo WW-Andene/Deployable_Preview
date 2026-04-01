@@ -36,6 +36,15 @@
   --border-err: rgba(196,80,64,.25);
   --border-focus:rgba(212,160,48,.35);
 
+  /* Palette-hued shadows (never pure black) */
+  --shadow-inset: inset 0 1px 3px rgba(8,8,20,.35);
+  --shadow-sm:    0 1px 3px rgba(8,8,20,.30), 0 0 1px rgba(8,8,20,.15);
+  --shadow-md:    0 4px 12px rgba(8,8,20,.30), 0 1px 3px rgba(8,8,20,.15);
+  --shadow-lg:    0 8px 24px rgba(8,8,20,.35), 0 2px 6px rgba(8,8,20,.15);
+  --shadow-xl:    0 16px 48px rgba(8,8,20,.45), 0 4px 12px rgba(8,8,20,.20);
+  --shadow-drop:  0 12px 40px rgba(8,8,20,.50), 0 0 1px var(--border-h);
+  --shadow-modal: 0 24px 64px rgba(8,8,20,.55), 0 0 1px var(--border-h);
+
   /* Radius scale */
   --r-btn: 5px;
   --r-card: 8px;
@@ -90,12 +99,12 @@ input, select {
   border-radius: var(--r-input);
   outline: none;
   width: 100%;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,.25);
+  box-shadow: var(--shadow-inset);
   transition: border-color var(--dur-micro) var(--ease-fast), box-shadow var(--dur-micro) var(--ease-fast);
 }
 input:focus, select:focus {
   border-color: var(--border-focus);
-  box-shadow: inset 0 1px 3px rgba(0,0,0,.25), 0 0 0 3px var(--accent-dim), 0 0 20px var(--accent-glow);
+  box-shadow: var(--shadow-inset), 0 0 0 3px var(--accent-dim), 0 0 20px var(--accent-glow);
 }
 input::placeholder { color: var(--tx3); }
 
@@ -111,10 +120,10 @@ textarea {
   width: 100%;
   resize: vertical;
   min-height: 60px;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,.25);
+  box-shadow: var(--shadow-inset);
   transition: border-color var(--dur-micro) var(--ease-fast);
 }
-textarea:focus { border-color: var(--border-focus); box-shadow: inset 0 1px 3px rgba(0,0,0,.25), 0 0 0 3px var(--accent-dim); }
+textarea:focus { border-color: var(--border-focus); box-shadow: var(--shadow-inset), 0 0 0 3px var(--accent-dim); }
 
 /* ── Buttons — physical objects ── */
 button {
@@ -138,11 +147,11 @@ button:active { transform: translateY(1px) scale(0.97); transition: transform 40
   background: var(--accent);
   color: var(--bg);
   font-weight: 600;
-  box-shadow: 0 1px 3px rgba(0,0,0,.3);
+  box-shadow: var(--shadow-sm);
 }
 .bp:hover {
   background: var(--accent-h);
-  box-shadow: 0 2px 8px rgba(0,0,0,.3), 0 0 20px var(--accent-mid);
+  box-shadow: var(--shadow-md), 0 0 20px var(--accent-mid);
   transform: translateY(-1px);
 }
 
@@ -160,7 +169,7 @@ button:active { transform: translateY(1px) scale(0.97); transition: transform 40
   color: var(--err);
   border-left: 2px solid var(--err);
 }
-.bd:hover { background: rgba(196,80,64,.18); }
+.bd:hover { background: rgba(196,80,64,.18); border-left-color: var(--err); }
 
 /* Small */
 .bs { padding: calc(var(--sp) * 0.8) calc(var(--sp) * 1.5); font-size: 12px; }
@@ -177,7 +186,7 @@ button:active { transform: translateY(1px) scale(0.97); transition: transform 40
 .card:hover {
   transform: translateY(-2px);
   border-color: var(--border-h);
-  box-shadow: 0 8px 24px rgba(0,0,0,.25), 0 0 1px var(--border-h);
+  box-shadow: var(--shadow-lg);
 }
 
 /* ── Spinner — accent colored ── */
@@ -289,7 +298,7 @@ button:active { transform: translateY(1px) scale(0.97); transition: transform 40
   max-height: 320px;
   overflow-y: auto;
   line-height: 1.7;
-  box-shadow: inset 0 2px 6px rgba(0,0,0,.3);
+  box-shadow: inset 0 2px 6px rgba(8,8,20,.35);
 }
 
 /* ── Status dots — signal lights ── */
@@ -315,7 +324,7 @@ button:active { transform: translateY(1px) scale(0.97); transition: transform 40
   min-width: 260px;
   max-height: 340px;
   overflow-y: auto;
-  box-shadow: 0 12px 40px rgba(0,0,0,.5), 0 0 1px var(--border-h);
+  box-shadow: var(--shadow-drop);
   animation: dropIn var(--dur-enter) var(--ease-physical);
 }
 .dd-item {
@@ -354,7 +363,7 @@ button:active { transform: translateY(1px) scale(0.97); transition: transform 40
   max-width: 480px;
   max-height: 90vh;
   overflow-y: auto;
-  box-shadow: 0 24px 64px rgba(0,0,0,.5);
+  box-shadow: var(--shadow-modal);
   animation: modalIn var(--dur-enter) var(--ease-physical);
 }
 
@@ -370,6 +379,125 @@ button:active { transform: translateY(1px) scale(0.97); transition: transform 40
 ::-webkit-scrollbar-thumb:hover { background: var(--tx3); }
 
 /* ══════════════════════════════════════════════════
+   §COMPOSITION — Layout hierarchy
+   Per art-direction-engine §COMPOSITION:
+   gap BETWEEN sections = 3-5× gap WITHIN components
+   ══════════════════════════════════════════════════ */
+/* Dashboard repo header — the focal point */
+.repo-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: calc(var(--sp) * 2);
+  padding-bottom: calc(var(--sp) * 2);
+  border-bottom: 1px solid var(--border-accent);
+  margin-bottom: calc(var(--sp) * 2);
+}
+.repo-header h3 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.3;
+}
+.repo-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tx3);
+  margin-top: 4px;
+  letter-spacing: 0.01em;
+}
+
+/* Branch row — the core repeated element */
+.branch-row {
+  background: var(--bg);
+  border-radius: var(--r-input);
+  padding: calc(var(--sp) * 1.5) calc(var(--sp) * 2);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--sp) * 1.5);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp);
+  position: relative;
+  overflow: hidden;
+  transition: border-color var(--dur-enter) var(--ease-fast), background var(--dur-enter) var(--ease-fast);
+  min-height: 44px; /* touch target */
+}
+.branch-row:hover {
+  background: var(--sf1);
+  border-color: var(--border-h);
+}
+
+/* Stats bar — quick at-a-glance info */
+.stats-bar {
+  display: flex;
+  gap: calc(var(--sp) * 3);
+  padding: calc(var(--sp) * 1.5) 0;
+  margin-bottom: calc(var(--sp) * 2);
+}
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.stat-num {
+  font-family: var(--font-ui);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--tx1);
+  font-variant-numeric: tabular-nums;
+}
+.stat-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--tx3);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* ══════════════════════════════════════════════════
+   §TOUCH — Minimum 44px touch targets
+   Per app-audit and art-direction-engine §CHECK
+   ══════════════════════════════════════════════════ */
+button { min-height: 32px; }
+.bs { min-height: 28px; }
+@media (max-width: 600px) {
+  button { min-height: 44px; }
+  .bs { min-height: 36px; }
+  .dd-item { min-height: 44px; }
+  .chip { min-height: 36px; }
+}
+
+/* ══════════════════════════════════════════════════
+   §IDENTITY — Product-identifiable component
+   The "DeployView badge" — amber accent + mono label
+   in a distinctive pill that appears on every screen.
+   Recognizable from a single screenshot.
+   ══════════════════════════════════════════════════ */
+.dv-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px 3px 7px;
+  border-radius: var(--r-pill);
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+.dv-badge::before {
+  content: '\26A1';
+  font-size: 12px;
+}
+
+/* ══════════════════════════════════════════════════
    §FOCUS — Keyboard focus (accessibility + design)
    Per art-direction-engine §FOCUS: :focus-visible only
    ══════════════════════════════════════════════════ */
@@ -380,7 +508,7 @@ button:active { transform: translateY(1px) scale(0.97); transition: transform 40
 button:focus-visible { box-shadow: 0 0 0 2px var(--border-focus), 0 0 14px var(--accent-glow) !important; }
 input:focus-visible, textarea:focus-visible, select:focus-visible {
   border-color: var(--accent) !important;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,.25), 0 0 0 2px var(--border-focus), 0 0 14px var(--accent-glow) !important;
+  box-shadow: var(--shadow-inset), 0 0 0 2px var(--border-focus), 0 0 14px var(--accent-glow) !important;
 }
 
 /* ══════════════════════════════════════════════════
@@ -397,7 +525,7 @@ button:disabled, button[disabled] {
 }
 
 /* Primary hover: lift + glow emergence */
-.bp:active { background: #c09028; box-shadow: 0 1px 2px rgba(0,0,0,.4); }
+.bp:active { background: #c09028; box-shadow: 0 1px 2px rgba(8,8,20,.35); }
 
 /* Ghost active: surface press */
 .bg:active { background: var(--sf3); }
