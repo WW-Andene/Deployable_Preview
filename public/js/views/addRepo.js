@@ -92,7 +92,7 @@ DV.views.addRepo = function(app) {
           buildCommand: S.buildCommand, outputDir: S.outputDir, baseDir: S.baseDir,
           description: S.repoInfo.description, mode: S.mode, startCommand: S.startCommand, envVars: S.envVars
         }).then(function() { S.view = "dashboard"; DV.loadRepos(); });
-      } } }, S.mode === "server" ? "\u2713 Add & Start" : "\u2713 Add & Build")
+      } } }, S.mode === "server" ? "Add & Start" : "Add & Build")
     ]));
   }
   app.appendChild(w);

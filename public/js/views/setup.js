@@ -14,7 +14,7 @@ DV.views.setup = function(app) {
   } } }, "Connect");
 
   app.appendChild(el("div", { s: { maxWidth: "440px", margin: "0 auto", padding: "100px 20px", textAlign: "center" } }, [
-    el("div", { s: { fontSize: "52px", marginBottom: "20px", filter: "drop-shadow(0 0 30px var(--accent-glow))" } }, "\u26a1"),
+    el("div", { s: { fontSize: "32px", fontFamily: "var(--font-mono)", fontWeight: "700", color: "var(--accent)", marginBottom: "20px", textShadow: "0 0 30px var(--accent-glow)" } }, "DV"),
     el("h1", { s: { fontSize: "28px", fontWeight: "700", marginBottom: "6px", letterSpacing: "-0.04em" } }, [
       el("span", { s: { color: "var(--accent)" } }, "Deploy"),
       el("span", { s: { color: "var(--tx2)" } }, "View")

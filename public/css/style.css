@@ -493,8 +493,14 @@ button { min-height: 32px; }
   box-shadow: 0 0 10px var(--accent-glow);
 }
 .dv-badge::before {
-  content: '\26A1';
-  font-size: 12px;
+  content: 'DV';
+  font-size: 9px;
+  font-weight: 700;
+  background: var(--accent);
+  color: var(--bg);
+  padding: 1px 4px;
+  border-radius: 3px;
+  letter-spacing: 0.03em;
 }
 
 /* ══════════════════════════════════════════════════

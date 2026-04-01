@@ -6,7 +6,7 @@ DV.views.dashboard = function(app) {
 
   if (!S.repos.length) {
     ct.appendChild(el("div", { s: { textAlign: "center", padding: "100px 20px" } }, [
-      el("div", { s: { fontSize: "56px", marginBottom: "24px", filter: "drop-shadow(0 0 24px var(--accent-glow))" } }, "\u26a1"),
+      el("div", { s: { fontSize: "28px", fontFamily: "var(--font-mono)", fontWeight: "700", color: "var(--accent)", marginBottom: "24px", textShadow: "0 0 24px var(--accent-glow)" } }, "DV"),
       el("h2", { s: { fontSize: "24px", fontWeight: "700", marginBottom: "8px", letterSpacing: "-0.04em" } }, "Your workspace is ready"),
       el("p", { s: { color: "var(--tx2)", fontFamily: "var(--font-mono)", fontSize: "12px", maxWidth: "400px", margin: "0 auto 32px", lineHeight: "1.8", letterSpacing: "0.01em" } }, "Connect a repo, choose your branches, and DeployView handles the rest \u2014 clone, build, serve, auto-rebuild on push."),
       el("button", { c: "bp", s: { padding: "calc(var(--sp) * 1.5) calc(var(--sp) * 4)" }, on: { click: function() {
@@ -49,7 +49,7 @@ DV.views.dashboard = function(app) {
         header.appendChild(headerLeft);
         header.appendChild(el("button", { c: "bd bs", on: { click: function() {
           api("DELETE", "/api/repos/" + repo.owner + "/" + repo.repo).then(DV.loadRepos);
-        } } }, "\u2715"));
+        } } }, "x"));
         card.appendChild(header);
 
         var slugs = Object.keys(repo.branchStatuses || {});
@@ -89,24 +89,24 @@ DV.views.dashboard = function(app) {
             actions.appendChild(el("button", { c: "bg bs", on: { click: function() {
               api("POST", "/api/build/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug));
               DV.loadRepos();
-            } } }, branchMode === "server" ? "\u27f3" : "\u27f3"));
+            } } }, branchMode === "server" ? "R" : "R"));
             if (branchMode === "server" && bs.status === "running") {
               actions.appendChild(el("button", { c: "bg bs", on: { click: function() {
                 api("POST", "/api/stop/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(DV.loadRepos);
-              } } }, "\u25a0"));
+              } } }, "Stop"));
             }
             actions.appendChild(el("button", { c: "bp bs", s: { opacity: (bs.status === "ready" || bs.status === "running") ? "1" : ".35", pointerEvents: (bs.status === "ready" || bs.status === "running") ? "auto" : "none" }, on: { click: function() {
               S.activeRepo = repo; S.activeBranch = slug; S.compareMode = false; S.compareBranch = ""; S.view = "preview"; DV.render();
-            } } }, "\u25b6"));
+            } } }, "Go"));
             actions.appendChild(el("button", { c: "bg bs", on: { click: function() {
               S.logModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: repo.owner + "/" + repo.repo + ":" + slug }; DV.render();
-            } } }, "\ud83d\udccb"));
+            } } }, "Log"));
             actions.appendChild(el("button", { c: "bg bs", on: { click: function() {
               S.editModal = { owner: repo.owner, repo: repo.repo, slug: slug, branch: bs.branch, baseDir: bs.baseDir || "", buildCommand: bs.buildCommand || "", outputDir: bs.outputDir || "", mode: bs.mode || "static", startCommand: bs.startCommand || "", envVars: bs.envVars || "" }; DV.render();
-            } } }, "\u270e"));
+            } } }, "Edit"));
             actions.appendChild(el("button", { c: "bd bs", on: { click: function() {
               api("DELETE", "/api/repos/" + repo.owner + "/" + repo.repo + "/branch?slug=" + encodeURIComponent(slug)).then(DV.loadRepos);
-            } } }, "\u2715"));
+            } } }, "x"));
             row.appendChild(actions);
 
             card.appendChild(row);

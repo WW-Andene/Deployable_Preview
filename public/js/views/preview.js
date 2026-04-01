@@ -103,7 +103,7 @@ DV.views.preview = function(app) {
             e.stopPropagation();
             if (!isDuplicate) DV.addBranchToRepo(b, S.addBranchBaseDir || "", S.addBranchMode || "static", S.addBranchStartCmd || "");
           } } }, [
-            el("span", { s: { color: isDuplicate ? "var(--tx3)" : "var(--accent)", fontSize: "10px", flexShrink: "0" } }, isDuplicate ? "\u2713" : "+"),
+            el("span", { s: { color: isDuplicate ? "var(--tx3)" : "var(--accent)", fontSize: "10px", flexShrink: "0" } }, isDuplicate ? "ok" : "+"),
             document.createTextNode(b),
             pendingBaseDir ? el("span", { s: { color: "var(--tx3)", fontSize: "10px", marginLeft: "6px" } }, "\u2192 " + pendingBaseDir) : null
           ]));
@@ -183,7 +183,7 @@ DV.views.preview = function(app) {
         stateWrap.appendChild(loadWrap);
         stateWrap.appendChild(el("div", { s: { color: "var(--tx3)", fontFamily: "var(--font-mono)", fontSize: "10px", letterSpacing: "0.08em" } }, "BUILDING..."));
       } else {
-        stateWrap.appendChild(el("div", { s: { width: "32px", height: "32px", borderRadius: "50%", border: "1px solid var(--border-h)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--tx3)", fontSize: "14px" } }, "\u26a1"));
+        stateWrap.appendChild(el("div", { s: { width: "32px", height: "32px", borderRadius: "50%", border: "1px solid var(--border-h)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--tx3)", fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: "600" } }, "DV"));
         stateWrap.appendChild(el("div", { s: { color: "var(--tx3)", fontFamily: "var(--font-mono)", fontSize: "10px", letterSpacing: "0.08em" } }, "AWAITING BUILD"));
       }
       body.appendChild(stateWrap);
