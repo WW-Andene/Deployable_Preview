@@ -6,10 +6,10 @@ DV.views.dashboard = function(app) {
 
   if (!S.repos.length) {
     ct.appendChild(el("div", { s: { textAlign: "center", padding: "100px 20px" } }, [
-      el("div", { s: { fontSize: "28px", fontFamily: "var(--font-mono)", fontWeight: "700", color: "var(--accent)", marginBottom: "24px", textShadow: "0 0 24px var(--accent-glow)" } }, "DV"),
-      el("h2", { s: { fontSize: "24px", fontWeight: "700", marginBottom: "8px", letterSpacing: "-0.04em" } }, "Your workspace is ready"),
-      el("p", { s: { color: "var(--tx2)", fontFamily: "var(--font-mono)", fontSize: "12px", maxWidth: "400px", margin: "0 auto 32px", lineHeight: "1.8", letterSpacing: "0.01em" } }, "Connect a repo, choose your branches, and DeployView handles the rest \u2014 clone, build, serve, auto-rebuild on push."),
-      el("button", { c: "bp", s: { padding: "calc(var(--sp) * 1.5) calc(var(--sp) * 4)" }, on: { click: function() {
+      el("div", { s: { fontSize: "var(--text-3xl)", fontFamily: "var(--font-mono)", fontWeight: "700", color: "var(--accent)", marginBottom: "24px", textShadow: "0 0 24px var(--accent-glow)" } }, "DV"),
+      el("h2", { s: { fontSize: "var(--text-2xl)", fontWeight: "700", marginBottom: "8px", letterSpacing: "-0.04em" } }, "Deploy your first app"),
+      el("p", { s: { color: "var(--tx2)", fontFamily: "var(--font-mono)", fontSize: "12px", maxWidth: "400px", margin: "0 auto 32px", lineHeight: "1.8", letterSpacing: "0.01em" } }, "Pick a repo, choose branches, and DeployView handles the rest \u2014 clone, build, serve, auto-rebuild on push."),
+      el("button", { c: "bp", s: { padding: "10px 28px", fontSize: "14px" }, on: { click: function() {
         S.repoUrl = ""; S.repoError = ""; S.fetchedBranches = []; S.selectedBranches = [];
         S.repoInfo = null; S.buildCommand = "npm run build"; S.outputDir = "dist"; S.baseDir = "";
         S.mode = "static"; S.startCommand = "npm start"; S.envVars = "";
@@ -63,7 +63,7 @@ DV.views.dashboard = function(app) {
             var previewUrl = "/preview/" + repo.owner + "/" + repo.repo + "/" + slug + "/";
             var borderL = bs.status === "ready" ? "var(--ok)" : bs.status === "running" ? "var(--run)" : bs.status === "building" ? "var(--accent)" : bs.status === "error" ? "var(--err)" : "transparent";
 
-            var row = el("div", { c: "branch-row", s: { borderLeftColor: borderL } });
+            var row = el("div", { c: "branch-row stagger-in", s: { borderLeftColor: borderL } });
 
             // Branded sweep bar for building state
             if (bs.status === "building") {
