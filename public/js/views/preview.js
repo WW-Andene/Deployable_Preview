@@ -78,7 +78,16 @@ DV.views.preview = function(app) {
     searchInput.style.cssText = "padding:6px 10px;margin:4px 6px;font-size:12px;width:calc(100% - 12px);border-radius:4px;background:var(--bg);border:1.5px solid var(--border);color:var(--tx1);font-family:monospace;outline:none";
     searchInput.placeholder = "Filter branches...";
     searchInput.value = S.branchFilter;
-    searchInput.addEventListener("input", function(e) { S.branchFilter = e.target.value; DV.render(); });
+    searchInput.addEventListener("input", function(e) {
+      S.branchFilter = e.target.value;
+      // Filter in place without full re-render (preserves focus)
+      var items = dd.querySelectorAll('.dd-item');
+      var val = e.target.value.toLowerCase();
+      for (var fi = 0; fi < items.length; fi++) {
+        var txt = items[fi].textContent.toLowerCase();
+        items[fi].style.display = (!val || txt.indexOf(val) !== -1) ? '' : 'none';
+      }
+    });
     searchInput.addEventListener("click", function(e) { e.stopPropagation(); });
     dd.appendChild(searchInput);
 

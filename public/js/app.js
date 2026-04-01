@@ -111,7 +111,13 @@ function fetchAvailableBranches() {
 
 function addBranchToRepo(branch, baseDir, mode, startCommand) {
   if (!S.activeRepo) return;
-  api("POST", "/api/repos/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/branch", { branch: branch, baseDir: baseDir || "", mode: mode || "static", startCommand: startCommand || "" }).then(function(r) {
+  var body = { branch: branch, baseDir: baseDir || "", mode: mode || "static", startCommand: startCommand || "" };
+  fetch("/api/repos/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/branch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  }).then(function(res) { return res.json(); }).then(function(r) {
+    if (r.error) { alert("Error: " + r.error); return; }
     if (r.ok) {
       S.activeRepo.activeBranches = r.activeBranches;
       S.showBranchDropdown = false;
@@ -121,7 +127,7 @@ function addBranchToRepo(branch, baseDir, mode, startCommand) {
       S.addBranchStartCmd = "";
       loadRepos();
     }
-  });
+  }).catch(function(e) { alert("Failed to add branch: " + e.message); });
 }
 
 // View registry — populated by view files

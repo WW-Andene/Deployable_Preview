@@ -129,15 +129,17 @@ textarea:focus { border-color: var(--border-focus); box-shadow: var(--shadow-ins
 button {
   display: inline-flex;
   align-items: center;
-  gap: calc(var(--sp));
+  justify-content: center;
+  gap: 6px;
   font-family: var(--font-ui);
   font-size: 13px;
   font-weight: 500;
-  padding: calc(var(--sp) * 1.2) calc(var(--sp) * 2.5);
+  padding: 8px 16px;
   border-radius: var(--r-btn);
   border: none;
   cursor: pointer;
   letter-spacing: -0.01em;
+  white-space: nowrap;
   transition: background var(--dur-micro) var(--ease-fast), transform 50ms, box-shadow var(--dur-enter) var(--ease-physical);
 }
 button:active { transform: translateY(1px) scale(0.97); transition: transform 40ms; }
@@ -147,6 +149,7 @@ button:active { transform: translateY(1px) scale(0.97); transition: transform 40
   background: var(--accent);
   color: var(--bg);
   font-weight: 600;
+  padding: 8px 18px;
   box-shadow: var(--shadow-sm);
 }
 .bp:hover {
@@ -160,6 +163,7 @@ button:active { transform: translateY(1px) scale(0.97); transition: transform 40
   background: transparent;
   color: var(--tx2);
   border: 1px solid var(--border);
+  padding: 7px 14px;
 }
 .bg:hover { background: var(--sf2); color: var(--tx1); border-color: var(--border-h); }
 
@@ -167,12 +171,13 @@ button:active { transform: translateY(1px) scale(0.97); transition: transform 40
 .bd {
   background: var(--err-dim);
   color: var(--err);
-  border-left: 2px solid var(--err);
+  border: 1px solid rgba(196,80,64,.20);
+  padding: 7px 14px;
 }
-.bd:hover { background: rgba(196,80,64,.18); border-left-color: var(--err); }
+.bd:hover { background: rgba(196,80,64,.18); }
 
 /* Small */
-.bs { padding: calc(var(--sp) * 0.8) calc(var(--sp) * 1.5); font-size: 12px; }
+.bs { padding: 6px 10px; font-size: 12px; }
 
 /* ── Cards — glass surfaces with lift ── */
 .card {
@@ -659,12 +664,16 @@ button:disabled, button[disabled] {
 /* ── Mobile ── */
 @media (max-width: 600px) {
   :root { --sp: 6px; }
-  .topbar { padding: calc(var(--sp) * 1.2); }
-  button { font-size: 12px; }
-  .bs { padding: calc(var(--sp) * 0.6) calc(var(--sp)); font-size: 11px; }
-  .card { padding: calc(var(--sp) * 1.5); }
-  .btag { font-size: 10px; padding: 2px calc(var(--sp) * 0.8); }
-  .chip { font-size: 10px; padding: 2px calc(var(--sp) * 1.2); }
-  .modal { padding: calc(var(--sp) * 2); max-width: 100%; }
+  .topbar { padding: 8px 10px; }
+  button { font-size: 12px; padding: 8px 12px; }
+  .bs { padding: 6px 8px; font-size: 11px; }
+  .bp { padding: 8px 14px; }
+  .card { padding: 12px; }
+  .btag { font-size: 10px; padding: 2px 6px; }
+  .chip { font-size: 10px; padding: 4px 10px; }
+  .modal { padding: 14px; max-width: 100%; }
+  .stats-bar { gap: 14px; }
+  .stat-num { font-size: 18px; }
+  .branch-row { padding: 10px 12px; gap: 8px; }
   body::before { display: none; }
 }

@@ -22,13 +22,41 @@ router.get("/token", (req, res) => {
   res.json({ hasToken: !!getConfig().token });
 });
 
-// GitHub branches
+// GitHub branches — sorted by most recent commit
 router.get("/github/:owner/:repo/branches", async (req, res) => {
   try {
     const config = getConfig();
     const branches = await ghApi("/repos/" + req.params.owner + "/" + req.params.repo + "/branches?per_page=100", config.token);
     const info = await ghApi("/repos/" + req.params.owner + "/" + req.params.repo, config.token);
-    res.json({ branches: branches.map((b) => b.name), defaultBranch: info.default_branch, description: info.description });
+    // Sort: default branch first, then by commit date (newest first)
+    // GitHub branches API includes commit.sha — fetch dates for top branches
+    const withDates = branches.map((b) => ({
+      name: b.name,
+      sha: b.commit && b.commit.sha,
+      date: b.commit && b.commit.url ? null : null // placeholder
+    }));
+    // Fetch commit dates in parallel (limit to first 30 to avoid rate limits)
+    const toFetch = withDates.slice(0, 30);
+    try {
+      const dateResults = await Promise.all(toFetch.map((b) =>
+        ghApi("/repos/" + req.params.owner + "/" + req.params.repo + "/commits/" + b.sha, config.token)
+          .then((c) => ({ name: b.name, date: c.commit && c.commit.committer && c.commit.committer.date }))
+          .catch(() => ({ name: b.name, date: null }))
+      ));
+      const dateMap = {};
+      for (const d of dateResults) dateMap[d.name] = d.date;
+      withDates.forEach((b) => { b.date = dateMap[b.name] || null; });
+    } catch (e) { /* ignore date fetch errors, use unsorted */ }
+    // Sort: default branch first, then by date descending
+    withDates.sort((a, b) => {
+      if (a.name === info.default_branch) return -1;
+      if (b.name === info.default_branch) return 1;
+      if (a.date && b.date) return new Date(b.date) - new Date(a.date);
+      if (a.date) return -1;
+      if (b.date) return 1;
+      return a.name.localeCompare(b.name);
+    });
+    res.json({ branches: withDates.map((b) => b.name), defaultBranch: info.default_branch, description: info.description });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
