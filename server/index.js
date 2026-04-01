@@ -143,9 +143,9 @@ async function buildBranch(repoConfig, branchConfig) {
       }
     }
 
-    // Clean old build artifacts
+    // Clean old build artifacts (keep node_modules for speed)
     addLog("Cleaning...");
-    await runCmd("rm -rf node_modules dist build out web-build", workDir).catch(() => {});
+    await runCmd("rm -rf dist build out web-build", workDir).catch(() => {});
 
     // Install dependencies
     addLog("Installing dependencies...");
