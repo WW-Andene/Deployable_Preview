@@ -27,7 +27,27 @@ function saveConfig() {
 }
 
 loadConfig();
+migrateConfig();
 if (!fs.existsSync(WORKSPACE)) fs.mkdirSync(WORKSPACE, { recursive: true });
+
+// Migrate old config: convert activeBranches from string[] to object[]
+function migrateConfig() {
+  let changed = false;
+  for (const repo of config.repos || []) {
+    if (!repo.activeBranches || !repo.activeBranches.length) continue;
+    if (typeof repo.activeBranches[0] === "string") {
+      const defaultBaseDir = repo.baseDir || "";
+      repo.activeBranches = repo.activeBranches.map((b) => ({
+        branch: b,
+        baseDir: defaultBaseDir,
+        buildCommand: "",
+        outputDir: ""
+      }));
+      changed = true;
+    }
+  }
+  if (changed) saveConfig();
+}
 
 // ── GitHub API helper ──
 function ghApi(apiPath, token) {
@@ -52,8 +72,14 @@ function ghApi(apiPath, token) {
 }
 
 // ── Build logic ──
-function getBranchDir(owner, repo, branch) { return path.join(WORKSPACE, owner + "__" + repo + "__" + branch.replace(/\//g, "__")); }
-function buildKey(owner, repo, branch) { return owner + "/" + repo + ":" + branch; }
+function branchSlug(bc) {
+  if (typeof bc === "string") return bc.replace(/\//g, "__");
+  var slug = bc.branch.replace(/\//g, "__");
+  if (bc.baseDir) slug += "--" + bc.baseDir.replace(/\//g, "__");
+  return slug;
+}
+function getBranchDir(owner, repo, bc) { return path.join(WORKSPACE, owner + "__" + repo + "__" + branchSlug(bc)); }
+function buildKey(owner, repo, bc) { return owner + "/" + repo + ":" + branchSlug(bc); }
 
 function runCmd(cmd, cwd) {
   return new Promise((resolve, reject) => {
@@ -69,10 +95,11 @@ function runCmd(cmd, cwd) {
   });
 }
 
-async function buildBranch(repoConfig, branch) {
-  const { owner, repo, buildCommand, outputDir } = repoConfig;
-  const key = buildKey(owner, repo, branch);
-  const branchDir = getBranchDir(owner, repo, branch);
+async function buildBranch(repoConfig, branchConfig) {
+  const { owner, repo } = repoConfig;
+  const branch = branchConfig.branch;
+  const key = buildKey(owner, repo, branchConfig);
+  const branchDir = getBranchDir(owner, repo, branchConfig);
 
   buildStatus[key] = { status: "building", log: "", lastBuild: null, commitSha: "" };
   let log = "";
@@ -102,8 +129,8 @@ async function buildBranch(repoConfig, branch) {
     buildStatus[key].commitSha = sha;
     addLog("Commit: " + sha.slice(0, 7));
 
-    // Determine the actual working directory (baseDir support)
-    const baseDir = repoConfig.baseDir || "";
+    // Determine the actual working directory (baseDir support — per-branch override)
+    const baseDir = branchConfig.baseDir || repoConfig.baseDir || "";
     const workDir = baseDir ? path.join(branchDir, baseDir) : branchDir;
 
     if (baseDir) {
@@ -129,13 +156,13 @@ async function buildBranch(repoConfig, branch) {
       await runCmd("npm install", workDir);
     }
 
-    // Build
-    const cmd = buildCommand || "npm run build";
+    // Build (per-branch override > repo default > fallback)
+    const cmd = branchConfig.buildCommand || repoConfig.buildCommand || "npm run build";
     addLog("Building: " + cmd);
     await runCmd(cmd, workDir);
 
     // Determine output directory (search inside workDir, not repo root)
-    const outName = outputDir || "dist";
+    const outName = branchConfig.outputDir || repoConfig.outputDir || "dist";
     const outPath = path.join(workDir, outName);
     const altPaths = ["dist", "build", "out", "web-build", ".next/static", "public"];
 
@@ -171,16 +198,22 @@ async function buildBranch(repoConfig, branch) {
 async function pollForChanges() {
   if (!config.token) return;
   for (const repo of config.repos) {
-    for (const branch of repo.activeBranches || []) {
-      const key = buildKey(repo.owner, repo.repo, branch);
+    // Deduplicate: only poll each unique branch name once, then rebuild all configs for that branch
+    const branchNames = [...new Set((repo.activeBranches || []).map((bc) => bc.branch))];
+    for (const branch of branchNames) {
       try {
         const data = await ghApi("/repos/" + repo.owner + "/" + repo.repo + "/commits?sha=" + branch + "&per_page=1", config.token);
         const latest = data[0];
         if (!latest) continue;
-        const current = buildStatus[key];
-        if (current && current.commitSha && current.commitSha !== latest.sha && current.status !== "building") {
-          console.log("[POLL] New commit on " + key + ": " + latest.sha.slice(0, 7));
-          buildBranch(repo, branch);
+        // Rebuild all configs for this branch if new commit
+        for (const bc of repo.activeBranches) {
+          if (bc.branch !== branch) continue;
+          const key = buildKey(repo.owner, repo.repo, bc);
+          const current = buildStatus[key];
+          if (current && current.commitSha && current.commitSha !== latest.sha && current.status !== "building") {
+            console.log("[POLL] New commit on " + key + ": " + latest.sha.slice(0, 7));
+            buildBranch(repo, bc);
+          }
         }
       } catch (e) { /* ignore poll errors */ }
     }
@@ -220,8 +253,9 @@ app.get("/api/github/:owner/:repo/branches", async (req, res) => {
 app.get("/api/repos", (req, res) => {
   const withStatus = config.repos.map((r) => {
     const branchStatuses = {};
-    for (const b of r.activeBranches || []) {
-      branchStatuses[b] = buildStatus[buildKey(r.owner, r.repo, b)] || { status: "idle" };
+    for (const bc of r.activeBranches || []) {
+      const slug = branchSlug(bc);
+      branchStatuses[slug] = { ...(buildStatus[buildKey(r.owner, r.repo, bc)] || { status: "idle" }), branch: bc.branch, baseDir: bc.baseDir || "", buildCommand: bc.buildCommand || "", outputDir: bc.outputDir || "" };
     }
     return { ...r, branchStatuses };
   });
@@ -232,24 +266,33 @@ app.post("/api/repos", (req, res) => {
   const { owner, repo, activeBranches, buildCommand, outputDir, baseDir, description } = req.body;
   const id = owner + "/" + repo;
   if (config.repos.some((r) => r.id === id)) return res.status(400).json({ error: "Already exists" });
-  const newRepo = { id, owner, repo, activeBranches, buildCommand: buildCommand || "npm run build", outputDir: outputDir || "dist", baseDir: baseDir || "", description: description || "" };
+  // Convert branch names to branch config objects
+  const branchConfigs = (activeBranches || []).map((b) => {
+    if (typeof b === "object") return b;
+    return { branch: b, baseDir: baseDir || "", buildCommand: "", outputDir: "" };
+  });
+  const newRepo = { id, owner, repo, activeBranches: branchConfigs, buildCommand: buildCommand || "npm run build", outputDir: outputDir || "dist", baseDir: baseDir || "", description: description || "" };
   config.repos.push(newRepo);
   saveConfig();
-  // Trigger initial builds
-  for (const branch of activeBranches) buildBranch(newRepo, branch);
+  for (const bc of branchConfigs) buildBranch(newRepo, bc);
   res.json(newRepo);
 });
 
 // Add a single branch to an existing repo (used from preview view)
+// Allows the same branch with a different baseDir (for multi-root repos)
 app.post("/api/repos/:owner/:repo/branch", (req, res) => {
-  const { branch } = req.body;
+  const { branch, baseDir, buildCommand, outputDir } = req.body;
   if (!branch) return res.status(400).json({ error: "branch required" });
   const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
   if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
-  if (repoConfig.activeBranches.includes(branch)) return res.status(400).json({ error: "Branch already active" });
-  repoConfig.activeBranches.push(branch);
+  const bd = baseDir || "";
+  // Check for duplicate: same branch + same baseDir
+  const duplicate = repoConfig.activeBranches.some((bc) => bc.branch === branch && (bc.baseDir || "") === bd);
+  if (duplicate) return res.status(400).json({ error: "Branch with this root directory already active" });
+  const bc = { branch, baseDir: bd, buildCommand: buildCommand || "", outputDir: outputDir || "" };
+  repoConfig.activeBranches.push(bc);
   saveConfig();
-  buildBranch(repoConfig, branch);
+  buildBranch(repoConfig, bc);
   res.json({ ok: true, activeBranches: repoConfig.activeBranches });
 });
 
@@ -260,43 +303,53 @@ app.delete("/api/repos/:owner/:repo", (req, res) => {
   res.json({ ok: true });
 });
 
-// Trigger rebuild — branch via query param to handle slashes
-app.post("/api/build/:owner/:repo", (req, res) => {
-  const branch = req.query.branch;
-  if (!branch) return res.status(400).json({ error: "branch query param required" });
+// Remove a single branch config by slug
+app.delete("/api/repos/:owner/:repo/branch", (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: "slug query param required" });
   const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
   if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
-  buildBranch(repoConfig, branch);
+  const idx = repoConfig.activeBranches.findIndex((bc) => branchSlug(bc) === slug);
+  if (idx === -1) return res.status(404).json({ error: "Branch config not found" });
+  repoConfig.activeBranches.splice(idx, 1);
+  saveConfig();
+  res.json({ ok: true, activeBranches: repoConfig.activeBranches });
+});
+
+// Trigger rebuild — slug via query param (or legacy branch param)
+app.post("/api/build/:owner/:repo", (req, res) => {
+  const slug = req.query.slug || req.query.branch;
+  if (!slug) return res.status(400).json({ error: "slug query param required" });
+  const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
+  if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
+  const bc = repoConfig.activeBranches.find((b) => branchSlug(b) === slug);
+  if (!bc) return res.status(404).json({ error: "Branch config not found" });
+  buildBranch(repoConfig, bc);
   res.json({ ok: true, message: "Build started" });
 });
 
-// Build status — branch via query param
+// Build status — slug via query param
 app.get("/api/status/:owner/:repo", (req, res) => {
-  const branch = req.query.branch || "";
-  const key = buildKey(req.params.owner, req.params.repo, branch);
+  const slug = req.query.slug || req.query.branch || "";
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
   res.json(buildStatus[key] || { status: "idle" });
 });
 
-// Build log — branch via query param
+// Build log — slug via query param
 app.get("/api/log/:owner/:repo", (req, res) => {
-  const branch = req.query.branch || "";
-  const key = buildKey(req.params.owner, req.params.repo, branch);
+  const slug = req.query.slug || req.query.branch || "";
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
   const s = buildStatus[key];
   res.type("text/plain").send(s ? s.log : "No build log.");
 });
 
 // ── Serve built output ──
 // Look up the actual output path from buildStatus
-function findOutputDir(owner, repo, branchSlug) {
-  for (const key in buildStatus) {
-    const s = buildStatus[key];
-    if (!s.outputPath) continue;
-    const parts = key.split(":");
-    const repoId = parts[0];
-    const branch = parts.slice(1).join(":");
-    if (repoId === owner + "/" + repo && branch.replace(/\//g, "__") === branchSlug) {
-      return s.outputPath;
-    }
+function findOutputDir(owner, repo, slug) {
+  // Build key format: "owner/repo:slug"
+  const expectedKey = owner + "/" + repo + ":" + slug;
+  if (buildStatus[expectedKey] && buildStatus[expectedKey].outputPath) {
+    return buildStatus[expectedKey].outputPath;
   }
   return null;
 }
@@ -458,7 +511,7 @@ app.listen(PORT, () => {
   if (config.token && config.repos.length) {
     console.log("  Auto-building " + config.repos.length + " repo(s)...");
     for (const repo of config.repos) {
-      for (const branch of repo.activeBranches || []) buildBranch(repo, branch);
+      for (const bc of repo.activeBranches || []) buildBranch(repo, bc);
     }
   }
 });

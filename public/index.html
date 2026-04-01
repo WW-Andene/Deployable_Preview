@@ -68,7 +68,8 @@ var S = {
   pollTimer: null,
   showBranchDropdown: false,
   availableBranches: [],
-  branchFilter: ""
+  branchFilter: "",
+  addBranchBaseDir: ""
 };
 
 function el(tag, props, kids) {
@@ -150,13 +151,14 @@ function fetchAvailableBranches() {
   }).catch(function() {});
 }
 
-function addBranchToRepo(branch) {
+function addBranchToRepo(branch, baseDir) {
   if (!S.activeRepo) return;
-  api("POST", "/api/repos/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/branch", { branch: branch }).then(function(r) {
+  api("POST", "/api/repos/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/branch", { branch: branch, baseDir: baseDir || "" }).then(function(r) {
     if (r.ok) {
       S.activeRepo.activeBranches = r.activeBranches;
       S.showBranchDropdown = false;
       S.branchFilter = "";
+      S.addBranchBaseDir = "";
       loadRepos();
     }
   });
@@ -188,8 +190,7 @@ function render() {
     right.appendChild(el("button", { c: "bg bs", on: { click: function() { S.compareMode = !S.compareMode; S.compareBranch = ""; render(); } } }, S.compareMode ? "Single" : "Compare"));
     right.appendChild(el("button", { c: "bg bs", on: { click: function() { S.refreshKey++; render(); } } }, "\u21bb Refresh"));
     right.appendChild(el("button", { c: "bp bs", on: { click: function() {
-      var slug = S.activeBranch.replace(/\//g, "__");
-      window.open("/test/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/" + slug, "_blank");
+      window.open("/test/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/" + S.activeBranch, "_blank");
     } } }, "\u26a1 Run Test"));
   }
   if (S.view !== "setup" && S.view !== "loading") {
@@ -249,21 +250,25 @@ function render() {
             el("div", {}, [
               el("h3", { s: { fontSize: "15px", fontWeight: "700", wordBreak: "break-all" } }, repo.owner + "/" + repo.repo),
               repo.description ? el("p", { s: { color: "#565250", fontSize: "12px", fontFamily: "monospace", marginTop: "4px" } }, repo.description) : null,
-              el("p", { s: { color: "#565250", fontSize: "11px", fontFamily: "monospace", marginTop: "4px" } }, "Build: " + (repo.baseDir ? repo.baseDir + "/ \u2192 " : "") + repo.buildCommand + " \u2192 " + repo.outputDir)
+              el("p", { s: { color: "#565250", fontSize: "11px", fontFamily: "monospace", marginTop: "4px" } }, "Build: " + (repo.buildCommand || "npm run build") + " \u2192 " + (repo.outputDir || "dist"))
             ]),
             el("button", { c: "bd bs", on: { click: function() {
               api("DELETE", "/api/repos/" + repo.owner + "/" + repo.repo).then(loadRepos);
             } } }, "\u2715 Remove")
           ]));
 
-          for (var j = 0; j < (repo.activeBranches || []).length; j++) {
-            (function(branch) {
-              var bs = (repo.branchStatuses || {})[branch] || { status: "idle" };
-              var previewUrl = "/preview/" + repo.owner + "/" + repo.repo + "/" + branch.replace(/\//g, "__") + "/";
+          var slugs = Object.keys(repo.branchStatuses || {});
+          for (var j = 0; j < slugs.length; j++) {
+            (function(slug) {
+              var bs = repo.branchStatuses[slug] || { status: "idle" };
+              var branchName = bs.branch || slug;
+              var branchBaseDir = bs.baseDir || "";
+              var label = branchName + (branchBaseDir ? " \u2192 " + branchBaseDir : "");
+              var previewUrl = "/preview/" + repo.owner + "/" + repo.repo + "/" + slug + "/";
               var row = el("div", { s: { background: "#0b0c10", borderRadius: "10px", padding: "12px", border: "1.5px solid rgba(255,255,255,.06)", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "8px" } }, [
                 el("div", { s: { minWidth: "100px", display: "flex", alignItems: "center", gap: "8px" } }, [
                   el("span", { c: statusClass(bs.status) }),
-                  el("span", { c: "btag", s: { background: bs.status === "ready" ? "rgba(72,176,136,.1)" : bs.status === "building" ? "rgba(232,169,74,.1)" : bs.status === "error" ? "rgba(224,84,104,.1)" : "rgba(255,255,255,.05)", color: bs.status === "ready" ? "#48b088" : bs.status === "building" ? "#e8a94a" : bs.status === "error" ? "#e05468" : "#565250" } }, branch)
+                  el("span", { c: "btag", s: { background: bs.status === "ready" ? "rgba(72,176,136,.1)" : bs.status === "building" ? "rgba(232,169,74,.1)" : bs.status === "error" ? "rgba(224,84,104,.1)" : "rgba(255,255,255,.05)", color: bs.status === "ready" ? "#48b088" : bs.status === "building" ? "#e8a94a" : bs.status === "error" ? "#e05468" : "#565250" } }, label)
                 ]),
                 el("span", { s: { fontFamily: "monospace", fontSize: "11px", color: "#565250", flex: "1" } },
                   bs.status === "building" ? "Building..." :
@@ -271,18 +276,18 @@ function render() {
                   bs.status === "error" ? "Build failed" : "Not built yet"
                 ),
                 el("button", { c: "bg bs", on: { click: function() {
-                  api("POST", "/api/build/" + repo.owner + "/" + repo.repo + "?branch=" + encodeURIComponent(branch));
+                  api("POST", "/api/build/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug));
                   loadRepos();
                 } } }, "\u27f3 Build"),
                 el("button", { c: "bp bs", s: { opacity: bs.status === "ready" ? "1" : ".4", pointerEvents: bs.status === "ready" ? "auto" : "none" }, on: { click: function() {
-                  S.activeRepo = repo; S.activeBranch = branch; S.compareMode = false; S.compareBranch = ""; S.view = "preview"; render();
+                  S.activeRepo = repo; S.activeBranch = slug; S.compareMode = false; S.compareBranch = ""; S.view = "preview"; render();
                 } } }, "\u25b6 Preview"),
                 el("button", { c: "bg bs", on: { click: function() {
-                  fetch("/api/log/" + repo.owner + "/" + repo.repo + "?branch=" + encodeURIComponent(branch)).then(function(r) { return r.text(); }).then(function(t) { alert(t); });
+                  fetch("/api/log/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(function(r) { return r.text(); }).then(function(t) { alert(t); });
                 } } }, "\ud83d\udccb Log")
               ]);
               card.appendChild(row);
-            })(repo.activeBranches[j]);
+            })(slugs[j]);
           }
           ct.appendChild(card);
         })(S.repos[i]);
@@ -376,17 +381,20 @@ function render() {
   if (S.view === "preview" && S.activeRepo) {
     var repo = S.activeRepo;
     var baseUrl = "/preview/" + repo.owner + "/" + repo.repo + "/";
-    var url = baseUrl + S.activeBranch.replace(/\//g, "__") + "/";
-    var cmpUrl = S.compareBranch ? baseUrl + S.compareBranch.replace(/\//g, "__") + "/" : "";
+    var url = baseUrl + S.activeBranch + "/";
+    var cmpUrl = S.compareBranch ? baseUrl + S.compareBranch + "/" : "";
 
     // Controls bar
     var ctrls = el("div", { s: { padding: "10px 16px", borderBottom: "1.5px solid rgba(255,255,255,.06)", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", background: "#13141a" } });
 
+    var slugs = Object.keys(repo.branchStatuses || {});
     var sel = document.createElement("select");
-    sel.style.cssText = "width:150px;padding:8px;font-size:13px;font-family:monospace;background:#0b0c10;border:1.5px solid rgba(255,255,255,.06);color:#e4e0d8;border-radius:6px";
-    for (var i = 0; i < (repo.activeBranches || []).length; i++) {
-      var o = document.createElement("option"); o.value = repo.activeBranches[i]; o.textContent = repo.activeBranches[i];
-      if (repo.activeBranches[i] === S.activeBranch) o.selected = true; sel.appendChild(o);
+    sel.style.cssText = "width:auto;min-width:150px;padding:8px;font-size:13px;font-family:monospace;background:#0b0c10;border:1.5px solid rgba(255,255,255,.06);color:#e4e0d8;border-radius:6px";
+    for (var i = 0; i < slugs.length; i++) {
+      var bsInfo = repo.branchStatuses[slugs[i]] || {};
+      var label = bsInfo.branch + (bsInfo.baseDir ? " \u2192 " + bsInfo.baseDir : "");
+      var o = document.createElement("option"); o.value = slugs[i]; o.textContent = label;
+      if (slugs[i] === S.activeBranch) o.selected = true; sel.appendChild(o);
     }
     sel.addEventListener("change", function(e) { S.activeBranch = e.target.value; render(); });
     ctrls.appendChild(sel);
@@ -395,10 +403,12 @@ function render() {
       ctrls.appendChild(el("span", { s: { color: "#565250", fontFamily: "monospace", fontSize: "12px" } }, "vs"));
       var s2 = document.createElement("select"); s2.style.cssText = sel.style.cssText;
       s2.appendChild(el("option", { attr: { value: "" } }, "Select\u2026"));
-      for (var i = 0; i < (repo.activeBranches || []).length; i++) {
-        if (repo.activeBranches[i] === S.activeBranch) continue;
-        var o = document.createElement("option"); o.value = repo.activeBranches[i]; o.textContent = repo.activeBranches[i];
-        if (repo.activeBranches[i] === S.compareBranch) o.selected = true; s2.appendChild(o);
+      for (var i = 0; i < slugs.length; i++) {
+        if (slugs[i] === S.activeBranch) continue;
+        var bsInfo2 = repo.branchStatuses[slugs[i]] || {};
+        var label2 = bsInfo2.branch + (bsInfo2.baseDir ? " \u2192 " + bsInfo2.baseDir : "");
+        var o = document.createElement("option"); o.value = slugs[i]; o.textContent = label2;
+        if (slugs[i] === S.compareBranch) o.selected = true; s2.appendChild(o);
       }
       s2.addEventListener("change", function(e) { S.compareBranch = e.target.value; render(); });
       ctrls.appendChild(s2);
@@ -410,6 +420,7 @@ function render() {
       evt.stopPropagation();
       S.showBranchDropdown = !S.showBranchDropdown;
       S.branchFilter = "";
+      S.addBranchBaseDir = "";
       if (S.showBranchDropdown && S.availableBranches.length === 0) fetchAvailableBranches();
       render();
     } } }, "+ Branch");
@@ -417,6 +428,16 @@ function render() {
 
     if (S.showBranchDropdown) {
       var dd = el("div", { c: "add-branch-dropdown" });
+
+      // Root dir input for multi-root support
+      var rootDirInput = document.createElement("input");
+      rootDirInput.style.cssText = "padding:6px 10px;margin:4px 6px;font-size:12px;width:calc(100% - 12px);border-radius:4px;background:#0b0c10;border:1.5px solid rgba(232,169,74,.3);color:#e4e0d8;font-family:monospace;outline:none";
+      rootDirInput.placeholder = "Root dir (empty = repo root)";
+      rootDirInput.value = S.addBranchBaseDir || "";
+      rootDirInput.addEventListener("input", function(e) { S.addBranchBaseDir = e.target.value; });
+      rootDirInput.addEventListener("click", function(e) { e.stopPropagation(); });
+      dd.appendChild(rootDirInput);
+
       var searchInput = document.createElement("input");
       searchInput.style.cssText = "padding:6px 10px;margin:4px 6px;font-size:12px;width:calc(100% - 12px);border-radius:4px;background:#0b0c10;border:1.5px solid rgba(255,255,255,.06);color:#e4e0d8;font-family:monospace;outline:none";
       searchInput.placeholder = "Filter branches...";
@@ -428,19 +449,30 @@ function render() {
       if (S.availableBranches.length === 0) {
         dd.appendChild(el("div", { s: { padding: "12px 14px", textAlign: "center" } }, [el("span", { c: "spin" })]));
       } else {
+        // Build set of already active branch+baseDir combos
+        var activeSet = {};
+        var activeBranches = repo.activeBranches || [];
+        for (var ai = 0; ai < activeBranches.length; ai++) {
+          var abc = activeBranches[ai];
+          activeSet[(abc.branch || abc) + ":" + (abc.baseDir || "")] = true;
+        }
+
         var filtered = S.availableBranches.filter(function(b) {
           if (S.branchFilter) return b.toLowerCase().indexOf(S.branchFilter.toLowerCase()) !== -1;
           return true;
         });
         for (var i = 0; i < filtered.length; i++) {
           (function(b) {
-            var isActive = (repo.activeBranches || []).indexOf(b) !== -1;
-            dd.appendChild(el("div", { c: "dd-item" + (isActive ? " already" : ""), on: { click: function(e) {
+            // Check if this exact branch+baseDir combo is already active
+            var pendingBaseDir = S.addBranchBaseDir || "";
+            var isDuplicate = activeSet[b + ":" + pendingBaseDir];
+            dd.appendChild(el("div", { c: "dd-item" + (isDuplicate ? " already" : ""), on: { click: function(e) {
               e.stopPropagation();
-              if (!isActive) addBranchToRepo(b);
+              if (!isDuplicate) addBranchToRepo(b, S.addBranchBaseDir || "");
             } } }, [
-              el("span", { s: { color: isActive ? "#565250" : "#e8a94a", fontSize: "10px", flexShrink: "0" } }, isActive ? "\u2713" : "+"),
-              document.createTextNode(b)
+              el("span", { s: { color: isDuplicate ? "#565250" : "#e8a94a", fontSize: "10px", flexShrink: "0" } }, isDuplicate ? "\u2713" : "+"),
+              document.createTextNode(b),
+              pendingBaseDir ? el("span", { s: { color: "#565250", fontSize: "10px", marginLeft: "6px" } }, "\u2192 " + pendingBaseDir) : null
             ]));
           })(filtered[i]);
         }
@@ -464,7 +496,7 @@ function render() {
     }
     ctrls.appendChild(addBtnWrap);
 
-    // Status indicator
+    // Status indicator (slug-keyed)
     var bs = (repo.branchStatuses || {})[S.activeBranch] || {};
     ctrls.appendChild(el("div", { s: { flex: "1", display: "flex", alignItems: "center", gap: "6px" } }, [
       el("span", { c: statusClass(bs.status) }),
