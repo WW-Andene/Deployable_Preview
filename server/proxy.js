@@ -41,7 +41,7 @@ function proxyTo(port, req, res, stripPrefix) {
   req.pipe(proxyReq);
 }
 
-function serveIndex(outDir, res) {
+function serveIndex(outDir, res, previewBase) {
   const indexPath = path.join(outDir, "index.html");
   if (!fs.existsSync(indexPath)) {
     try {
@@ -51,6 +51,12 @@ function serveIndex(outDir, res) {
   }
   let html = fs.readFileSync(indexPath, "utf8");
   html = html.replace(/(src|href|content)="\/(?!\/)/g, '$1="./');
+
+  // Inject fetch/XHR interceptor so client fetch("/api/...") routes through the preview prefix
+  if (previewBase) {
+    const fetchShim = `<script>(function(){var B=window.fetch,P='${previewBase}';window.fetch=function(u,o){if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith('//'))u=P+u;return B.call(this,u,o);};var X=XMLHttpRequest.prototype.open,O=X;XMLHttpRequest.prototype.open=function(m,u){if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith('//'))u=P+u;return O.call(this,m,u);};})();<\/script>`;
+    html = html.replace(/<head([^>]*)>/i, '<head$1>' + fetchShim);
+  }
 
   const pwaShim = `<script>(function(){
 if(navigator.serviceWorker){var r=navigator.serviceWorker.register.bind(navigator.serviceWorker);

@@ -6,6 +6,7 @@ const router = express.Router();
 const { buildStatus } = require("../build");
 const { runningServers } = require("../process");
 const { proxyTo, serveIndex } = require("../proxy");
+const { executeHandler } = require("../serverless");
 
 function findOutputDir(owner, repo, slug) {
   const key = owner + "/" + repo + ":" + slug;
@@ -13,10 +14,54 @@ function findOutputDir(owner, repo, slug) {
   return null;
 }
 
+// Match a request path against serverless API routes
+function matchApiRoute(apiRoutes, reqPath) {
+  if (!apiRoutes) return null;
+  // Try exact match first
+  for (const route of apiRoutes) {
+    if (!route.isCatchAll && route.routePath === reqPath) return route;
+  }
+  // Try catch-all routes
+  for (const route of apiRoutes) {
+    if (route.isCatchAll) {
+      const prefix = route.routePath.replace("/*", "");
+      if (reqPath.startsWith(prefix + "/") || reqPath === prefix) return route;
+    }
+  }
+  return null;
+}
+
 // Helper: build the prefix to strip when proxying
 function previewPrefix(req) {
   return "/preview/" + req.params.owner + "/" + req.params.repo + "/" + req.params.branchSlug;
 }
+
+// Serverless API functions — must come before static serving
+router.use("/preview/:owner/:repo/:branchSlug/api", express.json(), (req, res, next) => {
+  const slug = req.params.branchSlug;
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  const status = buildStatus[key];
+
+  // Server mode: proxy to running process
+  const srv = runningServers[key];
+  if (srv && srv.status === "running") {
+    res.removeHeader("X-Frame-Options");
+    return proxyTo(srv.port, req, res, previewPrefix(req));
+  }
+
+  // Static mode: check for serverless functions
+  if (status && status.apiRoutes) {
+    const apiPath = "/api" + (req.path || "");
+    const route = matchApiRoute(status.apiRoutes, apiPath);
+    if (route) {
+      console.log("[SERVERLESS] " + req.method + " " + apiPath + " -> " + path.basename(route.filePath));
+      res.removeHeader("X-Frame-Options");
+      return executeHandler(route, status.envVars || {}, req, res);
+    }
+  }
+
+  next();
+});
 
 // Static assets / server proxy
 router.use("/preview/:owner/:repo/:branchSlug", (req, res, next) => {
@@ -29,7 +74,7 @@ router.use("/preview/:owner/:repo/:branchSlug", (req, res, next) => {
   const outDir = findOutputDir(req.params.owner, req.params.repo, slug);
   if (!outDir || !fs.existsSync(outDir)) return res.status(404).send("Not built yet.");
   const reqPath = req.path;
-  if (reqPath === "/" || reqPath === "" || (!path.extname(reqPath) && !reqPath.includes("."))) return serveIndex(outDir, res);
+  if (reqPath === "/" || reqPath === "" || (!path.extname(reqPath) && !reqPath.includes("."))) return serveIndex(outDir, res, previewPrefix(req));
   res.removeHeader("X-Frame-Options");
   express.static(outDir)(req, res, next);
 });
@@ -40,9 +85,21 @@ router.use("/preview/:owner/:repo/:branchSlug/*", (req, res) => {
   const key = req.params.owner + "/" + req.params.repo + ":" + slug;
   const srv = runningServers[key];
   if (srv && srv.status === "running") { res.removeHeader("X-Frame-Options"); return proxyTo(srv.port, req, res, previewPrefix(req)); }
+
+  // Check serverless API before SPA fallback
+  const status = buildStatus[key];
+  if (status && status.apiRoutes) {
+    const apiPath = req.originalUrl.replace(previewPrefix(req), "") || "/";
+    const route = matchApiRoute(status.apiRoutes, apiPath);
+    if (route) {
+      console.log("[SERVERLESS] " + req.method + " " + apiPath + " -> " + path.basename(route.filePath));
+      return executeHandler(route, status.envVars || {}, req, res);
+    }
+  }
+
   const outDir = findOutputDir(req.params.owner, req.params.repo, slug);
   if (!outDir) return res.status(404).send("Not built yet.");
-  serveIndex(outDir, res);
+  serveIndex(outDir, res, previewPrefix(req));
 });
 
 // Test results
