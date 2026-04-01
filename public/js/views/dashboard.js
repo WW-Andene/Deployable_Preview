@@ -4,10 +4,10 @@ var S = DV.S, el = DV.el, api = DV.api, statusClass = DV.statusClass;
 DV.views.dashboard = function(app) {
   var ct = el("div", { s: { maxWidth: "960px", margin: "0 auto", padding: "20px 16px" } });
   if (!S.repos.length) {
-    ct.appendChild(el("div", { s: { textAlign: "center", padding: "60px 0" } }, [
-      el("div", { s: { fontSize: "40px", marginBottom: "16px", opacity: ".3" } }, "\u26a1"),
-      el("h2", { s: { fontSize: "20px", fontWeight: "700", marginBottom: "10px" } }, "No repositories yet"),
-      el("p", { s: { color: "var(--tx3)", fontFamily: "monospace", fontSize: "13px", maxWidth: "440px", margin: "0 auto 24px", lineHeight: "1.6" } }, "Add a repo, pick branches \u2014 DeployView will clone, build, and serve them. Auto-rebuilds on every push."),
+    ct.appendChild(el("div", { s: { textAlign: "center", padding: "80px 20px" } }, [
+      el("div", { s: { fontSize: "48px", marginBottom: "20px", filter: "drop-shadow(0 0 20px var(--accent-glow))" } }, "\u26a1"),
+      el("h2", { s: { fontSize: "22px", fontWeight: "700", marginBottom: "8px", letterSpacing: "-0.03em" } }, "Your workspace is ready"),
+      el("p", { s: { color: "var(--tx2)", fontFamily: "var(--font-mono)", fontSize: "13px", maxWidth: "420px", margin: "0 auto 28px", lineHeight: "1.7" } }, "Connect a repo, choose your branches, and DeployView handles the rest \u2014 clone, build, serve, auto-rebuild on push."),
       el("button", { c: "bp", on: { click: function() {
         S.repoUrl = ""; S.repoError = ""; S.fetchedBranches = []; S.selectedBranches = [];
         S.repoInfo = null; S.buildCommand = "npm run build"; S.outputDir = "dist"; S.baseDir = "";
@@ -39,7 +39,8 @@ DV.views.dashboard = function(app) {
             var branchMode = bs.mode || "static";
             var label = branchName + (branchBaseDir ? " \u2192 " + branchBaseDir : "") + (branchMode === "server" ? " [server]" : "");
             var previewUrl = "/preview/" + repo.owner + "/" + repo.repo + "/" + slug + "/";
-            var row = el("div", { s: { background: "var(--bg)", borderRadius: "10px", padding: "12px", border: "1.5px solid var(--border)", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "8px" } }, [
+            var borderL = bs.status === "ready" ? "var(--ok)" : bs.status === "running" ? "var(--run)" : bs.status === "building" ? "var(--accent)" : bs.status === "error" ? "var(--err)" : "var(--border)";
+            var row = el("div", { s: { background: "var(--bg)", borderRadius: "var(--r-input)", padding: "calc(var(--sp) * 1.5) calc(var(--sp) * 2)", borderLeft: "3px solid " + borderL, borderTop: "1px solid var(--border)", borderRight: "1px solid var(--border)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "calc(var(--sp) * 1.5)", flexWrap: "wrap", marginBottom: "calc(var(--sp))", transition: "border-color 180ms ease-out" } }, [
               el("div", { s: { minWidth: "100px", display: "flex", alignItems: "center", gap: "8px" } }, [
                 el("span", { c: statusClass(bs.status) }),
                 el("span", { c: "btag", s: { background: bs.status === "ready" ? "var(--ok-dim)" : bs.status === "running" ? "var(--run-dim)" : bs.status === "building" ? "var(--accent-dim)" : bs.status === "error" ? "var(--err-dim)" : "var(--border)", color: bs.status === "ready" ? "var(--ok)" : bs.status === "running" ? "var(--run)" : bs.status === "building" ? "var(--accent)" : bs.status === "error" ? "var(--err)" : "var(--tx3)" } }, label)

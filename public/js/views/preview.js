@@ -176,7 +176,13 @@ DV.views.preview = function(app) {
       iframe.onload = function() { loader.style.opacity = "0"; setTimeout(function() { if (loader.parentNode) loader.remove(); }, 300); };
       body.appendChild(iframe); body.appendChild(loader);
     } else {
-      body.appendChild(el("div", { s: { display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--tx3)", fontFamily: "monospace", fontSize: "13px" } }, bs.status === "building" ? "Building..." : "Not built yet"));
+      var stateMsg = bs.status === "building" ? "BUILDING..." : "AWAITING BUILD";
+      var stateWrap = el("div", { s: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: "12px" } });
+      if (bs.status === "building") {
+        stateWrap.appendChild(el("div", { s: { width: "24px", height: "24px", border: "2px solid var(--sf3)", borderTopColor: "var(--accent)", borderRadius: "50%", animation: "spin 0.6s linear infinite" } }));
+      }
+      stateWrap.appendChild(el("div", { s: { color: "var(--tx3)", fontFamily: "var(--font-mono)", fontSize: "11px", letterSpacing: "0.06em" } }, stateMsg));
+      body.appendChild(stateWrap);
     }
     if (sc !== 1) {
       var wrapper = el("div", { s: { width: Math.floor(pixelW * sc) + "px", height: Math.floor(pixelH * sc) + "px", overflow: "hidden" } });
