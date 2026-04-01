@@ -6,6 +6,7 @@ const { getConfig } = require("./config");
 const { parseEnvVars } = require("./config");
 const { runCmd, findFreePort, waitForPort, runningServers, killServer } = require("./process");
 const { saveLog, broadcastLog } = require("./logs");
+const { scanApiRoutes } = require("./serverless");
 
 const WORKSPACE = path.join(__dirname, "..", "workspace");
 const AUTO_RESTART_DELAY = 5000;
@@ -122,10 +123,17 @@ async function buildBranch(repoConfig, branchConfig) {
     else { for (const alt of altPaths) { const p = path.join(workDir, alt); if (fs.existsSync(p)) { finalOut = p; break; } } }
     if (!finalOut) { addLog("WARNING: No output dir found. Serving workDir."); finalOut = workDir; }
 
+    // Scan for serverless API functions in the workDir (not output dir)
+    const apiRoutes = scanApiRoutes(workDir, addLog);
+    const userEnvForRuntime = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
+
     addLog("Build complete! Output: " + path.relative(WORKSPACE, finalOut));
     buildStatus[key].status = "ready";
     buildStatus[key].lastBuild = Date.now();
     buildStatus[key].outputPath = finalOut;
+    buildStatus[key].apiRoutes = apiRoutes;
+    buildStatus[key].workDir = workDir;
+    buildStatus[key].envVars = userEnvForRuntime;
     saveLog(key, addLog.getLog());
   } catch (e) {
     addLog("BUILD FAILED: " + e.message);
