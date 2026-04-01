@@ -39,8 +39,16 @@ DV.views.dashboard = function(app) {
             var branchMode = bs.mode || "static";
             var label = branchName + (branchBaseDir ? " \u2192 " + branchBaseDir : "") + (branchMode === "server" ? " [server]" : "");
             var previewUrl = "/preview/" + repo.owner + "/" + repo.repo + "/" + slug + "/";
-            var borderL = bs.status === "ready" ? "var(--ok)" : bs.status === "running" ? "var(--run)" : bs.status === "building" ? "var(--accent)" : bs.status === "error" ? "var(--err)" : "var(--border)";
-            var row = el("div", { s: { background: "var(--bg)", borderRadius: "var(--r-input)", padding: "calc(var(--sp) * 1.5) calc(var(--sp) * 2)", borderLeft: "3px solid " + borderL, borderTop: "1px solid var(--border)", borderRight: "1px solid var(--border)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "calc(var(--sp) * 1.5)", flexWrap: "wrap", marginBottom: "calc(var(--sp))", transition: "border-color 180ms ease-out" } }, [
+            var borderL = bs.status === "ready" ? "var(--ok)" : bs.status === "running" ? "var(--run)" : bs.status === "building" ? "var(--accent)" : bs.status === "error" ? "var(--err)" : "transparent";
+            var row = el("div", { s: { background: "var(--bg)", borderRadius: "var(--r-input)", padding: "calc(var(--sp) * 1.5) calc(var(--sp) * 2)", borderLeft: "3px solid " + borderL, borderTop: "1px solid var(--border)", borderRight: "1px solid var(--border)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "calc(var(--sp) * 1.5)", flexWrap: "wrap", marginBottom: "calc(var(--sp))", transition: "border-color 180ms ease-out, background 180ms ease-out" } });
+            // Building indicator — branded sweep bar
+            if (bs.status === "building") {
+              var loadBar = el("div", { c: "dv-loading", s: { position: "absolute", bottom: "0", left: "0", right: "0" } });
+              row.style.position = "relative";
+              row.style.overflow = "hidden";
+              row.appendChild(loadBar);
+            }
+            var rowKids = [
               el("div", { s: { minWidth: "100px", display: "flex", alignItems: "center", gap: "8px" } }, [
                 el("span", { c: statusClass(bs.status) }),
                 el("span", { c: "btag", s: { background: bs.status === "ready" ? "var(--ok-dim)" : bs.status === "running" ? "var(--run-dim)" : bs.status === "building" ? "var(--accent-dim)" : bs.status === "error" ? "var(--err-dim)" : "var(--border)", color: bs.status === "ready" ? "var(--ok)" : bs.status === "running" ? "var(--run)" : bs.status === "building" ? "var(--accent)" : bs.status === "error" ? "var(--err)" : "var(--tx3)" } }, label)
@@ -70,7 +78,8 @@ DV.views.dashboard = function(app) {
               el("button", { c: "bd bs", s: { padding: "5px 10px", fontSize: "12px" }, on: { click: function() {
                 api("DELETE", "/api/repos/" + repo.owner + "/" + repo.repo + "/branch?slug=" + encodeURIComponent(slug)).then(DV.loadRepos);
               } } }, "\u2715")
-            ]);
+            ];
+            for (var ki = 0; ki < rowKids.length; ki++) { if (rowKids[ki]) row.appendChild(rowKids[ki]); }
             card.appendChild(row);
           })(slugs[j]);
         }

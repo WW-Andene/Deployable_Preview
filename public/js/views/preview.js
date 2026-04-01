@@ -176,12 +176,16 @@ DV.views.preview = function(app) {
       iframe.onload = function() { loader.style.opacity = "0"; setTimeout(function() { if (loader.parentNode) loader.remove(); }, 300); };
       body.appendChild(iframe); body.appendChild(loader);
     } else {
-      var stateMsg = bs.status === "building" ? "BUILDING..." : "AWAITING BUILD";
-      var stateWrap = el("div", { s: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: "12px" } });
+      var stateWrap = el("div", { s: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: "16px" } });
       if (bs.status === "building") {
-        stateWrap.appendChild(el("div", { s: { width: "24px", height: "24px", border: "2px solid var(--sf3)", borderTopColor: "var(--accent)", borderRadius: "50%", animation: "spin 0.6s linear infinite" } }));
+        var loadWrap = el("div", { s: { width: "120px" } });
+        loadWrap.appendChild(el("div", { c: "dv-loading" }));
+        stateWrap.appendChild(loadWrap);
+        stateWrap.appendChild(el("div", { s: { color: "var(--tx3)", fontFamily: "var(--font-mono)", fontSize: "10px", letterSpacing: "0.08em" } }, "BUILDING..."));
+      } else {
+        stateWrap.appendChild(el("div", { s: { width: "32px", height: "32px", borderRadius: "50%", border: "1px solid var(--border-h)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--tx3)", fontSize: "14px" } }, "\u26a1"));
+        stateWrap.appendChild(el("div", { s: { color: "var(--tx3)", fontFamily: "var(--font-mono)", fontSize: "10px", letterSpacing: "0.08em" } }, "AWAITING BUILD"));
       }
-      stateWrap.appendChild(el("div", { s: { color: "var(--tx3)", fontFamily: "var(--font-mono)", fontSize: "11px", letterSpacing: "0.06em" } }, stateMsg));
       body.appendChild(stateWrap);
     }
     if (sc !== 1) {
