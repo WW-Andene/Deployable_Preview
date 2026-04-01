@@ -63,7 +63,7 @@ DV.views.dashboard = function(app) {
             var previewUrl = "/preview/" + repo.owner + "/" + repo.repo + "/" + slug + "/";
             var borderL = bs.status === "ready" ? "var(--ok)" : bs.status === "running" ? "var(--run)" : bs.status === "building" ? "var(--accent)" : bs.status === "error" ? "var(--err)" : "transparent";
 
-            var row = el("div", { c: "branch-row", s: { borderLeftColor: borderL } });
+            var row = el("div", { c: "branch-row stagger-in", s: { borderLeftColor: borderL } });
 
             // Branded sweep bar for building state
             if (bs.status === "building") {

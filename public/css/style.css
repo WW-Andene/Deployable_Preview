@@ -411,6 +411,42 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
 @keyframes modalIn { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes dropIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
 
+/* ══════════════════════════════════════════════════
+   §STAGGER — Choreographed entrances
+   Per art-direction-engine: 30-50ms delay per item, cap 150ms
+   ══════════════════════════════════════════════════ */
+.stagger-in {
+  opacity: 0;
+  transform: translateY(8px);
+  animation: staggerEnter var(--dur-enter) var(--ease-physical) forwards;
+}
+.stagger-in:nth-child(1) { animation-delay: 0ms; }
+.stagger-in:nth-child(2) { animation-delay: 40ms; }
+.stagger-in:nth-child(3) { animation-delay: 80ms; }
+.stagger-in:nth-child(4) { animation-delay: 120ms; }
+.stagger-in:nth-child(n+5) { animation-delay: 150ms; }
+@keyframes staggerEnter { to { opacity: 1; transform: translateY(0); } }
+
+/* Dropdown input — styled via class not inline */
+.dd-input {
+  padding: 6px 10px;
+  margin: 4px 6px;
+  font-size: 12px;
+  width: calc(100% - 12px);
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  color: var(--tx1);
+  font-family: var(--font-mono);
+  outline: none;
+  box-shadow: none;
+  transition: border-color var(--dur-micro) var(--ease-fast);
+}
+.dd-input:hover { border-color: var(--border-h); }
+.dd-input:focus { border-color: var(--border-focus); box-shadow: 0 0 0 2px var(--accent-dim); }
+.dd-input.accent-border { border-color: var(--border-accent); }
+.dd-input.run-border { border-color: var(--run-dim); }
+
 /* ── Scrollbar — subtle ── */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
