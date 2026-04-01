@@ -50,14 +50,17 @@ router.use("/preview/:owner/:repo/:branchSlug/api", express.json(), (req, res, n
   }
 
   // Static mode: check for serverless functions
+  // req.path is relative to mount: /preview/.../api, so "/ocr" for .../api/ocr
   if (status && status.apiRoutes) {
-    const apiPath = "/api" + (req.path || "");
-    const route = matchApiRoute(status.apiRoutes, apiPath);
+    var apiPath = "/api" + (req.path === "/" ? "" : req.path);
+    console.log("[SERVERLESS] Trying: " + req.method + " " + apiPath + " (url: " + req.originalUrl + ")");
+    var route = matchApiRoute(status.apiRoutes, apiPath);
     if (route) {
-      console.log("[SERVERLESS] " + req.method + " " + apiPath + " -> " + path.basename(route.filePath));
+      console.log("[SERVERLESS] Hit: " + apiPath + " -> " + path.basename(route.filePath));
       res.removeHeader("X-Frame-Options");
       return executeHandler(route, status.envVars || {}, req, res);
     }
+    console.log("[SERVERLESS] No match. Available: " + status.apiRoutes.map(function(r) { return r.routePath; }).join(", "));
   }
 
   next();
