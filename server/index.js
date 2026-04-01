@@ -1,8 +1,10 @@
 const express = require("express");
-const { execSync, exec } = require("child_process");
+const { execSync, exec, spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const https = require("https");
+const http = require("http");
+const net = require("net");
 
 const app = express();
 app.use(express.json());
@@ -15,7 +17,8 @@ const POLL_INTERVAL = 30000; // 30s
 
 // ── State ──
 let config = { token: "", repos: [] };
-let buildStatus = {}; // { "owner/repo:branch": { status, log, lastBuild, commitSha } }
+let buildStatus = {}; // { "owner/repo:slug": { status, log, lastBuild, commitSha } }
+let runningServers = {}; // { "owner/repo:slug": { proc, port, status } }
 
 function loadConfig() {
   try {
@@ -194,6 +197,175 @@ async function buildBranch(repoConfig, branchConfig) {
   }
 }
 
+// ── Server mode: spawn and proxy ──
+function findFreePort() {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.listen(0, () => {
+      const port = srv.address().port;
+      srv.close(() => resolve(port));
+    });
+    srv.on("error", reject);
+  });
+}
+
+function waitForPort(port, timeout) {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    function check() {
+      const sock = new net.Socket();
+      sock.setTimeout(500);
+      sock.once("connect", () => { sock.destroy(); resolve(); });
+      sock.once("error", () => { sock.destroy(); retry(); });
+      sock.once("timeout", () => { sock.destroy(); retry(); });
+      sock.connect(port, "127.0.0.1");
+    }
+    function retry() {
+      if (Date.now() - start > timeout) reject(new Error("Server did not start within " + (timeout / 1000) + "s"));
+      else setTimeout(check, 500);
+    }
+    check();
+  });
+}
+
+function killServer(key) {
+  const srv = runningServers[key];
+  if (!srv || !srv.proc) return;
+  try { srv.proc.kill("SIGTERM"); } catch (e) {}
+  delete runningServers[key];
+}
+
+async function startServer(repoConfig, branchConfig) {
+  const { owner, repo } = repoConfig;
+  const branch = branchConfig.branch;
+  const key = buildKey(owner, repo, branchConfig);
+  const branchDir = getBranchDir(owner, repo, branchConfig);
+
+  // Kill existing process
+  killServer(key);
+
+  buildStatus[key] = { status: "building", log: "", lastBuild: null, commitSha: "", mode: "server" };
+  let log = "";
+
+  function addLog(msg) {
+    log += msg + "\n";
+    buildStatus[key].log = log;
+    console.log("[" + key + "] " + msg);
+  }
+
+  try {
+    // Clone / update (same as buildBranch)
+    if (!fs.existsSync(path.join(branchDir, ".git"))) {
+      addLog("Cloning " + owner + "/" + repo + " (branch: " + branch + ")...");
+      fs.mkdirSync(branchDir, { recursive: true });
+      await runCmd("git clone --branch " + JSON.stringify(branch) + " --single-branch https://" + config.token + "@github.com/" + owner + "/" + repo + ".git .", branchDir);
+    } else {
+      addLog("Updating branch: " + branch);
+      await runCmd("git fetch origin " + JSON.stringify(branch), branchDir);
+      await runCmd("git reset --hard origin/" + JSON.stringify(branch), branchDir);
+    }
+
+    const sha = execSync("git rev-parse HEAD", { cwd: branchDir }).toString().trim();
+    buildStatus[key].commitSha = sha;
+    addLog("Commit: " + sha.slice(0, 7));
+
+    const baseDir = branchConfig.baseDir || repoConfig.baseDir || "";
+    const workDir = baseDir ? path.join(branchDir, baseDir) : branchDir;
+
+    if (baseDir) {
+      addLog("Base directory: " + baseDir);
+      if (!fs.existsSync(workDir)) throw new Error("Base directory '" + baseDir + "' not found in repo");
+    }
+
+    // Install dependencies
+    addLog("Installing dependencies...");
+    const hasYarnLock = fs.existsSync(path.join(workDir, "yarn.lock"));
+    const hasPnpmLock = fs.existsSync(path.join(workDir, "pnpm-lock.yaml"));
+    if (hasPnpmLock) {
+      await runCmd("pnpm install", workDir);
+    } else if (hasYarnLock) {
+      await runCmd("yarn install", workDir);
+    } else {
+      await runCmd("npm install", workDir);
+    }
+
+    // Find a free port and start the server
+    const port = await findFreePort();
+    const startCmd = branchConfig.startCommand || repoConfig.startCommand || "npm start";
+    addLog("Starting server: " + startCmd + " (port " + port + ")");
+
+    const child = spawn("sh", ["-c", startCmd], {
+      cwd: workDir,
+      env: { ...process.env, PORT: String(port), NODE_ENV: "production" },
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+
+    runningServers[key] = { proc: child, port, status: "starting" };
+
+    child.stdout.on("data", (d) => {
+      const line = d.toString();
+      log += line;
+      buildStatus[key].log = log;
+    });
+    child.stderr.on("data", (d) => {
+      const line = d.toString();
+      log += line;
+      buildStatus[key].log = log;
+    });
+    child.on("exit", (code) => {
+      addLog("Server exited with code " + code);
+      if (runningServers[key] && runningServers[key].proc === child) {
+        runningServers[key].status = "stopped";
+        buildStatus[key].status = "error";
+      }
+    });
+
+    // Wait for the port to be listening
+    addLog("Waiting for server to be ready on port " + port + "...");
+    await waitForPort(port, 60000);
+
+    addLog("Server is running on port " + port);
+    runningServers[key].status = "running";
+    buildStatus[key].status = "running";
+    buildStatus[key].lastBuild = Date.now();
+    buildStatus[key].serverPort = port;
+
+  } catch (e) {
+    addLog("SERVER FAILED: " + e.message);
+    killServer(key);
+    buildStatus[key].status = "error";
+    buildStatus[key].lastBuild = Date.now();
+  }
+}
+
+// Dispatch to build or start based on mode
+function deployBranch(repoConfig, branchConfig) {
+  if (branchConfig.mode === "server") {
+    startServer(repoConfig, branchConfig);
+  } else {
+    buildBranch(repoConfig, branchConfig);
+  }
+}
+
+// Proxy helper for server-mode branches
+function proxyTo(port, req, res) {
+  const opts = {
+    hostname: "127.0.0.1",
+    port: port,
+    path: req.url,
+    method: req.method,
+    headers: { ...req.headers, host: "127.0.0.1:" + port }
+  };
+  const proxyReq = http.request(opts, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+    proxyRes.pipe(res);
+  });
+  proxyReq.on("error", (e) => {
+    res.status(502).send("Server not responding: " + e.message);
+  });
+  req.pipe(proxyReq);
+}
+
 // ── Polling for new commits ──
 async function pollForChanges() {
   if (!config.token) return;
@@ -212,7 +384,7 @@ async function pollForChanges() {
           const current = buildStatus[key];
           if (current && current.commitSha && current.commitSha !== latest.sha && current.status !== "building") {
             console.log("[POLL] New commit on " + key + ": " + latest.sha.slice(0, 7));
-            buildBranch(repo, bc);
+            deployBranch(repo, bc);
           }
         }
       } catch (e) { /* ignore poll errors */ }
@@ -255,7 +427,8 @@ app.get("/api/repos", (req, res) => {
     const branchStatuses = {};
     for (const bc of r.activeBranches || []) {
       const slug = branchSlug(bc);
-      branchStatuses[slug] = { ...(buildStatus[buildKey(r.owner, r.repo, bc)] || { status: "idle" }), branch: bc.branch, baseDir: bc.baseDir || "", buildCommand: bc.buildCommand || "", outputDir: bc.outputDir || "" };
+      const srv = runningServers[buildKey(r.owner, r.repo, bc)];
+      branchStatuses[slug] = { ...(buildStatus[buildKey(r.owner, r.repo, bc)] || { status: "idle" }), branch: bc.branch, baseDir: bc.baseDir || "", buildCommand: bc.buildCommand || "", outputDir: bc.outputDir || "", mode: bc.mode || "static", startCommand: bc.startCommand || "", serverPort: srv ? srv.port : null };
     }
     return { ...r, branchStatuses };
   });
@@ -263,25 +436,25 @@ app.get("/api/repos", (req, res) => {
 });
 
 app.post("/api/repos", (req, res) => {
-  const { owner, repo, activeBranches, buildCommand, outputDir, baseDir, description } = req.body;
+  const { owner, repo, activeBranches, buildCommand, outputDir, baseDir, description, mode, startCommand } = req.body;
   const id = owner + "/" + repo;
   if (config.repos.some((r) => r.id === id)) return res.status(400).json({ error: "Already exists" });
   // Convert branch names to branch config objects
   const branchConfigs = (activeBranches || []).map((b) => {
     if (typeof b === "object") return b;
-    return { branch: b, baseDir: baseDir || "", buildCommand: "", outputDir: "" };
+    return { branch: b, baseDir: baseDir || "", buildCommand: "", outputDir: "", mode: mode || "static", startCommand: startCommand || "" };
   });
-  const newRepo = { id, owner, repo, activeBranches: branchConfigs, buildCommand: buildCommand || "npm run build", outputDir: outputDir || "dist", baseDir: baseDir || "", description: description || "" };
+  const newRepo = { id, owner, repo, activeBranches: branchConfigs, buildCommand: buildCommand || "npm run build", outputDir: outputDir || "dist", baseDir: baseDir || "", description: description || "", startCommand: startCommand || "" };
   config.repos.push(newRepo);
   saveConfig();
-  for (const bc of branchConfigs) buildBranch(newRepo, bc);
+  for (const bc of branchConfigs) deployBranch(newRepo, bc);
   res.json(newRepo);
 });
 
 // Add a single branch to an existing repo (used from preview view)
 // Allows the same branch with a different baseDir (for multi-root repos)
 app.post("/api/repos/:owner/:repo/branch", (req, res) => {
-  const { branch, baseDir, buildCommand, outputDir } = req.body;
+  const { branch, baseDir, buildCommand, outputDir, mode, startCommand } = req.body;
   if (!branch) return res.status(400).json({ error: "branch required" });
   const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
   if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
@@ -289,10 +462,10 @@ app.post("/api/repos/:owner/:repo/branch", (req, res) => {
   // Check for duplicate: same branch + same baseDir
   const duplicate = repoConfig.activeBranches.some((bc) => bc.branch === branch && (bc.baseDir || "") === bd);
   if (duplicate) return res.status(400).json({ error: "Branch with this root directory already active" });
-  const bc = { branch, baseDir: bd, buildCommand: buildCommand || "", outputDir: outputDir || "" };
+  const bc = { branch, baseDir: bd, buildCommand: buildCommand || "", outputDir: outputDir || "", mode: mode || "static", startCommand: startCommand || "" };
   repoConfig.activeBranches.push(bc);
   saveConfig();
-  buildBranch(repoConfig, bc);
+  deployBranch(repoConfig, bc);
   res.json({ ok: true, activeBranches: repoConfig.activeBranches });
 });
 
@@ -311,6 +484,9 @@ app.delete("/api/repos/:owner/:repo/branch", (req, res) => {
   if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
   const idx = repoConfig.activeBranches.findIndex((bc) => branchSlug(bc) === slug);
   if (idx === -1) return res.status(404).json({ error: "Branch config not found" });
+  // Kill running server if any
+  const key = buildKey(req.params.owner, req.params.repo, repoConfig.activeBranches[idx]);
+  killServer(key);
   repoConfig.activeBranches.splice(idx, 1);
   saveConfig();
   res.json({ ok: true, activeBranches: repoConfig.activeBranches });
@@ -324,8 +500,8 @@ app.post("/api/build/:owner/:repo", (req, res) => {
   if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
   const bc = repoConfig.activeBranches.find((b) => branchSlug(b) === slug);
   if (!bc) return res.status(404).json({ error: "Branch config not found" });
-  buildBranch(repoConfig, bc);
-  res.json({ ok: true, message: "Build started" });
+  deployBranch(repoConfig, bc);
+  res.json({ ok: true, message: (bc.mode === "server" ? "Server restart" : "Build") + " started" });
 });
 
 // Build status — slug via query param
@@ -395,9 +571,20 @@ return new B(p,o);};window.Blob.prototype=B.prototype;
   res.send(html);
 }
 
-// Static assets (JS, CSS, images, etc.)
+// Static assets / server proxy
 app.use("/preview/:owner/:repo/:branchSlug", (req, res, next) => {
-  const outDir = findOutputDir(req.params.owner, req.params.repo, req.params.branchSlug);
+  const slug = req.params.branchSlug;
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+
+  // Server mode: proxy to the running process
+  const srv = runningServers[key];
+  if (srv && srv.status === "running") {
+    res.removeHeader("X-Frame-Options");
+    return proxyTo(srv.port, req, res);
+  }
+
+  // Static mode: serve built output
+  const outDir = findOutputDir(req.params.owner, req.params.repo, slug);
   if (!outDir || !fs.existsSync(outDir)) return res.status(404).send("Not built yet.");
   const reqPath = req.path;
   if (reqPath === "/" || reqPath === "" || (!path.extname(reqPath) && !reqPath.includes("."))) {
@@ -407,9 +594,19 @@ app.use("/preview/:owner/:repo/:branchSlug", (req, res, next) => {
   express.static(outDir)(req, res, next);
 });
 
-// SPA fallback — any deep route serves index.html
+// SPA fallback / server proxy for deep routes
 app.use("/preview/:owner/:repo/:branchSlug/*", (req, res) => {
-  const outDir = findOutputDir(req.params.owner, req.params.repo, req.params.branchSlug);
+  const slug = req.params.branchSlug;
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+
+  // Server mode: proxy
+  const srv = runningServers[key];
+  if (srv && srv.status === "running") {
+    res.removeHeader("X-Frame-Options");
+    return proxyTo(srv.port, req, res);
+  }
+
+  const outDir = findOutputDir(req.params.owner, req.params.repo, slug);
   if (!outDir) return res.status(404).send("Not built yet.");
   serveIndex(outDir, res);
 });
@@ -511,7 +708,7 @@ app.listen(PORT, () => {
   if (config.token && config.repos.length) {
     console.log("  Auto-building " + config.repos.length + " repo(s)...");
     for (const repo of config.repos) {
-      for (const bc of repo.activeBranches || []) buildBranch(repo, bc);
+      for (const bc of repo.activeBranches || []) deployBranch(repo, bc);
     }
   }
 });
