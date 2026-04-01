@@ -35,6 +35,11 @@ function buildKey(owner, repo, bc) {
 async function updateRepo(owner, repo, branch, branchDir, addLog) {
   const config = getConfig();
   if (!fs.existsSync(path.join(branchDir, ".git"))) {
+    // Clean up if dir exists but has no .git (corrupt/partial clone)
+    if (fs.existsSync(branchDir)) {
+      addLog("Cleaning stale directory...");
+      await runCmd("rm -rf " + JSON.stringify(branchDir));
+    }
     addLog("Cloning " + owner + "/" + repo + " (branch: " + branch + ")...");
     fs.mkdirSync(branchDir, { recursive: true });
     await runCmd("git clone --branch " + JSON.stringify(branch) + " --single-branch --depth 1 https://" + config.token + "@github.com/" + owner + "/" + repo + ".git .", branchDir);
