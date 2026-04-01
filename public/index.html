@@ -280,7 +280,7 @@ function render() {
               var row = el("div", { s: { background: "#0b0c10", borderRadius: "10px", padding: "12px", border: "1.5px solid rgba(255,255,255,.06)", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "8px" } }, [
                 el("div", { s: { minWidth: "100px", display: "flex", alignItems: "center", gap: "8px" } }, [
                   el("span", { c: statusClass(bs.status) }),
-                  el("span", { c: "btag", s: { background: bs.status === "ready" ? "rgba(72,176,136,.1)" : bs.status === "building" ? "rgba(232,169,74,.1)" : bs.status === "error" ? "rgba(224,84,104,.1)" : "rgba(255,255,255,.05)", color: bs.status === "ready" ? "#48b088" : bs.status === "building" ? "#e8a94a" : bs.status === "error" ? "#e05468" : "#565250" } }, label)
+                  el("span", { c: "btag", s: { background: bs.status === "ready" ? "rgba(72,176,136,.1)" : bs.status === "running" ? "rgba(91,159,212,.1)" : bs.status === "building" ? "rgba(232,169,74,.1)" : bs.status === "error" ? "rgba(224,84,104,.1)" : "rgba(255,255,255,.05)", color: bs.status === "ready" ? "#48b088" : bs.status === "running" ? "#5b9fd4" : bs.status === "building" ? "#e8a94a" : bs.status === "error" ? "#e05468" : "#565250" } }, label)
                 ]),
                 el("span", { s: { fontFamily: "monospace", fontSize: "11px", color: "#565250", flex: "1" } },
                   bs.status === "building" ? (branchMode === "server" ? "Starting..." : "Building...") :
@@ -297,7 +297,10 @@ function render() {
                 } } }, "\u25b6 Preview"),
                 el("button", { c: "bg bs", on: { click: function() {
                   fetch("/api/log/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(function(r) { return r.text(); }).then(function(t) { alert(t); });
-                } } }, "\ud83d\udccb Log")
+                } } }, "\ud83d\udccb Log"),
+                el("button", { c: "bd bs", s: { padding: "5px 10px", fontSize: "12px" }, on: { click: function() {
+                  api("DELETE", "/api/repos/" + repo.owner + "/" + repo.repo + "/branch?slug=" + encodeURIComponent(slug)).then(loadRepos);
+                } } }, "\u2715")
               ]);
               card.appendChild(row);
             })(slugs[j]);
@@ -597,7 +600,7 @@ function render() {
         transformOrigin: "top left"
       } });
 
-      if (src && bs.status === "ready") {
+      if (src && (bs.status === "ready" || bs.status === "running")) {
         var iframe = document.createElement("iframe");
         iframe.src = src + "?_r=" + S.refreshKey;
         iframe.title = label;
