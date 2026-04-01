@@ -13,12 +13,16 @@ app.use(express.static(path.join(__dirname, "..", "public")));
 const PORT = process.env.PORT || 3000;
 const WORKSPACE = path.join(__dirname, "..", "workspace");
 const CONFIG_FILE = path.join(__dirname, "..", "deployview.json");
+const LOG_DIR = path.join(__dirname, "..", "logs");
 const POLL_INTERVAL = 30000; // 30s
+const AUTO_RESTART_DELAY = 5000; // 5s before auto-restart
+const MAX_RESTARTS = 3; // max auto-restarts before giving up
 
 // ── State ──
 let config = { token: "", repos: [] };
 let buildStatus = {}; // { "owner/repo:slug": { status, log, lastBuild, commitSha } }
-let runningServers = {}; // { "owner/repo:slug": { proc, port, status } }
+let runningServers = {}; // { "owner/repo:slug": { proc, port, status, restarts } }
+let logStreams = []; // SSE connections for live log streaming
 
 function loadConfig() {
   try {
@@ -32,6 +36,39 @@ function saveConfig() {
 loadConfig();
 migrateConfig();
 if (!fs.existsSync(WORKSPACE)) fs.mkdirSync(WORKSPACE, { recursive: true });
+if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
+
+// ── Persistent logs ──
+function saveLog(key, log) {
+  try { fs.writeFileSync(path.join(LOG_DIR, key.replace(/[\/\:]/g, "__") + ".log"), log); } catch (e) {}
+}
+function loadLog(key) {
+  try { return fs.readFileSync(path.join(LOG_DIR, key.replace(/[\/\:]/g, "__") + ".log"), "utf8"); } catch (e) { return ""; }
+}
+
+// ── SSE log streaming ──
+function broadcastLog(key, msg) {
+  for (let i = logStreams.length - 1; i >= 0; i--) {
+    const s = logStreams[i];
+    if (s.closed) { logStreams.splice(i, 1); continue; }
+    if (s.key === key) {
+      try { s.res.write("data: " + JSON.stringify({ key, msg }) + "\n\n"); } catch (e) { logStreams.splice(i, 1); }
+    }
+  }
+}
+
+// ── Env vars helper ──
+function parseEnvVars(envStr) {
+  const env = {};
+  if (!envStr) return env;
+  for (const line of envStr.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq > 0) env[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
+  }
+  return env;
+}
 
 // Migrate old config: convert activeBranches from string[] to object[]
 function migrateConfig() {
@@ -84,9 +121,9 @@ function branchSlug(bc) {
 function getBranchDir(owner, repo, bc) { return path.join(WORKSPACE, owner + "__" + repo + "__" + branchSlug(bc)); }
 function buildKey(owner, repo, bc) { return owner + "/" + repo + ":" + branchSlug(bc); }
 
-function runCmd(cmd, cwd) {
+function runCmd(cmd, cwd, extraEnv) {
   return new Promise((resolve, reject) => {
-    const child = exec(cmd, { cwd, maxBuffer: 50 * 1024 * 1024, timeout: 600000, env: { ...process.env, CI: "true" } });
+    const child = exec(cmd, { cwd, maxBuffer: 50 * 1024 * 1024, timeout: 600000, env: { ...process.env, CI: "true", ...(extraEnv || {}) } });
     let stdout = "", stderr = "";
     child.stdout.on("data", (d) => (stdout += d));
     child.stderr.on("data", (d) => (stderr += d));
@@ -104,12 +141,13 @@ async function buildBranch(repoConfig, branchConfig) {
   const key = buildKey(owner, repo, branchConfig);
   const branchDir = getBranchDir(owner, repo, branchConfig);
 
-  buildStatus[key] = { status: "building", log: "", lastBuild: null, commitSha: "" };
+  buildStatus[key] = { status: "building", log: "", lastBuild: null, commitSha: "", mode: "static" };
   let log = "";
 
   function addLog(msg) {
     log += msg + "\n";
     buildStatus[key].log = log;
+    broadcastLog(key, msg);
     console.log("[" + key + "] " + msg);
   }
 
@@ -166,8 +204,9 @@ async function buildBranch(repoConfig, branchConfig) {
 
     // Build (per-branch override > repo default > fallback)
     const cmd = branchConfig.buildCommand || repoConfig.buildCommand || "npm run build";
+    const userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
     addLog("Building: " + cmd);
-    await runCmd(cmd, workDir);
+    await runCmd(cmd, workDir, userEnv);
 
     // Determine output directory (search inside workDir, not repo root)
     const outName = branchConfig.outputDir || repoConfig.outputDir || "dist";
@@ -194,11 +233,13 @@ async function buildBranch(repoConfig, branchConfig) {
     buildStatus[key].status = "ready";
     buildStatus[key].lastBuild = Date.now();
     buildStatus[key].outputPath = finalOut;
+    saveLog(key, log);
 
   } catch (e) {
     addLog("BUILD FAILED: " + e.message);
     buildStatus[key].status = "error";
     buildStatus[key].lastBuild = Date.now();
+    saveLog(key, log);
   }
 }
 
@@ -236,11 +277,13 @@ function waitForPort(port, timeout) {
 function killServer(key) {
   const srv = runningServers[key];
   if (!srv || !srv.proc) return;
-  try { srv.proc.kill("SIGTERM"); } catch (e) {}
+  try { process.kill(-srv.proc.pid, "SIGTERM"); } catch (e) {
+    try { srv.proc.kill("SIGTERM"); } catch (e2) {}
+  }
   delete runningServers[key];
 }
 
-async function startServer(repoConfig, branchConfig) {
+async function startServer(repoConfig, branchConfig, isRestart) {
   const { owner, repo } = repoConfig;
   const branch = branchConfig.branch;
   const key = buildKey(owner, repo, branchConfig);
@@ -249,79 +292,85 @@ async function startServer(repoConfig, branchConfig) {
   // Kill existing process
   killServer(key);
 
-  buildStatus[key] = { status: "building", log: "", lastBuild: null, commitSha: "", mode: "server" };
-  let log = "";
+  const restarts = isRestart ? ((buildStatus[key] && buildStatus[key].restarts) || 0) : 0;
+  buildStatus[key] = { status: "building", log: isRestart ? (buildStatus[key].log || "") : "", lastBuild: null, commitSha: "", mode: "server", restarts };
+  let log = buildStatus[key].log;
 
   function addLog(msg) {
     log += msg + "\n";
     buildStatus[key].log = log;
+    broadcastLog(key, msg);
     console.log("[" + key + "] " + msg);
   }
 
   try {
-    // Clone / update (same as buildBranch)
-    if (!fs.existsSync(path.join(branchDir, ".git"))) {
-      addLog("Cloning " + owner + "/" + repo + " (branch: " + branch + ")...");
-      fs.mkdirSync(branchDir, { recursive: true });
-      await runCmd("git clone --branch " + JSON.stringify(branch) + " --single-branch --depth 1 https://" + config.token + "@github.com/" + owner + "/" + repo + ".git .", branchDir);
-    } else {
-      addLog("Updating branch: " + branch);
-      await runCmd("git fetch origin " + JSON.stringify(branch), branchDir);
-      await runCmd("git reset --hard origin/" + JSON.stringify(branch), branchDir);
-    }
+    if (!isRestart) {
+      // Clone / update (same as buildBranch)
+      if (!fs.existsSync(path.join(branchDir, ".git"))) {
+        addLog("Cloning " + owner + "/" + repo + " (branch: " + branch + ")...");
+        fs.mkdirSync(branchDir, { recursive: true });
+        await runCmd("git clone --branch " + JSON.stringify(branch) + " --single-branch --depth 1 https://" + config.token + "@github.com/" + owner + "/" + repo + ".git .", branchDir);
+      } else {
+        addLog("Updating branch: " + branch);
+        await runCmd("git fetch origin " + JSON.stringify(branch), branchDir);
+        await runCmd("git reset --hard origin/" + JSON.stringify(branch), branchDir);
+      }
 
-    const sha = execSync("git rev-parse HEAD", { cwd: branchDir }).toString().trim();
-    buildStatus[key].commitSha = sha;
-    addLog("Commit: " + sha.slice(0, 7));
+      const sha = execSync("git rev-parse HEAD", { cwd: branchDir }).toString().trim();
+      buildStatus[key].commitSha = sha;
+      addLog("Commit: " + sha.slice(0, 7));
+    }
 
     const baseDir = branchConfig.baseDir || repoConfig.baseDir || "";
     const workDir = baseDir ? path.join(branchDir, baseDir) : branchDir;
 
-    if (baseDir) {
-      addLog("Base directory: " + baseDir);
-      if (!fs.existsSync(workDir)) throw new Error("Base directory '" + baseDir + "' not found in repo");
-    }
+    if (baseDir && !fs.existsSync(workDir)) throw new Error("Base directory '" + baseDir + "' not found in repo");
 
-    // Install dependencies
-    addLog("Installing dependencies...");
-    const hasYarnLock = fs.existsSync(path.join(workDir, "yarn.lock"));
-    const hasPnpmLock = fs.existsSync(path.join(workDir, "pnpm-lock.yaml"));
-    if (hasPnpmLock) {
-      await runCmd("pnpm install", workDir);
-    } else if (hasYarnLock) {
-      await runCmd("yarn install", workDir);
-    } else {
-      await runCmd("npm install", workDir);
+    if (!isRestart) {
+      // Install dependencies
+      addLog("Installing dependencies...");
+      const hasYarnLock = fs.existsSync(path.join(workDir, "yarn.lock"));
+      const hasPnpmLock = fs.existsSync(path.join(workDir, "pnpm-lock.yaml"));
+      if (hasPnpmLock) await runCmd("pnpm install", workDir);
+      else if (hasYarnLock) await runCmd("yarn install", workDir);
+      else await runCmd("npm install", workDir);
     }
 
     // Find a free port and start the server
     const port = await findFreePort();
     const startCmd = branchConfig.startCommand || repoConfig.startCommand || "npm start";
-    addLog("Starting server: " + startCmd + " (port " + port + ")");
+    const userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
+    addLog((isRestart ? "Restarting" : "Starting") + " server: " + startCmd + " (port " + port + ")");
 
     const child = spawn("sh", ["-c", startCmd], {
       cwd: workDir,
-      env: { ...process.env, PORT: String(port), NODE_ENV: "production" },
-      stdio: ["ignore", "pipe", "pipe"]
+      env: { ...process.env, PORT: String(port), NODE_ENV: "production", ...userEnv },
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true
     });
 
-    runningServers[key] = { proc: child, port, status: "starting" };
+    runningServers[key] = { proc: child, port, status: "starting", restarts };
 
-    child.stdout.on("data", (d) => {
-      const line = d.toString();
-      log += line;
-      buildStatus[key].log = log;
-    });
-    child.stderr.on("data", (d) => {
-      const line = d.toString();
-      log += line;
-      buildStatus[key].log = log;
-    });
+    child.stdout.on("data", (d) => { log += d.toString(); buildStatus[key].log = log; broadcastLog(key, d.toString()); });
+    child.stderr.on("data", (d) => { log += d.toString(); buildStatus[key].log = log; broadcastLog(key, d.toString()); });
     child.on("exit", (code) => {
       addLog("Server exited with code " + code);
+      saveLog(key, log);
       if (runningServers[key] && runningServers[key].proc === child) {
         runningServers[key].status = "stopped";
         buildStatus[key].status = "error";
+        // Auto-restart if under limit
+        if (restarts < MAX_RESTARTS && !runningServers[key].manualStop) {
+          addLog("Auto-restarting in " + (AUTO_RESTART_DELAY / 1000) + "s (attempt " + (restarts + 1) + "/" + MAX_RESTARTS + ")...");
+          buildStatus[key].restarts = restarts + 1;
+          setTimeout(() => {
+            if (buildStatus[key] && buildStatus[key].status === "error") {
+              startServer(repoConfig, branchConfig, true);
+            }
+          }, AUTO_RESTART_DELAY);
+        } else if (restarts >= MAX_RESTARTS) {
+          addLog("Max restarts reached. Giving up.");
+        }
       }
     });
 
@@ -334,12 +383,15 @@ async function startServer(repoConfig, branchConfig) {
     buildStatus[key].status = "running";
     buildStatus[key].lastBuild = Date.now();
     buildStatus[key].serverPort = port;
+    buildStatus[key].restarts = 0; // reset on success
+    saveLog(key, log);
 
   } catch (e) {
     addLog("SERVER FAILED: " + e.message);
     killServer(key);
     buildStatus[key].status = "error";
     buildStatus[key].lastBuild = Date.now();
+    saveLog(key, log);
   }
 }
 
@@ -433,7 +485,7 @@ app.get("/api/repos", (req, res) => {
     for (const bc of r.activeBranches || []) {
       const slug = branchSlug(bc);
       const srv = runningServers[buildKey(r.owner, r.repo, bc)];
-      branchStatuses[slug] = { ...(buildStatus[buildKey(r.owner, r.repo, bc)] || { status: "idle" }), branch: bc.branch, baseDir: bc.baseDir || "", buildCommand: bc.buildCommand || "", outputDir: bc.outputDir || "", mode: bc.mode || "static", startCommand: bc.startCommand || "", serverPort: srv ? srv.port : null };
+      branchStatuses[slug] = { ...(buildStatus[buildKey(r.owner, r.repo, bc)] || { status: "idle" }), branch: bc.branch, baseDir: bc.baseDir || "", buildCommand: bc.buildCommand || "", outputDir: bc.outputDir || "", mode: bc.mode || "static", startCommand: bc.startCommand || "", envVars: bc.envVars || "", serverPort: srv ? srv.port : null };
     }
     return { ...r, branchStatuses };
   });
@@ -489,12 +541,77 @@ app.delete("/api/repos/:owner/:repo/branch", (req, res) => {
   if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
   const idx = repoConfig.activeBranches.findIndex((bc) => branchSlug(bc) === slug);
   if (idx === -1) return res.status(404).json({ error: "Branch config not found" });
-  // Kill running server if any
-  const key = buildKey(req.params.owner, req.params.repo, repoConfig.activeBranches[idx]);
+  const bc = repoConfig.activeBranches[idx];
+  const key = buildKey(req.params.owner, req.params.repo, bc);
   killServer(key);
+  delete buildStatus[key];
+  // Clean workspace directory
+  const dir = getBranchDir(req.params.owner, req.params.repo, bc);
+  exec("rm -rf " + JSON.stringify(dir), () => {});
   repoConfig.activeBranches.splice(idx, 1);
   saveConfig();
   res.json({ ok: true, activeBranches: repoConfig.activeBranches });
+});
+
+// Stop a running server without removing the branch config
+app.post("/api/stop/:owner/:repo", (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: "slug query param required" });
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  if (runningServers[key]) {
+    runningServers[key].manualStop = true;
+    killServer(key);
+  }
+  if (buildStatus[key]) buildStatus[key].status = "stopped";
+  res.json({ ok: true });
+});
+
+// Edit a branch config
+app.put("/api/repos/:owner/:repo/branch", (req, res) => {
+  const { slug, baseDir, buildCommand, outputDir, mode, startCommand, envVars } = req.body;
+  if (!slug) return res.status(400).json({ error: "slug required" });
+  const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
+  if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
+  const bc = repoConfig.activeBranches.find((b) => branchSlug(b) === slug);
+  if (!bc) return res.status(404).json({ error: "Branch config not found" });
+  if (baseDir !== undefined) bc.baseDir = baseDir;
+  if (buildCommand !== undefined) bc.buildCommand = buildCommand;
+  if (outputDir !== undefined) bc.outputDir = outputDir;
+  if (mode !== undefined) bc.mode = mode;
+  if (startCommand !== undefined) bc.startCommand = startCommand;
+  if (envVars !== undefined) bc.envVars = envVars;
+  saveConfig();
+  res.json({ ok: true, branch: bc });
+});
+
+// GitHub webhook endpoint — push events trigger rebuild
+app.post("/api/webhook", (req, res) => {
+  const event = req.headers["x-github-event"];
+  if (event !== "push") return res.json({ ok: true, skipped: true });
+  const payload = req.body;
+  const ref = payload.ref || ""; // "refs/heads/main"
+  const branch = ref.replace("refs/heads/", "");
+  const repoFullName = payload.repository && payload.repository.full_name; // "owner/repo"
+  if (!branch || !repoFullName) return res.status(400).json({ error: "Invalid payload" });
+  const [owner, repo] = repoFullName.split("/");
+  const repoConfig = config.repos.find((r) => r.owner === owner && r.repo === repo);
+  if (!repoConfig) return res.json({ ok: true, skipped: true, reason: "Repo not tracked" });
+  let triggered = 0;
+  for (const bc of repoConfig.activeBranches) {
+    if (bc.branch === branch) { deployBranch(repoConfig, bc); triggered++; }
+  }
+  console.log("[WEBHOOK] Push to " + repoFullName + ":" + branch + " — triggered " + triggered + " build(s)");
+  res.json({ ok: true, triggered });
+});
+
+// SSE endpoint for live log streaming
+app.get("/api/logs/stream", (req, res) => {
+  const key = req.query.key || "";
+  res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+  res.write("data: " + JSON.stringify({ connected: true, key }) + "\n\n");
+  const stream = { res, key, closed: false };
+  logStreams.push(stream);
+  req.on("close", () => { stream.closed = true; });
 });
 
 // Trigger rebuild — slug via query param (or legacy branch param)
@@ -516,12 +633,13 @@ app.get("/api/status/:owner/:repo", (req, res) => {
   res.json(buildStatus[key] || { status: "idle" });
 });
 
-// Build log — slug via query param
+// Build log — slug via query param (falls back to disk)
 app.get("/api/log/:owner/:repo", (req, res) => {
   const slug = req.query.slug || req.query.branch || "";
   const key = req.params.owner + "/" + req.params.repo + ":" + slug;
   const s = buildStatus[key];
-  res.type("text/plain").send(s ? s.log : "No build log.");
+  const log = s && s.log ? s.log : loadLog(key);
+  res.type("text/plain").send(log || "No build log.");
 });
 
 // ── Serve built output ──
