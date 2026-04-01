@@ -103,7 +103,7 @@ DV.views.preview = function(app) {
             e.stopPropagation();
             if (!isDuplicate) DV.addBranchToRepo(b, S.addBranchBaseDir || "", S.addBranchMode || "static", S.addBranchStartCmd || "");
           } } }, [
-            el("span", { s: { color: isDuplicate ? "var(--tx3)" : "var(--accent)", fontSize: "10px", flexShrink: "0" } }, isDuplicate ? "\u2713" : "+"),
+            el("span", { s: { color: isDuplicate ? "var(--tx3)" : "var(--accent)", fontSize: "10px", flexShrink: "0" } }, isDuplicate ? "ok" : "+"),
             document.createTextNode(b),
             pendingBaseDir ? el("span", { s: { color: "var(--tx3)", fontSize: "10px", marginLeft: "6px" } }, "\u2192 " + pendingBaseDir) : null
           ]));
@@ -176,7 +176,17 @@ DV.views.preview = function(app) {
       iframe.onload = function() { loader.style.opacity = "0"; setTimeout(function() { if (loader.parentNode) loader.remove(); }, 300); };
       body.appendChild(iframe); body.appendChild(loader);
     } else {
-      body.appendChild(el("div", { s: { display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--tx3)", fontFamily: "monospace", fontSize: "13px" } }, bs.status === "building" ? "Building..." : "Not built yet"));
+      var stateWrap = el("div", { s: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: "16px" } });
+      if (bs.status === "building") {
+        var loadWrap = el("div", { s: { width: "120px" } });
+        loadWrap.appendChild(el("div", { c: "dv-loading" }));
+        stateWrap.appendChild(loadWrap);
+        stateWrap.appendChild(el("div", { s: { color: "var(--tx3)", fontFamily: "var(--font-mono)", fontSize: "10px", letterSpacing: "0.08em" } }, "BUILDING..."));
+      } else {
+        stateWrap.appendChild(el("div", { s: { width: "32px", height: "32px", borderRadius: "50%", border: "1px solid var(--border-h)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--tx3)", fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: "600" } }, "DV"));
+        stateWrap.appendChild(el("div", { s: { color: "var(--tx3)", fontFamily: "var(--font-mono)", fontSize: "10px", letterSpacing: "0.08em" } }, "AWAITING BUILD"));
+      }
+      body.appendChild(stateWrap);
     }
     if (sc !== 1) {
       var wrapper = el("div", { s: { width: Math.floor(pixelW * sc) + "px", height: Math.floor(pixelH * sc) + "px", overflow: "hidden" } });
