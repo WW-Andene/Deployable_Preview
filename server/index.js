@@ -119,7 +119,7 @@ async function buildBranch(repoConfig, branchConfig) {
       // First time: clone and checkout this branch
       addLog("Cloning " + owner + "/" + repo + " (branch: " + branch + ")...");
       fs.mkdirSync(branchDir, { recursive: true });
-      await runCmd("git clone --branch " + JSON.stringify(branch) + " --single-branch https://" + config.token + "@github.com/" + owner + "/" + repo + ".git .", branchDir);
+      await runCmd("git clone --branch " + JSON.stringify(branch) + " --single-branch --depth 1 https://" + config.token + "@github.com/" + owner + "/" + repo + ".git .", branchDir);
     } else {
       // Already cloned: fetch and hard reset to latest
       addLog("Updating branch: " + branch);
@@ -147,10 +147,15 @@ async function buildBranch(repoConfig, branchConfig) {
     addLog("Cleaning...");
     await runCmd("rm -rf dist build out web-build", workDir).catch(() => {});
 
-    // Install dependencies
-    addLog("Installing dependencies...");
+    // Install dependencies (skip if node_modules exists and lockfile unchanged)
+    const hasNodeModules = fs.existsSync(path.join(workDir, "node_modules"));
     const hasYarnLock = fs.existsSync(path.join(workDir, "yarn.lock"));
     const hasPnpmLock = fs.existsSync(path.join(workDir, "pnpm-lock.yaml"));
+    if (!hasNodeModules) {
+      addLog("Installing dependencies...");
+    } else {
+      addLog("Checking dependencies...");
+    }
     if (hasPnpmLock) {
       await runCmd("pnpm install", workDir);
     } else if (hasYarnLock) {
@@ -258,7 +263,7 @@ async function startServer(repoConfig, branchConfig) {
     if (!fs.existsSync(path.join(branchDir, ".git"))) {
       addLog("Cloning " + owner + "/" + repo + " (branch: " + branch + ")...");
       fs.mkdirSync(branchDir, { recursive: true });
-      await runCmd("git clone --branch " + JSON.stringify(branch) + " --single-branch https://" + config.token + "@github.com/" + owner + "/" + repo + ".git .", branchDir);
+      await runCmd("git clone --branch " + JSON.stringify(branch) + " --single-branch --depth 1 https://" + config.token + "@github.com/" + owner + "/" + repo + ".git .", branchDir);
     } else {
       addLog("Updating branch: " + branch);
       await runCmd("git fetch origin " + JSON.stringify(branch), branchDir);
