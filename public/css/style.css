@@ -12,12 +12,14 @@
 
   /* Palette — warm amber on deep blue-void */
   --bg:         #090a10;
+  --bg-deep:    #050608;
   --sf1:        #101218;
   --sf2:        #171a24;
   --sf3:        #1e2230;
   --tx1:        #e6e1d5;
-  --tx2:        #87827a;
-  --tx3:        #504d47;
+  --tx2:        #9e9890; /* raised from #87827a for AA contrast */
+  --tx3:        #6a665e; /* raised from #504d47 for AA contrast */
+  --overlay:    rgba(5,5,8,.75);
   --accent:     #d4a030;
   --accent-h:   #eab840;
   --accent-dim: rgba(212,160,48,.10);
@@ -59,10 +61,35 @@
   --dur-enter: 180ms;
   --dur-exit: 120ms;
 
-  /* Fonts */
+  /* Type scale (Minor Third 1.2, base 14px) */
   --font-ui: 'Space Grotesk', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --text-xs:  9px;
+  --text-sm:  11px;
+  --text-base: 13px;
+  --text-md:  14px;
+  --text-lg:  16px;
+  --text-xl:  20px;
+  --text-2xl: 24px;
+  --text-3xl: 28px;
+
+  /* Spacing scale (multiples of --sp) */
+  --sp-xs:  calc(var(--sp) * 0.5);  /* 3.5px */
+  --sp-sm:  var(--sp);               /* 7px */
+  --sp-md:  calc(var(--sp) * 2);     /* 14px */
+  --sp-lg:  calc(var(--sp) * 3);     /* 21px */
+  --sp-xl:  calc(var(--sp) * 4);     /* 28px */
+  --sp-2xl: calc(var(--sp) * 6);     /* 42px */
 }
+
+/* ── Utility classes for JS views ── */
+.gap-xs  { gap: var(--sp-xs); }   /* 3.5px */
+.gap-sm  { gap: var(--sp-sm); }   /* 7px */
+.gap-md  { gap: var(--sp-md); }   /* 14px */
+.gap-lg  { gap: var(--sp-lg); }   /* 21px */
+.pad-sm  { padding: var(--sp-sm); }
+.pad-md  { padding: var(--sp-md); }
+.pad-lg  { padding: var(--sp-lg); }
 
 /* ── Reset ── */
 *{box-sizing:border-box;margin:0;padding:0}
@@ -106,7 +133,13 @@ input:focus, select:focus {
   border-color: var(--border-focus);
   box-shadow: var(--shadow-inset), 0 0 0 3px var(--accent-dim), 0 0 20px var(--accent-glow);
 }
+input:hover, select:hover { border-color: var(--border-h); }
 input::placeholder { color: var(--tx3); }
+input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="true"],
+input.error, select.error, textarea.error {
+  border-color: var(--border-err);
+  box-shadow: var(--shadow-inset), 0 0 0 2px var(--err-dim);
+}
 
 textarea {
   background: var(--bg);
@@ -140,9 +173,9 @@ button {
   cursor: pointer;
   letter-spacing: -0.01em;
   white-space: nowrap;
-  transition: background var(--dur-micro) var(--ease-fast), transform 50ms, box-shadow var(--dur-enter) var(--ease-physical);
+  transition: background var(--dur-micro) var(--ease-fast), transform var(--dur-micro) var(--ease-fast), box-shadow var(--dur-micro) var(--ease-fast);
 }
-button:active { transform: translateY(1px) scale(0.97); transition: transform 40ms; }
+button:active { transform: translateY(1px) scale(0.97); transition-duration: 50ms; }
 
 /* Primary — amber signal, glows on hover */
 .bp {
@@ -221,6 +254,7 @@ button:active { transform: translateY(1px) scale(0.97); transition: transform 40
   transition: all var(--dur-micro) var(--ease-fast);
 }
 .chip:hover { border-color: var(--border-h); color: var(--tx1); background: var(--sf1); }
+.chip:focus-visible { box-shadow: 0 0 0 2px var(--border-focus), 0 0 12px var(--accent-glow); outline: none; }
 .chip.on {
   border-color: var(--accent);
   background: var(--accent-dim);
@@ -270,7 +304,7 @@ button:active { transform: translateY(1px) scale(0.97); transition: transform 40
   border: 1px solid var(--border);
   border-radius: var(--r-card);
   overflow: hidden;
-  background: #050608;
+  background: var(--bg-deep);
   display: inline-block;
   flex-shrink: 0;
 }
@@ -291,7 +325,7 @@ button:active { transform: translateY(1px) scale(0.97); transition: transform 40
 
 /* ── Log boxes ── */
 .log-box, .live-log {
-  background: #050608;
+  background: var(--bg-deep);
   border: 1px solid var(--border);
   border-radius: var(--r-input);
   padding: calc(var(--sp) * 1.5);
@@ -343,14 +377,14 @@ button:active { transform: translateY(1px) scale(0.97); transition: transform 40
   gap: calc(var(--sp) * 1.5);
   transition: background var(--dur-micro) var(--ease-fast), color var(--dur-micro) var(--ease-fast);
 }
-.dd-item:hover { background: var(--accent-dim); color: var(--accent); }
+.dd-item:hover, .dd-item:focus-visible { background: var(--accent-dim); color: var(--accent); outline: none; }
 .dd-item.already { opacity: 0.25; pointer-events: none; color: var(--tx3); }
 
 /* ── Modal — overlay with blur ── */
 .modal-bg {
   position: fixed;
   inset: 0;
-  background: rgba(5,5,8,.75);
+  background: var(--overlay);
   backdrop-filter: blur(6px) brightness(0.7);
   z-index: 200;
   display: flex;
@@ -432,6 +466,10 @@ button:active { transform: translateY(1px) scale(0.97); transition: transform 40
 .branch-row:hover {
   background: var(--sf1);
   border-color: var(--border-h);
+}
+.branch-row:focus-within {
+  border-color: var(--border-h);
+  background: var(--sf1);
 }
 
 /* Stats bar — quick at-a-glance info */
