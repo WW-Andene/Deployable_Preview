@@ -13,13 +13,18 @@ function findOutputDir(owner, repo, slug) {
   return null;
 }
 
+// Helper: build the prefix to strip when proxying
+function previewPrefix(req) {
+  return "/preview/" + req.params.owner + "/" + req.params.repo + "/" + req.params.branchSlug;
+}
+
 // Static assets / server proxy
 router.use("/preview/:owner/:repo/:branchSlug", (req, res, next) => {
   const slug = req.params.branchSlug;
   const key = req.params.owner + "/" + req.params.repo + ":" + slug;
 
   const srv = runningServers[key];
-  if (srv && srv.status === "running") { res.removeHeader("X-Frame-Options"); return proxyTo(srv.port, req, res); }
+  if (srv && srv.status === "running") { res.removeHeader("X-Frame-Options"); return proxyTo(srv.port, req, res, previewPrefix(req)); }
 
   const outDir = findOutputDir(req.params.owner, req.params.repo, slug);
   if (!outDir || !fs.existsSync(outDir)) return res.status(404).send("Not built yet.");
@@ -34,7 +39,7 @@ router.use("/preview/:owner/:repo/:branchSlug/*", (req, res) => {
   const slug = req.params.branchSlug;
   const key = req.params.owner + "/" + req.params.repo + ":" + slug;
   const srv = runningServers[key];
-  if (srv && srv.status === "running") { res.removeHeader("X-Frame-Options"); return proxyTo(srv.port, req, res); }
+  if (srv && srv.status === "running") { res.removeHeader("X-Frame-Options"); return proxyTo(srv.port, req, res, previewPrefix(req)); }
   const outDir = findOutputDir(req.params.owner, req.params.repo, slug);
   if (!outDir) return res.status(404).send("Not built yet.");
   serveIndex(outDir, res);

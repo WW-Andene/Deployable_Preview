@@ -2,14 +2,40 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 
-function proxyTo(port, req, res) {
+function proxyTo(port, req, res, stripPrefix) {
+  // Strip the /preview/owner/repo/slug prefix so the target app receives clean paths
+  var targetPath = req.originalUrl || req.url;
+  if (stripPrefix && targetPath.startsWith(stripPrefix)) {
+    targetPath = targetPath.slice(stripPrefix.length) || "/";
+  }
   const opts = {
-    hostname: "127.0.0.1", port, path: req.url, method: req.method,
+    hostname: "127.0.0.1", port, path: targetPath, method: req.method,
     headers: { ...req.headers, host: "127.0.0.1:" + port }
   };
+  const isHtml = !path.extname(targetPath) || targetPath.endsWith(".html") || targetPath === "/";
   const proxyReq = http.request(opts, (proxyRes) => {
-    res.writeHead(proxyRes.statusCode, proxyRes.headers);
-    proxyRes.pipe(res);
+    const contentType = proxyRes.headers["content-type"] || "";
+    // For HTML responses from server-mode apps, inject a fetch interceptor
+    // so the client's fetch("/api/...") gets rewritten to the preview prefix
+    if (stripPrefix && contentType.includes("text/html")) {
+      let body = "";
+      proxyRes.setEncoding("utf8");
+      proxyRes.on("data", (chunk) => { body += chunk; });
+      proxyRes.on("end", () => {
+        const fetchShim = `<script>(function(){var B=window.fetch,P='${stripPrefix}';window.fetch=function(u,o){if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith('//'))u=P+u;return B.call(this,u,o);};var X=XMLHttpRequest.prototype.open,O=X;XMLHttpRequest.prototype.open=function(m,u){if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith('//'))u=P+u;return O.call(this,m,u);};})();<\/script>`;
+        body = body.replace(/<head([^>]*)>/i, '<head$1>' + fetchShim);
+        // Remove content-length since we modified the body
+        const headers = { ...proxyRes.headers };
+        delete headers["content-length"];
+        headers["content-security-policy"] = "";
+        res.removeHeader("X-Frame-Options");
+        res.writeHead(proxyRes.statusCode, headers);
+        res.end(body);
+      });
+    } else {
+      res.writeHead(proxyRes.statusCode, proxyRes.headers);
+      proxyRes.pipe(res);
+    }
   });
   proxyReq.on("error", (e) => { res.status(502).send("Server not responding: " + e.message); });
   req.pipe(proxyReq);
