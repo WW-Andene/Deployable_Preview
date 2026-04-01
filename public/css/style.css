@@ -133,7 +133,14 @@ input:focus, select:focus {
   border-color: var(--border-focus);
   box-shadow: var(--shadow-inset), 0 0 0 3px var(--accent-dim), 0 0 20px var(--accent-glow);
 }
-input:hover, select:hover { border-color: var(--border-h); }
+input:hover, select:hover, textarea:hover { border-color: var(--border-h); }
+input:disabled, select:disabled, textarea:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: var(--sf2);
+  color: var(--tx3);
+  box-shadow: none;
+}
 input::placeholder { color: var(--tx3); }
 input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="true"],
 input.error, select.error, textarea.error {
@@ -709,6 +716,11 @@ button:disabled, button[disabled] {
   color: var(--tx1);
   font-family: var(--font-mono);
   font-size: 12px;
+}
+.error-bar::before {
+  content: '> ';
+  color: var(--err);
+  font-weight: 700;
 }
 
 /* ══════════════════════════════════════════════════
