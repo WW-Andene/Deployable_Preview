@@ -37,6 +37,6 @@
     "puppeteer": "^24.15.0"
   },
   "overrides": {
-    "path-to-regexp": "0.1.13"
+    "path-to-regexp": "~0.1.13"
   }
 }
