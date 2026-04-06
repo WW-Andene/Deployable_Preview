@@ -188,5 +188,6 @@ DV.views.modals = function(app) {
     apkBg.appendChild(apkBox);
     app.appendChild(apkBg);
   }
+};
 
 })();
