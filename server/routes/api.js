@@ -1,5 +1,7 @@
 const express = require("express");
 const { exec } = require("child_process");
+const fs = require("fs");
+const path = require("path");
 const router = express.Router();
 
 const { getConfig, saveConfig, parseEnvVars } = require("../config");
@@ -7,6 +9,21 @@ const { ghApi } = require("../github");
 const { buildStatus, branchSlug, buildKey, getBranchDir, deployBranch } = require("../build");
 const { runningServers, killServer } = require("../process");
 const { loadLog, logStreams } = require("../logs");
+const { apkStatus, buildApk, APK_DIR } = require("../apk");
+
+// ── Input validation helper ──────────────────────────────────────────────────
+// Reject owner/repo names with characters that could break shell commands or paths
+const SAFE_NAME_RE = /^[a-zA-Z0-9._-]+$/;
+
+function validateParams(req, res, next) {
+  const { owner, repo } = req.params;
+  if (owner && !SAFE_NAME_RE.test(owner)) return res.status(400).json({ error: "Invalid owner name" });
+  if (repo && !SAFE_NAME_RE.test(repo)) return res.status(400).json({ error: "Invalid repo name" });
+  next();
+}
+
+router.param("owner", validateParams);
+router.param("repo", validateParams);
 
 // Token
 router.post("/token", (req, res) => {
@@ -214,6 +231,173 @@ router.get("/log/:owner/:repo", (req, res) => {
   const s = buildStatus[key];
   const log = s && s.log ? s.log : loadLog(key);
   res.type("text/plain").send(log || "No build log.");
+});
+
+// ── APK build ──────────────────────────────────────────────────────────────
+
+// Trigger APK build for a deployed branch
+router.post("/apk/:owner/:repo", (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: "slug query param required" });
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  if (apkStatus[key] && apkStatus[key].status === "building") {
+    return res.status(409).json({ error: "APK build already in progress" });
+  }
+  // fire and forget — client polls /api/apk/status
+  buildApk(req.params.owner, req.params.repo, slug);
+  res.json({ ok: true, message: "APK build started" });
+});
+
+// Poll APK build status
+router.get("/apk/:owner/:repo/status", (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: "slug query param required" });
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  res.json(apkStatus[key] || { status: "idle" });
+});
+
+// Stream APK build log (SSE)
+router.get("/apk/:owner/:repo/log-stream", (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: "slug query param required" });
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+  res.write("data: " + JSON.stringify({ connected: true }) + "\n\n");
+  // send existing log
+  if (apkStatus[key] && apkStatus[key].log) {
+    res.write("data: " + JSON.stringify({ log: apkStatus[key].log }) + "\n\n");
+  }
+  const stream = { res, key: "apk:" + key, closed: false };
+  logStreams.push(stream);
+  req.on("close", () => { stream.closed = true; });
+});
+
+// Download the finished APK
+router.get("/apk/:owner/:repo/download", (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: "slug query param required" });
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  const st = apkStatus[key];
+  if (!st || st.status !== "ready" || !st.apkPath) {
+    return res.status(404).json({ error: "APK not ready" });
+  }
+  // Validate apkPath is inside APK_DIR to prevent path traversal
+  const resolvedPath = path.resolve(st.apkPath);
+  const resolvedDir  = path.resolve(APK_DIR);
+  if (!resolvedPath.startsWith(resolvedDir + path.sep)) {
+    return res.status(403).json({ error: "Invalid APK path" });
+  }
+  if (!fs.existsSync(st.apkPath)) {
+    return res.status(410).json({ error: "APK file missing — rebuild required" });
+  }
+  const safeOwner = req.params.owner.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const safeRepo  = req.params.repo.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const safeSlug  = slug.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const filename  = safeOwner + "-" + safeRepo + "-" + safeSlug + ".apk";
+  res.setHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
+  res.setHeader("Content-Type", "application/vnd.android.package-archive");
+  res.sendFile(resolvedPath);
+});
+
+// ── MCP HTTP tools ─────────────────────────────────────────────────────────
+
+const { TOOLS: mcpTools, handleTool: mcpHandleTool } = require("../mcp");
+const mcpBrowser = require("../mcp-browser");
+
+// List available MCP tools
+router.get("/mcp/tools", (req, res) => {
+  res.json({
+    tools: mcpTools,
+    puppeteerAvailable: mcpBrowser.hasPuppeteer(),
+    hint: "POST /api/mcp/call with { tool, args } to invoke a tool"
+  });
+});
+
+// Call an MCP tool via HTTP
+router.post("/mcp/call", async (req, res) => {
+  const { tool, args } = req.body;
+  if (!tool) return res.status(400).json({ error: "tool name required" });
+  try {
+    const result = await mcpHandleTool(tool, args || {});
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Shortcut: screenshot
+router.get("/mcp/screenshot/:owner/:repo/:slug", async (req, res) => {
+  try {
+    const result = await mcpBrowser.takeScreenshot({
+      owner: req.params.owner,
+      repo: req.params.repo,
+      slug: req.params.slug,
+      width: parseInt(req.query.width) || 1280,
+      height: parseInt(req.query.height) || 720,
+      fullPage: req.query.fullPage === "true",
+      selector: req.query.selector
+    });
+    if (result.error) return res.status(500).json({ error: result.error });
+    if (req.query.format === "json") return res.json(result);
+    // Return as image
+    const buf = Buffer.from(result.base64, "base64");
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Content-Length", buf.length);
+    res.end(buf);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Shortcut: inspect
+router.get("/mcp/inspect/:owner/:repo/:slug", async (req, res) => {
+  try {
+    const result = await mcpBrowser.inspectDOM({
+      owner: req.params.owner,
+      repo: req.params.repo,
+      slug: req.params.slug,
+      selector: req.query.selector
+    });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Shortcut: console logs
+router.get("/mcp/console/:owner/:repo/:slug", async (req, res) => {
+  try {
+    const result = await mcpBrowser.captureConsole({
+      owner: req.params.owner,
+      repo: req.params.repo,
+      slug: req.params.slug,
+      duration: parseInt(req.query.duration) || 3
+    });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Shortcut: interact
+router.post("/mcp/interact/:owner/:repo/:slug", async (req, res) => {
+  try {
+    const result = await mcpBrowser.interact({
+      owner: req.params.owner,
+      repo: req.params.repo,
+      slug: req.params.slug,
+      ...req.body
+    });
+    if (result.error) return res.status(500).json({ error: result.error });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// List previews (for MCP dashboard)
+router.get("/mcp/previews", (req, res) => {
+  res.json(mcpBrowser.listPreviews());
 });
 
 module.exports = router;

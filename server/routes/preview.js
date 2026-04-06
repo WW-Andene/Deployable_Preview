@@ -122,6 +122,13 @@ router.post("/api/test-results/:owner/:repo/:branchSlug", (req, res) => {
 // Test harness page
 router.get("/test/:owner/:repo/:branchSlug", (req, res) => {
   const { owner, repo, branchSlug } = req.params;
+
+  // Sanitize params to prevent XSS — only allow safe characters
+  const SAFE_NAME_RE = /^[a-zA-Z0-9._-]+$/;
+  if (!SAFE_NAME_RE.test(owner) || !SAFE_NAME_RE.test(repo) || !SAFE_NAME_RE.test(branchSlug)) {
+    return res.status(400).send("Invalid parameters");
+  }
+
   const previewUrl = "/preview/" + owner + "/" + repo + "/" + branchSlug + "/";
   const apiUrl = "/api/test-results/" + owner + "/" + repo + "/" + branchSlug;
   const harnessPath = path.join(__dirname, "..", "test-harness.js");

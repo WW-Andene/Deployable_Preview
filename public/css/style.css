@@ -355,6 +355,12 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
 .status-idle     { background: var(--tx3); }
 .status-running  { background: var(--run); box-shadow: 0 0 8px var(--run-dim), 0 0 2px var(--run); animation: pulse 2.5s infinite; }
 .status-stopped  { background: var(--stop); }
+/* APK modal shorthand dot classes */
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.dot.ok       { background: var(--ok); box-shadow: 0 0 6px var(--ok-dim); }
+.dot.building { background: var(--accent); box-shadow: 0 0 8px var(--accent-mid); animation: pulse 1s infinite; }
+.dot.err      { background: var(--err); box-shadow: 0 0 4px var(--err-dim); }
+.dot.idle     { background: var(--tx3); }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
 /* ── Dropdown — floating panel ── */

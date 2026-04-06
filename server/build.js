@@ -134,6 +134,8 @@ async function buildBranch(repoConfig, branchConfig) {
     buildStatus[key].apiRoutes = apiRoutes;
     buildStatus[key].workDir = workDir;
     buildStatus[key].envVars = userEnvForRuntime;
+    buildStatus[key].buildCommand = cmd;
+    buildStatus[key].outputDir = outName;
     saveLog(key, addLog.getLog());
   } catch (e) {
     addLog("BUILD FAILED: " + e.message);

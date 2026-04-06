@@ -1,11 +1,38 @@
 const express = require("express");
 const path = require("path");
+const { execSync } = require("child_process");
 
 const { loadConfig, getConfig, migrateConfig } = require("./config");
 const { ghApi } = require("./github");
 const { deployBranch } = require("./build");
 const apiRoutes = require("./routes/api");
 const previewRoutes = require("./routes/preview");
+const { setupStreamableHTTP } = require("./mcp-streamable-http");
+
+// ── MCP stdio mode ──
+if (process.argv.includes("--mcp-only")) {
+  // Run as pure MCP stdio server (no HTTP)
+  const { startStdioServer } = require("./mcp");
+  startStdioServer();
+  return;
+}
+
+// ── Startup validation ──
+(function checkPrerequisites() {
+  // Node version check
+  const nodeVersion = parseInt(process.versions.node.split(".")[0], 10);
+  if (nodeVersion < 18) {
+    console.error("  ✗ Node.js 18+ required (found v" + process.versions.node + ")");
+    process.exit(1);
+  }
+  // git check
+  try {
+    execSync("git --version", { stdio: "pipe" });
+  } catch (e) {
+    console.error("  ✗ git is not installed or not in PATH");
+    process.exit(1);
+  }
+})();
 
 // ── Init ──
 loadConfig();
@@ -15,12 +42,46 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "..", "public")));
 
+// ── Health check ──
+app.get("/api/health", (req, res) => {
+  const { buildStatus } = require("./build");
+  const { runningServers } = require("./process");
+  const config = getConfig();
+  let readyCount = 0, buildingCount = 0, errorCount = 0, serverCount = 0;
+  for (const key in buildStatus) {
+    const s = buildStatus[key].status;
+    if (s === "ready") readyCount++;
+    else if (s === "running") { readyCount++; serverCount++; }
+    else if (s === "building") buildingCount++;
+    else if (s === "error") errorCount++;
+  }
+  res.json({
+    status: "ok",
+    uptime: Math.floor(process.uptime()),
+    version: require("../package.json").version,
+    node: process.versions.node,
+    repos: config.repos.length,
+    previews: { ready: readyCount, building: buildingCount, error: errorCount, servers: serverCount },
+    memory: Math.round(process.memoryUsage().rss / 1024 / 1024) + " MB"
+  });
+});
+
 // ── Routes ──
 app.use("/api", apiRoutes);
+setupStreamableHTTP(app, "/mcp");
 app.use(previewRoutes);
 
+// ── Global error handler ──
+app.use((err, req, res, _next) => {
+  console.error("[ERROR] " + req.method + " " + req.url + ":", err.message);
+  if (!res.headersSent) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── Polling ──
-const POLL_INTERVAL = 30000;
+const POLL_INTERVAL = 5000;
+let pollIntervalId = null;
 
 async function pollForChanges() {
   const config = getConfig();
@@ -47,16 +108,74 @@ async function pollForChanges() {
   }
 }
 
-setInterval(pollForChanges, POLL_INTERVAL);
+pollIntervalId = setInterval(pollForChanges, POLL_INTERVAL);
+
+// ── Graceful shutdown ──
+let httpServer = null;
+
+function shutdown(signal) {
+  console.log("\n  [" + signal + "] Shutting down gracefully...");
+
+  if (pollIntervalId) clearInterval(pollIntervalId);
+
+  // Kill all running server processes
+  const { runningServers, killServer } = require("./process");
+  for (const key in runningServers) {
+    console.log("  Stopping server: " + key);
+    killServer(key);
+  }
+
+  // Close Puppeteer browser
+  try {
+    const mcpBrowser = require("./mcp-browser");
+    mcpBrowser.closeBrowser().catch(() => {});
+  } catch (e) { /* not loaded */ }
+
+  // Close HTTP server
+  if (httpServer) {
+    httpServer.close(() => {
+      console.log("  HTTP server closed.");
+      process.exit(0);
+    });
+    // Force exit after 5s if graceful close hangs
+    setTimeout(() => process.exit(1), 5000);
+  } else {
+    process.exit(0);
+  }
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+
+// Catch unhandled errors to prevent silent crashes
+process.on("uncaughtException", (err) => {
+  console.error("[FATAL] Uncaught exception:", err.message);
+  console.error(err.stack);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[WARN] Unhandled promise rejection:", reason);
+});
 
 // ── Start ──
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+httpServer = app.listen(PORT, () => {
   console.log("");
-  console.log("  \u26a1 DeployView running on http://localhost:" + PORT);
+  console.log("  ⚡ DeployView running on http://localhost:" + PORT);
   console.log("  Dashboard: http://localhost:" + PORT);
   console.log("  Previews:  http://localhost:" + PORT + "/preview/{owner}/{repo}/{branch}/");
+  console.log("  MCP tools: http://localhost:" + PORT + "/api/mcp/tools");
+  console.log("  MCP endpoint (Streamable HTTP): http://localhost:" + PORT + "/mcp");
+  console.log("  Health:    http://localhost:" + PORT + "/api/health");
   console.log("");
+
+  // Start MCP stdio server alongside HTTP if --mcp flag passed
+  if (process.argv.includes("--mcp")) {
+    const { startStdioServer } = require("./mcp");
+    startStdioServer();
+    console.log("  MCP stdio server: active (reading from stdin)");
+    console.log("");
+  }
+
   const config = getConfig();
   if (config.token && config.repos.length) {
     console.log("  Auto-building " + config.repos.length + " repo(s)...");

@@ -82,5 +82,112 @@ DV.views.modals = function(app) {
       try { var data = JSON.parse(e.data); if (data.msg) { logDiv.textContent += data.msg + "\n"; logDiv.scrollTop = logDiv.scrollHeight; } } catch (err) {}
     };
   }
+
+  // ── APK build modal ────────────────────────────────────────────────────────
+  if (S.apkModal) {
+    var am = S.apkModal;
+    var apkBg = el("div", { c: "modal-bg", on: { click: function(e) {
+      if (e.target === apkBg) { S.apkModal = null; if (S._apkSSE) { S._apkSSE.close(); S._apkSSE = null; } DV.render(); }
+    } } });
+    var apkBox = el("div", { c: "modal" });
+
+    // Header
+    apkBox.appendChild(el("div", { s: { display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" } }, [
+      el("span", { s: { fontSize: "20px" } }, "📦"),
+      el("h3", { s: { fontSize: "16px", fontWeight: "700", flex: "1", margin: "0" } }, "Build Android APK"),
+      el("span", { s: { fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--tx3)" } }, am.slug)
+    ]));
+
+    // Info box
+    apkBox.appendChild(el("div", { s: { background: "var(--accent-dim)", border: "1px solid var(--accent)", borderRadius: "6px", padding: "10px 14px", marginBottom: "16px", fontSize: "12px", color: "var(--tx2)", lineHeight: "1.7" } }, [
+      el("div", { s: { fontWeight: "600", marginBottom: "4px", color: "var(--accent)" } }, "Builds in GitHub Actions — no SDK needed here"),
+      el("div", {}, "1. Pushes a workflow to your repo"),
+      el("div", {}, "2. GitHub's cloud runners build the APK (~4–8 min)"),
+      el("div", {}, "3. Downloads the .apk back here when done"),
+      el("div", { s: { marginTop: "6px", color: "var(--tx3)" } }, "Requires your token to have the 'workflow' scope.")
+    ]));
+
+    // APK status area
+    var apkStatusDiv = el("div", { s: { marginBottom: "12px" } });
+    var apkLogDiv = el("div", { c: "live-log", s: { maxHeight: "220px", display: "none" } });
+
+    function refreshApkStatus() {
+      fetch("/api/apk/" + am.owner + "/" + am.repo + "/status?slug=" + encodeURIComponent(am.slug))
+        .then(function(r) { return r.json(); })
+        .then(function(st) {
+          apkStatusDiv.innerHTML = "";
+          var statusColor = st.status === "ready" ? "var(--ok)" : st.status === "building" ? "var(--accent)" : st.status === "error" ? "var(--err)" : "var(--tx3)";
+          var statusLabel = { idle: "Not built yet", building: "Building…", ready: "Ready to download", error: "Build failed" }[st.status] || st.status;
+          apkStatusDiv.appendChild(el("div", { s: { display: "flex", alignItems: "center", gap: "8px", padding: "8px 0" } }, [
+            el("span", { c: "dot " + (st.status === "ready" ? "ok" : st.status === "building" ? "building" : st.status === "error" ? "err" : "idle") }),
+            el("span", { s: { fontFamily: "var(--font-mono)", fontSize: "13px", color: statusColor } }, statusLabel +
+              (st.status === "ready" && st.sizeKb ? " (" + st.sizeKb + " KB)" : "") +
+              (st.startedAt ? " · " + new Date(st.startedAt).toLocaleTimeString() : ""))
+          ]));
+          if (st.status === "ready") {
+            apkStatusDiv.appendChild(el("a", {
+              attr: { href: "/api/apk/" + am.owner + "/" + am.repo + "/download?slug=" + encodeURIComponent(am.slug), download: "" },
+              s: { display: "block", marginTop: "8px" }
+            }, [
+              el("button", { c: "bp", s: { width: "100%", fontSize: "14px" } }, "⬇  Download APK")
+            ]));
+          }
+          if (st.log) {
+            apkLogDiv.style.display = "block";
+            apkLogDiv.textContent = st.log;
+            apkLogDiv.scrollTop = apkLogDiv.scrollHeight;
+          }
+        });
+    }
+
+    refreshApkStatus();
+
+    apkBox.appendChild(apkStatusDiv);
+    apkBox.appendChild(apkLogDiv);
+
+    // Actions
+    var apkBtnRow = el("div", { s: { display: "flex", gap: "8px", marginTop: "14px" } });
+    apkBtnRow.appendChild(el("button", { c: "bg", on: { click: function() {
+      S.apkModal = null; if (S._apkSSE) { S._apkSSE.close(); S._apkSSE = null; } DV.render();
+    } } }, "Close"));
+    apkBtnRow.appendChild(el("button", { c: "bp", s: { flex: "1" }, on: { click: function(e) {
+      e.target.disabled = true; e.target.textContent = "Starting…";
+      apkLogDiv.style.display = "block"; apkLogDiv.textContent = "";
+      fetch("/api/apk/" + am.owner + "/" + am.repo + "?slug=" + encodeURIComponent(am.slug), { method: "POST" })
+        .then(function(r) { return r.json(); })
+        .then(function() {
+          // Start SSE log stream
+          if (S._apkSSE) S._apkSSE.close();
+          S._apkSSE = new EventSource("/api/apk/" + am.owner + "/" + am.repo + "/log-stream?slug=" + encodeURIComponent(am.slug));
+          S._apkSSE.onmessage = function(ev) {
+            try {
+              var data = JSON.parse(ev.data);
+              if (data.log) { apkLogDiv.textContent = data.log; apkLogDiv.scrollTop = apkLogDiv.scrollHeight; }
+              if (data.msg) { apkLogDiv.textContent += data.msg + "\n"; apkLogDiv.scrollTop = apkLogDiv.scrollHeight; }
+            } catch (err) {}
+          };
+          // Poll status every 3 s
+          var pollId = setInterval(function() {
+            if (!S.apkModal) { clearInterval(pollId); return; }
+            refreshApkStatus();
+            fetch("/api/apk/" + am.owner + "/" + am.repo + "/status?slug=" + encodeURIComponent(am.slug))
+              .then(function(r) { return r.json(); })
+              .then(function(st) {
+                if (st.status !== "building") {
+                  clearInterval(pollId);
+                  if (S._apkSSE) { S._apkSSE.close(); S._apkSSE = null; }
+                  refreshApkStatus();
+                }
+              });
+          }, 3000);
+        })
+        .catch(function(err) { apkLogDiv.textContent = "Failed to start: " + err.message; e.target.disabled = false; e.target.textContent = "Build APK"; });
+    } } }, "Build APK"));
+    apkBox.appendChild(apkBtnRow);
+
+    apkBg.appendChild(apkBox);
+    app.appendChild(apkBg);
+  }
 };
+
 })();
