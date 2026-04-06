@@ -906,6 +906,11 @@ button:disabled, button[disabled] {
   color: var(--accent);
   border: 1px solid var(--accent);
 }
+.breadcrumb {
+  color: var(--tx3);
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
 
 /* ─── setup.js: Setup / onboarding page ─── */
 .setup-page {
