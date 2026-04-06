@@ -10,6 +10,7 @@ Build, serve, and preview your app from GitHub — replaces Vercel, Netlify, and
 4. Serves the built output
 5. Shows interactive 16:9 and 9:16 previews
 6. Polls GitHub every 30s — auto-rebuilds on new commits
+7. **MCP Server** — lets AI assistants (Claude) see and interact with your deployed apps
 
 ## Setup
 
@@ -20,6 +21,9 @@ cd Deployable_Preview
 
 # Install
 npm install
+
+# Optional: install Puppeteer for MCP screenshot/interaction features
+npm install puppeteer
 
 # Run
 npm start
@@ -34,6 +38,7 @@ Open **http://localhost:3000** in your browser.
 - Node.js 18+
 - Git installed
 - The build tools your project needs (npm, yarn, pnpm)
+- Puppeteer (optional, for MCP screenshot and interaction tools)
 
 ## How it works
 
@@ -42,6 +47,73 @@ Open **http://localhost:3000** in your browser.
 - **Serve** → Built output served at `/preview/{owner}/{repo}/{branch}/`
 - **Preview** → Interactive iframes in 16:9 and 9:16, compare branches side by side
 - **Auto-rebuild** → Polls GitHub for new commits, rebuilds automatically
+- **MCP Server** → AI assistants can screenshot, inspect, and interact with previews
+
+## MCP Server (Model Context Protocol)
+
+DeployView includes a built-in MCP server that lets AI assistants like Claude interact with your deployed app previews. This enables:
+
+- **Taking Screenshots** — Claude can see your live UI and provide visual feedback
+- **DOM Inspection** — Get the accessibility tree, element details, and page metadata
+- **Live Interaction** — Click buttons, fill forms, scroll, hover, and navigate
+- **Console Log Capture** — Capture JavaScript errors, warnings, and network failures
+- **Build Control** — Trigger rebuilds and check build status
+
+### MCP Setup: Claude Desktop
+
+Add to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "deployview": {
+      "command": "node",
+      "args": ["server/mcp.js"],
+      "cwd": "/path/to/Deployable_Preview"
+    }
+  }
+}
+```
+
+### MCP Modes
+
+```bash
+# Standalone MCP server (stdio only, for Claude Desktop)
+npm run mcp
+
+# HTTP server + MCP stdio combined
+npm run start:mcp
+
+# HTTP server only (MCP tools still available via HTTP API)
+npm start
+```
+
+### MCP HTTP API
+
+When the HTTP server is running, MCP tools are also available via REST:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/mcp/tools` | GET | List available MCP tools |
+| `/api/mcp/call` | POST | Invoke any tool: `{ tool, args }` |
+| `/api/mcp/screenshot/:owner/:repo/:slug` | GET | Take a screenshot |
+| `/api/mcp/inspect/:owner/:repo/:slug` | GET | Inspect DOM / a11y tree |
+| `/api/mcp/console/:owner/:repo/:slug` | GET | Capture console logs |
+| `/api/mcp/interact/:owner/:repo/:slug` | POST | Click, type, scroll, etc. |
+| `/api/mcp/previews` | GET | List active previews |
+
+### Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `list_previews` | List all deployed app previews with status and URLs |
+| `screenshot` | Take a PNG screenshot of a deployed preview |
+| `inspect` | Get accessibility tree, DOM structure, and element details |
+| `interact` | Click, type, select, scroll, hover, or navigate in a preview |
+| `console_logs` | Capture console output and errors for a duration |
+| `build_status` | Get build/server status for a deployment |
+| `trigger_build` | Trigger a rebuild or server restart |
+| `get_build_log` | Retrieve the full build log |
 
 ## Config
 
