@@ -42,9 +42,17 @@ async function closeBrowser() {
 }
 
 // ── Resolve preview URL from owner/repo/slug ─────────────────────────────────
+// Only allows navigating to local DeployView previews to prevent SSRF
 function resolvePreviewUrl(owner, repo, slug, serverPort) {
+  // Sanitize inputs to prevent path injection
+  const safeOwner = (owner || "").replace(/[^a-zA-Z0-9_-]/g, "");
+  const safeRepo  = (repo || "").replace(/[^a-zA-Z0-9_-]/g, "");
+  const safeSlug  = (slug || "").replace(/[^a-zA-Z0-9_-]/g, "");
+  if (!safeOwner || !safeRepo || !safeSlug) {
+    throw new Error("Invalid owner, repo, or slug");
+  }
   const port = serverPort || process.env.PORT || 3000;
-  return "http://127.0.0.1:" + port + "/preview/" + owner + "/" + repo + "/" + slug + "/";
+  return "http://127.0.0.1:" + port + "/preview/" + safeOwner + "/" + safeRepo + "/" + safeSlug + "/";
 }
 
 // ── Screenshot ───────────────────────────────────────────────────────────────
@@ -301,7 +309,14 @@ async function interact(opts) {
         break;
 
       case "navigate":
-        if (value) await page.goto(value.startsWith("http") ? value : url + value, { waitUntil: "networkidle2", timeout: 30000 });
+        if (value) {
+          // Only allow navigation within the local preview (prevent SSRF)
+          var navUrl = value.startsWith("/") ? url.replace(/\/preview\/.*$/, "") + value : url + value;
+          if (!navUrl.startsWith("http://127.0.0.1:")) {
+            throw new Error("Navigation restricted to local previews only");
+          }
+          await page.goto(navUrl, { waitUntil: "networkidle2", timeout: 30000 });
+        }
         result.navigatedTo = value;
         break;
 
