@@ -301,13 +301,13 @@ function extractText(html, selector, maxTextLen) {
   }
 
   // Remove script and style blocks (loop to handle nested/malformed tags)
-  // Use [^<]* pattern to match content, and permissive closing tags
+  // Use [^<]* pattern to match content, and strict closing tags
   let prev;
   do {
     prev = content;
-    content = content.replace(/<script\b[^<]*(?:(?!<\/script)<[^<]*)*<\/script[\s>][^>]*>/gi, "");
-    content = content.replace(/<style\b[^<]*(?:(?!<\/style)<[^<]*)*<\/style[\s>][^>]*>/gi, "");
-    content = content.replace(/<noscript\b[^<]*(?:(?!<\/noscript)<[^<]*)*<\/noscript[\s>][^>]*>/gi, "");
+    content = content.replace(/<script\b[^<]*(?:(?!<\/script)<[^<]*)*<\/script\s*>/gi, "");
+    content = content.replace(/<style\b[^<]*(?:(?!<\/style)<[^<]*)*<\/style\s*>/gi, "");
+    content = content.replace(/<noscript\b[^<]*(?:(?!<\/noscript)<[^<]*)*<\/noscript\s*>/gi, "");
   } while (content !== prev);
   // Final pass: remove any remaining opening script/style tags without proper closing
   content = content.replace(/<script\b[^>]*>/gi, "");
@@ -341,22 +341,22 @@ function extractText(html, selector, maxTextLen) {
 /**
  * Parse a simple CSS-like selector into its components.
  * Supports: "tag", ".class", "#id", "tag.class", "tag#id"
- * Returns { tag, className, id }
+ * Returns { tag, className, id } — all values are regex-safe alphanumeric.
  */
 function parseSelector(selector) {
   if (!selector || typeof selector !== "string") return {};
   const s = selector.trim();
   let tag = null, className = null, id = null;
 
-  // #id
+  // #id (alphanumeric, underscore, hyphen only — safe for regex)
   const idMatch = s.match(/#([a-zA-Z0-9_-]+)/);
   if (idMatch) id = idMatch[1];
 
-  // .class
+  // .class (alphanumeric, underscore, hyphen only — safe for regex)
   const classMatch = s.match(/\.([a-zA-Z0-9_-]+)/);
   if (classMatch) className = classMatch[1];
 
-  // tag name (leading alphanumeric before . or #)
+  // tag name (strictly alphanumeric — safe for regex)
   const tagMatch = s.match(/^([a-zA-Z][a-zA-Z0-9]*)/);
   if (tagMatch) tag = tagMatch[1];
 
@@ -373,9 +373,10 @@ function matchSelector(html, selector) {
 
   const matches = [];
 
-  // Build regex to find opening tags
-  // We match any tag or the specific tag, then check attributes
-  const tagPattern = tag ? tag : "[a-zA-Z][a-zA-Z0-9]*";
+  // Build regex to find opening tags.
+  // tagPattern is safe: either a validated alphanumeric tag name from parseSelector,
+  // or a fixed character class pattern. No user input reaches the regex unvalidated.
+  const tagPattern = tag || "[a-zA-Z][a-zA-Z0-9]*";
   const re = new RegExp("<(" + tagPattern + ")\\b([^>]*)>", "gi");
   let m;
 
@@ -422,10 +423,11 @@ function hasAttributeExact(attrStr, attrName, value) {
 /**
  * Find the inner content of an element by locating its matching closing tag.
  * Handles basic nesting of the same tag.
+ * Note: `tag` parameter is always a validated alphanumeric string from parseSelector/regex match.
  */
 function findClosingTag(html, tag, startIdx) {
   const openRe = new RegExp("<" + tag + "\\b[^>]*>", "gi");
-  const closeRe = new RegExp("</" + tag + "[\\s>][^>]*>|</" + tag + ">", "gi");
+  const closeRe = new RegExp("</" + tag + "\\s*>", "gi");
   openRe.lastIndex = startIdx;
   closeRe.lastIndex = startIdx;
 
@@ -466,7 +468,7 @@ function extractLinks(html, baseUrl) {
   let prevHtml;
   do {
     prevHtml = safeHtml;
-    safeHtml = safeHtml.replace(/<script\b[^<]*(?:(?!<\/script)<[^<]*)*<\/script[\s>][^>]*>/gi, "");
+    safeHtml = safeHtml.replace(/<script\b[^<]*(?:(?!<\/script)<[^<]*)*<\/script\s*>/gi, "");
   } while (safeHtml !== prevHtml);
   safeHtml = safeHtml.replace(/<script\b[^>]*>/gi, "");
   const re = /<a\s[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
@@ -586,7 +588,7 @@ function stripBoilerplate(html) {
     let prev;
     do {
       prev = content;
-      content = content.replace(new RegExp("<" + tag + "\\b[^<]*(?:(?!<\\/" + tag + ")<[^<]*)*<\\/" + tag + "[\\s>][^>]*>", "gi"), "");
+      content = content.replace(new RegExp("<" + tag + "\\b[^<]*(?:(?!<\\/" + tag + ")<[^<]*)*<\\/" + tag + "\\s*>", "gi"), "");
     } while (content !== prev);
     // Remove any unclosed opening tags
     content = content.replace(new RegExp("<" + tag + "\\b[^>]*>", "gi"), "");
@@ -610,7 +612,7 @@ function stripScripts(html) {
   let prevHtml;
   do {
     prevHtml = safeHtml;
-    safeHtml = safeHtml.replace(/<script\b[^<]*(?:(?!<\/script)<[^<]*)*<\/script[\s>][^>]*>/gi, "");
+    safeHtml = safeHtml.replace(/<script\b[^<]*(?:(?!<\/script)<[^<]*)*<\/script\s*>/gi, "");
   } while (safeHtml !== prevHtml);
   safeHtml = safeHtml.replace(/<script\b[^>]*>/gi, "");
   return safeHtml;
