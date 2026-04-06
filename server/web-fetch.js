@@ -234,24 +234,30 @@ function extractText(html, selector) {
 
   // If a selector (tag name) is specified, extract only that tag's content
   if (selector) {
-    const tag = selector.replace(/[^a-zA-Z0-9-]/g, "");
-    const re = new RegExp("<" + tag + "[^>]*>([\\s\\S]*?)<\\/" + tag + ">", "gi");
-    const matches = [];
-    let m;
-    while ((m = re.exec(html)) !== null) {
-      matches.push(m[1]);
+    const tag = selector.replace(/[^a-zA-Z0-9]/g, "");
+    if (tag) {
+      const re = new RegExp("<" + tag + "\\b[^>]*>([\\s\\S]*?)<\\/" + tag + "[\\s>][^>]*>", "gi");
+      const matches = [];
+      let m;
+      while ((m = re.exec(html)) !== null) {
+        matches.push(m[1]);
+      }
+      content = matches.length ? matches.join("\n\n") : html;
     }
-    content = matches.length ? matches.join("\n\n") : html;
   }
 
   // Remove script and style blocks (loop to handle nested/malformed tags)
+  // Use [^<]* pattern to match content, and permissive closing tags
   let prev;
   do {
     prev = content;
-    content = content.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "");
-    content = content.replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, "");
-    content = content.replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript\s*>/gi, "");
+    content = content.replace(/<script\b[^<]*(?:(?!<\/script)<[^<]*)*<\/script[\s>][^>]*>/gi, "");
+    content = content.replace(/<style\b[^<]*(?:(?!<\/style)<[^<]*)*<\/style[\s>][^>]*>/gi, "");
+    content = content.replace(/<noscript\b[^<]*(?:(?!<\/noscript)<[^<]*)*<\/noscript[\s>][^>]*>/gi, "");
   } while (content !== prev);
+  // Final pass: remove any remaining opening script/style tags without proper closing
+  content = content.replace(/<script\b[^>]*>/gi, "");
+  content = content.replace(/<style\b[^>]*>/gi, "");
 
   // Replace block-level tags with newlines
   content = content.replace(/<\/?(p|div|br|hr|h[1-6]|li|tr|blockquote|pre|section|article|header|footer|nav|aside|main|figure|figcaption|details|summary)[^>]*>/gi, "\n");
@@ -281,7 +287,13 @@ function extractText(html, selector) {
 function extractLinks(html, baseUrl) {
   const links = [];
   // Strip script tags first to avoid extracting links from JS code
-  const safeHtml = html.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "");
+  let safeHtml = html;
+  let prevHtml;
+  do {
+    prevHtml = safeHtml;
+    safeHtml = safeHtml.replace(/<script\b[^<]*(?:(?!<\/script)<[^<]*)*<\/script[\s>][^>]*>/gi, "");
+  } while (safeHtml !== prevHtml);
+  safeHtml = safeHtml.replace(/<script\b[^>]*>/gi, "");
   const re = /<a\s[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let m;
   while ((m = re.exec(safeHtml)) !== null && links.length < MAX_EXTRACTED_LINKS) {
@@ -342,8 +354,8 @@ function decodeEntities(str) {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(parseInt(n, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&");
 }
