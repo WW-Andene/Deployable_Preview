@@ -1,6 +1,7 @@
 const express = require("express");
 const { exec } = require("child_process");
 const fs = require("fs");
+const path = require("path");
 const router = express.Router();
 
 const { getConfig, saveConfig, parseEnvVars } = require("../config");
@@ -8,7 +9,7 @@ const { ghApi } = require("../github");
 const { buildStatus, branchSlug, buildKey, getBranchDir, deployBranch } = require("../build");
 const { runningServers, killServer } = require("../process");
 const { loadLog, logStreams } = require("../logs");
-const { apkStatus, buildApk, apkOutputPath } = require("../apk");
+const { apkStatus, buildApk, APK_DIR } = require("../apk");
 
 // Token
 router.post("/token", (req, res) => {
@@ -266,13 +267,22 @@ router.get("/apk/:owner/:repo/download", (req, res) => {
   if (!st || st.status !== "ready" || !st.apkPath) {
     return res.status(404).json({ error: "APK not ready" });
   }
+  // Validate apkPath is inside APK_DIR to prevent path traversal
+  const resolvedPath = path.resolve(st.apkPath);
+  const resolvedDir  = path.resolve(APK_DIR);
+  if (!resolvedPath.startsWith(resolvedDir + path.sep) && resolvedPath !== resolvedDir) {
+    return res.status(403).json({ error: "Invalid APK path" });
+  }
   if (!fs.existsSync(st.apkPath)) {
     return res.status(410).json({ error: "APK file missing — rebuild required" });
   }
-  const filename = req.params.owner + "-" + req.params.repo + "-" + slug + ".apk";
+  const safeOwner = req.params.owner.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const safeRepo  = req.params.repo.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const safeSlug  = slug.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const filename  = safeOwner + "-" + safeRepo + "-" + safeSlug + ".apk";
   res.setHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
   res.setHeader("Content-Type", "application/vnd.android.package-archive");
-  res.sendFile(st.apkPath);
+  res.sendFile(resolvedPath);
 });
 
 module.exports = router;

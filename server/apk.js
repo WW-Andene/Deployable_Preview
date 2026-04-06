@@ -20,7 +20,7 @@ const https  = require("https");
 const http   = require("http");
 const fs     = require("fs");
 const path   = require("path");
-const { execSync } = require("child_process");
+const { execFile } = require("child_process");
 
 const { getConfig }  = require("./config");
 const { buildStatus, WORKSPACE } = require("./build");
@@ -305,15 +305,17 @@ async function buildApk(owner, repo, slug) {
     const dlUrl = "https://api.github.com/repos/" + owner + "/" + repo + "/actions/artifacts/" + artifactId + "/zip";
     await downloadFile(dlUrl, zipPath, token);
     addLog(key, "Artifact downloaded. Extracting...");
-    if (fs.existsSync(extractTo)) execSync("rm -rf " + JSON.stringify(extractTo));
+    if (fs.existsSync(extractTo)) fs.rmSync(extractTo, { recursive: true, force: true });
     fs.mkdirSync(extractTo, { recursive: true });
-    execSync("unzip -o " + JSON.stringify(zipPath) + " -d " + JSON.stringify(extractTo));
+    await new Promise((resolve, reject) => {
+      execFile("unzip", ["-o", zipPath, "-d", extractTo], (err) => err ? reject(err) : resolve());
+    });
     const files  = fs.readdirSync(extractTo);
     const apkFile = files.find(f => f.endsWith(".apk"));
     if (!apkFile) throw new Error("No .apk in artifact. Contents: " + files.join(", "));
     fs.copyFileSync(path.join(extractTo, apkFile), apkDest);
     fs.unlinkSync(zipPath);
-    execSync("rm -rf " + JSON.stringify(extractTo));
+    fs.rmSync(extractTo, { recursive: true, force: true });
   } catch (e) {
     addLog(key, "ERROR extracting artifact: " + e.message);
     apkStatus[key].status = "error"; return;
@@ -326,4 +328,4 @@ async function buildApk(owner, repo, slug) {
   apkStatus[key].sizeKb  = sizeKb;
 }
 
-module.exports = { apkStatus, buildApk };
+module.exports = { apkStatus, buildApk, APK_DIR };
