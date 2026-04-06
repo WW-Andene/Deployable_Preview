@@ -31,7 +31,10 @@ var S = {
   addBranchBaseDir: "",
   editModal: null,
   logModal: null,
-  apkModal: null
+  apkModal: null,
+  mcpTools: [],
+  mcpAction: null,
+  mcpResult: null
 };
 
 var _dropdownCloseHandler = null;
@@ -159,6 +162,7 @@ function render() {
 
   if (S.view === "dashboard" && views.dashboard) { views.dashboard(app); if (views.modals) views.modals(app); return; }
   if (S.view === "addRepo" && views.addRepo) { views.addRepo(app); return; }
+  if (S.view === "mcp" && views.mcp) { views.mcp(app); return; }
   if (S.view === "preview" && views.preview) { views.preview(app); if (views.modals) views.modals(app); }
 }
 
@@ -170,11 +174,18 @@ api("GET", "/api/token").then(function(r) {
   else render();
 });
 
+function loadMcpTools() {
+  api("GET", "/api/mcp/tools").then(function(r) {
+    if (r.tools) { S.mcpTools = r.tools; render(); }
+  }).catch(function() {});
+}
+
 // Expose globals for view modules
 window.DV = {
   S: S, el: el, api: api, statusClass: statusClass, render: render,
   loadRepos: loadRepos, startStatusPoll: startStatusPoll,
   fetchAvailableBranches: fetchAvailableBranches, addBranchToRepo: addBranchToRepo,
+  loadMcpTools: loadMcpTools,
   views: views, VIEW_PRESETS: VIEW_PRESETS,
   getDropdownHandler: function() { return _dropdownCloseHandler; },
   setDropdownHandler: function(h) { _dropdownCloseHandler = h; }

@@ -4,9 +4,14 @@
   "description": "Build, serve, and preview your app from GitHub — replaces Vercel/Netlify/Screenfly",
   "main": "server/index.js",
   "scripts": {
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "mcp": "node server/mcp.js",
+    "start:mcp": "node server/index.js --mcp"
   },
   "dependencies": {
     "express": "^4.18.2"
+  },
+  "optionalDependencies": {
+    "puppeteer": "^23.0.0"
   }
 }

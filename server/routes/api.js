@@ -285,4 +285,105 @@ router.get("/apk/:owner/:repo/download", (req, res) => {
   res.sendFile(resolvedPath);
 });
 
+// ── MCP HTTP tools ─────────────────────────────────────────────────────────
+
+const { TOOLS: mcpTools, handleTool: mcpHandleTool } = require("../mcp");
+const mcpBrowser = require("../mcp-browser");
+
+// List available MCP tools
+router.get("/mcp/tools", (req, res) => {
+  res.json({
+    tools: mcpTools,
+    puppeteerAvailable: mcpBrowser.hasPuppeteer(),
+    hint: "POST /api/mcp/call with { tool, args } to invoke a tool"
+  });
+});
+
+// Call an MCP tool via HTTP
+router.post("/mcp/call", async (req, res) => {
+  const { tool, args } = req.body;
+  if (!tool) return res.status(400).json({ error: "tool name required" });
+  try {
+    const result = await mcpHandleTool(tool, args || {});
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Shortcut: screenshot
+router.get("/mcp/screenshot/:owner/:repo/:slug", async (req, res) => {
+  try {
+    const result = await mcpBrowser.takeScreenshot({
+      owner: req.params.owner,
+      repo: req.params.repo,
+      slug: req.params.slug,
+      width: parseInt(req.query.width) || 1280,
+      height: parseInt(req.query.height) || 720,
+      fullPage: req.query.fullPage === "true",
+      selector: req.query.selector
+    });
+    if (result.error) return res.status(500).json({ error: result.error });
+    if (req.query.format === "json") return res.json(result);
+    // Return as image
+    const buf = Buffer.from(result.base64, "base64");
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Content-Length", buf.length);
+    res.end(buf);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Shortcut: inspect
+router.get("/mcp/inspect/:owner/:repo/:slug", async (req, res) => {
+  try {
+    const result = await mcpBrowser.inspectDOM({
+      owner: req.params.owner,
+      repo: req.params.repo,
+      slug: req.params.slug,
+      selector: req.query.selector
+    });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Shortcut: console logs
+router.get("/mcp/console/:owner/:repo/:slug", async (req, res) => {
+  try {
+    const result = await mcpBrowser.captureConsole({
+      owner: req.params.owner,
+      repo: req.params.repo,
+      slug: req.params.slug,
+      duration: parseInt(req.query.duration) || 3
+    });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Shortcut: interact
+router.post("/mcp/interact/:owner/:repo/:slug", async (req, res) => {
+  try {
+    const result = await mcpBrowser.interact({
+      owner: req.params.owner,
+      repo: req.params.repo,
+      slug: req.params.slug,
+      ...req.body
+    });
+    if (result.error) return res.status(500).json({ error: result.error });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// List previews (for MCP dashboard)
+router.get("/mcp/previews", (req, res) => {
+  res.json(mcpBrowser.listPreviews());
+});
+
 module.exports = router;

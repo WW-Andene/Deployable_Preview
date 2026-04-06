@@ -7,6 +7,14 @@ const { deployBranch } = require("./build");
 const apiRoutes = require("./routes/api");
 const previewRoutes = require("./routes/preview");
 
+// ── MCP stdio mode ──
+if (process.argv.includes("--mcp-only")) {
+  // Run as pure MCP stdio server (no HTTP)
+  const { startStdioServer } = require("./mcp");
+  startStdioServer();
+  return;
+}
+
 // ── Init ──
 loadConfig();
 migrateConfig();
@@ -56,7 +64,17 @@ app.listen(PORT, () => {
   console.log("  \u26a1 DeployView running on http://localhost:" + PORT);
   console.log("  Dashboard: http://localhost:" + PORT);
   console.log("  Previews:  http://localhost:" + PORT + "/preview/{owner}/{repo}/{branch}/");
+  console.log("  MCP tools: http://localhost:" + PORT + "/api/mcp/tools");
   console.log("");
+
+  // Start MCP stdio server alongside HTTP if --mcp flag passed
+  if (process.argv.includes("--mcp")) {
+    const { startStdioServer } = require("./mcp");
+    startStdioServer();
+    console.log("  MCP stdio server: active (reading from stdin)");
+    console.log("");
+  }
+
   const config = getConfig();
   if (config.token && config.repos.length) {
     console.log("  Auto-building " + config.repos.length + " repo(s)...");

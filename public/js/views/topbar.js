@@ -11,6 +11,11 @@ DV.views.topbar = function(app) {
   var right = el("div", { s: { display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" } });
   if (S.view === "dashboard") {
     right.appendChild(el("button", { c: "bg bs", on: { click: function() { DV.loadRepos(); } } }, "Reload"));
+    right.appendChild(el("button", { c: "bg bs", s: { background: "var(--accent-dim)", color: "var(--accent)", border: "1px solid var(--accent)" }, on: { click: function() {
+      S.mcpAction = null; S.mcpResult = null;
+      DV.loadMcpTools();
+      S.view = "mcp"; DV.render();
+    } } }, "🔌 MCP"));
     right.appendChild(el("button", { c: "bp", on: { click: function() {
       S.repoUrl = ""; S.repoError = ""; S.fetchedBranches = []; S.selectedBranches = [];
       S.repoInfo = null; S.buildCommand = "npm run build"; S.outputDir = "dist"; S.baseDir = "";
