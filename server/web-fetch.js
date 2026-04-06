@@ -37,6 +37,7 @@ const MAX_TEXT_CHARS_LIMIT = 200000;             // Absolute max text extraction
 const MAX_BODY_CHARS = 100000;                   // Max plain-text body length
 const MAX_EXTRACTED_LINKS = 200;                 // Max links to extract from HTML
 const MAX_EXTRACTED_IMAGES = 100;                // Max images to extract from HTML
+const MAX_TAG_SEARCH_DEPTH = 5000;              // Max iterations when searching for closing tags (prevents runaway on malformed HTML)
 const MIN_TIMEOUT_MS = 5000;                     // Minimum allowed timeout
 const USER_AGENT = "DeployView/1.0 (MCP web-fetch tool)";
 
@@ -434,8 +435,7 @@ function findClosingTag(html, tag, startIdx) {
   let depth = 1;
   let lastSearchIdx = startIdx;
 
-  // Safety limit to prevent runaway loops on malformed HTML
-  for (let i = 0; i < 5000 && depth > 0; i++) {
+  for (let i = 0; i < MAX_TAG_SEARCH_DEPTH && depth > 0; i++) {
     closeRe.lastIndex = lastSearchIdx;
     const closeMatch = closeRe.exec(html);
     if (!closeMatch) return null; // No closing tag found
@@ -629,8 +629,14 @@ function decodeEntities(str) {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(parseInt(n, 10)))
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, n) => {
+      const cp = parseInt(n, 10);
+      try { return (cp >= 0 && cp <= 0x10FFFF) ? String.fromCodePoint(cp) : ""; } catch (e) { return ""; }
+    })
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => {
+      const cp = parseInt(h, 16);
+      try { return (cp >= 0 && cp <= 0x10FFFF) ? String.fromCodePoint(cp) : ""; } catch (e) { return ""; }
+    })
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&");
 }
