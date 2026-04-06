@@ -27,8 +27,9 @@
   },
   "scripts": {
     "start": "node server/index.js",
+    "start:http": "node server/index.js --no-mcp",
     "mcp": "node server/mcp.js",
-    "start:mcp": "node server/index.js --mcp"
+    "start:mcp": "node server/index.js"
   },
   "dependencies": {
     "express": "^4.21.2"

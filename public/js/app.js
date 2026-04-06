@@ -29,6 +29,8 @@ var S = {
   availableBranches: [],
   branchFilter: "",
   addBranchBaseDir: "",
+  addBranchMode: "static",
+  addBranchStartCmd: "",
   editModal: null,
   logModal: null,
   apkModal: null,
@@ -149,9 +151,9 @@ function render() {
   if (views.topbar) views.topbar(app);
 
   if (S.view === "loading") {
-    app.appendChild(el("div", { s: { textAlign: "center", padding: "120px 20px" } }, [
-      el("div", { s: { width: "28px", height: "28px", margin: "0 auto 16px", border: "2px solid var(--sf3)", borderTopColor: "var(--accent)", borderRadius: "50%", animation: "spin 0.6s linear infinite" } }),
-      el("div", { s: { fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--tx3)", letterSpacing: "0.05em" } }, "INITIALIZING...")
+    app.appendChild(el("div", { c: "loading-view" }, [
+      el("div", { c: "loading-spinner" }),
+      el("div", { c: "loading-text" }, "INITIALIZING...")
     ]));
     return;
   }

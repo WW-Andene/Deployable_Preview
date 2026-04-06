@@ -37,7 +37,7 @@ function proxyTo(port, req, res, stripPrefix) {
       proxyRes.pipe(res);
     }
   });
-  proxyReq.on("error", (e) => { res.status(502).send("Server not responding: " + e.message); });
+  proxyReq.on("error", (e) => { res.writeHead(502, { "Content-Type": "text/plain" }); res.end("Server not responding: " + e.message); });
   req.pipe(proxyReq);
 }
 

@@ -2,26 +2,28 @@
 var S = DV.S, el = DV.el, api = DV.api;
 
 DV.views.setup = function(app) {
-  var inp = document.createElement("input"); inp.type = "password"; inp.placeholder = "ghp_xxxx...";
-  inp.style.fontFamily = "var(--font-mono)";
-  var err = el("p", { s: { color: "var(--err)", fontSize: "13px", fontFamily: "var(--font-mono)", display: "none", marginTop: "8px" } }, "> Invalid token");
-  var btn = el("button", { c: "bp", s: { minWidth: "100px" }, on: { click: function() {
+  var inp = el("input", { c: "input-mono", attr: { type: "password", placeholder: "ghp_xxxx..." } });
+  var err = el("p", { c: "setup-error hidden" }, "> Invalid token");
+  function submit() {
     var t = inp.value; if (!t) return; btn.innerHTML = "<span class='spin'></span>";
     api("POST", "/api/token", { token: t }).then(function(r) {
       if (r.ok) { S.hasToken = true; S.view = "dashboard"; DV.loadRepos(); DV.startStatusPoll(); }
-      else { err.style.display = "block"; btn.textContent = "Connect"; }
-    }).catch(function() { err.style.display = "block"; btn.textContent = "Connect"; });
-  } } }, "Connect");
+      else { err.classList.remove("hidden"); btn.textContent = "Connect"; }
+    }).catch(function() { err.classList.remove("hidden"); btn.textContent = "Connect"; });
+  }
+  var btn = el("button", { c: "bp input-min-w", attr: { "aria-label": "Connect to GitHub" }, on: { click: submit } }, "Connect");
+  inp.addEventListener("keydown", function(e) { if (e.key === "Enter") submit(); });
 
-  app.appendChild(el("div", { s: { maxWidth: "440px", margin: "0 auto", padding: "100px 20px", textAlign: "center" } }, [
-    el("div", { s: { fontSize: "var(--text-3xl)", fontFamily: "var(--font-mono)", fontWeight: "700", color: "var(--accent)", marginBottom: "20px", textShadow: "0 0 30px var(--accent-glow)" } }, "DV"),
-    el("h1", { s: { fontSize: "var(--text-3xl)", fontWeight: "700", marginBottom: "6px", letterSpacing: "-0.04em" } }, [
-      el("span", { s: { color: "var(--accent)" } }, "Deploy"),
-      el("span", { s: { color: "var(--tx2)" } }, "View")
+  app.appendChild(el("div", { c: "setup-page" }, [
+    el("div", { c: "setup-logo" }, "DV"),
+    el("h1", { c: "setup-title" }, [
+      el("span", { c: "color-accent" }, "Deploy"),
+      el("span", { c: "color-tx2" }, "View")
     ]),
-    el("p", { s: { color: "var(--tx3)", fontFamily: "var(--font-mono)", fontSize: "12px", marginBottom: "36px", lineHeight: "1.7", letterSpacing: "0.01em" } }, "Personal Access Token with repo scope.\nStored on this server only."),
-    el("div", { s: { display: "flex", gap: "8px", marginBottom: "4px" } }, [inp, btn]),
-    err
+    el("p", { c: "setup-subtitle" }, "Personal Access Token with repo scope.\nStored on this server only."),
+    el("div", { c: "token-row" }, [inp, btn]),
+    err,
+    el("p", { c: "label-hint" }, "Required: repo scope")
   ]));
 };
 })();

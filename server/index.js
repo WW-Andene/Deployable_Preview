@@ -161,19 +161,24 @@ const PORT = process.env.PORT || 3000;
 httpServer = app.listen(PORT, () => {
   console.log("");
   console.log("  ⚡ DeployView running on http://localhost:" + PORT);
-  console.log("  Dashboard: http://localhost:" + PORT);
-  console.log("  Previews:  http://localhost:" + PORT + "/preview/{owner}/{repo}/{branch}/");
-  console.log("  MCP tools: http://localhost:" + PORT + "/api/mcp/tools");
-  console.log("  MCP endpoint (Streamable HTTP): http://localhost:" + PORT + "/mcp");
-  console.log("  Health:    http://localhost:" + PORT + "/api/health");
+  console.log("");
+  console.log("  All modes active simultaneously:");
+  console.log("    Static pages:  http://localhost:" + PORT + "/preview/{owner}/{repo}/{branch}/");
+  console.log("    Server proxy:  http://localhost:" + PORT + "/preview/{owner}/{repo}/{branch}/  (server-mode branches)");
+  console.log("    MCP stdio:     reading from stdin (for Claude Desktop / Termux)");
+  console.log("    MCP HTTP:      http://localhost:" + PORT + "/mcp  (Streamable HTTP for claude.ai)");
+  console.log("    Web Fetch API: POST http://localhost:" + PORT + "/api/fetch");
+  console.log("    MCP tools:     http://localhost:" + PORT + "/api/mcp/tools");
+  console.log("    Dashboard:     http://localhost:" + PORT);
+  console.log("    Health:        http://localhost:" + PORT + "/api/health");
   console.log("");
 
-  // Start MCP stdio server alongside HTTP if --mcp flag passed
-  if (process.argv.includes("--mcp")) {
+  // Always start MCP stdio server alongside HTTP —
+  // this makes all modes (static, server, MCP, web fetch) run simultaneously.
+  // Use --no-mcp to disable stdio MCP if stdin is not a terminal / not needed.
+  if (!process.argv.includes("--no-mcp")) {
     const { startStdioServer } = require("./mcp");
     startStdioServer();
-    console.log("  MCP stdio server: active (reading from stdin)");
-    console.log("");
   }
 
   const config = getConfig();
