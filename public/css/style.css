@@ -1667,6 +1667,30 @@ button:disabled, button[disabled] {
   font-size: 14px;
 }
 
+/* Log toolbar (Clear / Auto-scroll / Word-wrap) */
+.log-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 11px;
+}
+.log-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--tx2);
+  cursor: pointer;
+  user-select: none;
+}
+.log-toolbar input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+.live-log.no-wrap {
+  white-space: pre;
+  word-break: normal;
+}
+
 /* ══════════════════════════════════════════════════
    §7 — STATE CLASSES
    ══════════════════════════════════════════════════ */
