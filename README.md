@@ -9,7 +9,7 @@ Build, serve, and preview your app from GitHub — replaces Vercel, Netlify, and
 3. DeployView **clones, installs, and builds** each branch
 4. Serves the built output
 5. Shows interactive 16:9 and 9:16 previews
-6. Polls GitHub every 30s — auto-rebuilds on new commits
+6. Polls GitHub every 5s — auto-rebuilds on new commits
 7. **MCP Server** — lets AI assistants (Claude) see and interact with your deployed apps
 
 ## Setup

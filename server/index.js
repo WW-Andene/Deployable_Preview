@@ -28,7 +28,7 @@ app.use("/api", apiRoutes);
 app.use(previewRoutes);
 
 // ── Polling ──
-const POLL_INTERVAL = 30000;
+const POLL_INTERVAL = 5000;
 
 async function pollForChanges() {
   const config = getConfig();
