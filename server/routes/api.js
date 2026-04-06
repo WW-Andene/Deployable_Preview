@@ -270,7 +270,7 @@ router.get("/apk/:owner/:repo/download", (req, res) => {
   // Validate apkPath is inside APK_DIR to prevent path traversal
   const resolvedPath = path.resolve(st.apkPath);
   const resolvedDir  = path.resolve(APK_DIR);
-  if (!resolvedPath.startsWith(resolvedDir + path.sep) && resolvedPath !== resolvedDir) {
+  if (!resolvedPath.startsWith(resolvedDir + path.sep)) {
     return res.status(403).json({ error: "Invalid APK path" });
   }
   if (!fs.existsSync(st.apkPath)) {

@@ -301,6 +301,12 @@ async function buildApk(owner, repo, slug) {
   const extractTo = path.join(APK_DIR, safeSlug + "_extracted");
   const apkDest   = path.join(APK_DIR, safeSlug + ".apk");
 
+  // Validate all paths stay inside APK_DIR
+  const resolvedDir = path.resolve(APK_DIR) + path.sep;
+  if (![zipPath, extractTo, apkDest].every(p => path.resolve(p).startsWith(resolvedDir))) {
+    addLog(key, "ERROR: Invalid path generated"); apkStatus[key].status = "error"; return;
+  }
+
   try {
     const dlUrl = "https://api.github.com/repos/" + owner + "/" + repo + "/actions/artifacts/" + artifactId + "/zip";
     await downloadFile(dlUrl, zipPath, token);
