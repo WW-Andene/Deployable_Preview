@@ -32,12 +32,12 @@
     "start:mcp": "node server/index.js"
   },
   "dependencies": {
-    "express": "^4.21.2"
+    "express": "4.22.1"
   },
   "optionalDependencies": {
-    "puppeteer": "^24.15.0"
+    "puppeteer": "24.40.0"
   },
   "overrides": {
-    "path-to-regexp": "~0.1.13"
+    "path-to-regexp": "0.1.13"
   }
 }
