@@ -124,8 +124,8 @@ router.get("/test/:owner/:repo/:branchSlug", (req, res) => {
   const { owner, repo, branchSlug } = req.params;
 
   // Sanitize params to prevent XSS — only allow safe characters
-  const safeRe = /^[a-zA-Z0-9._-]+$/;
-  if (!safeRe.test(owner) || !safeRe.test(repo) || !safeRe.test(branchSlug)) {
+  const SAFE_NAME_RE = /^[a-zA-Z0-9._-]+$/;
+  if (!SAFE_NAME_RE.test(owner) || !SAFE_NAME_RE.test(repo) || !SAFE_NAME_RE.test(branchSlug)) {
     return res.status(400).send("Invalid parameters");
   }
 
