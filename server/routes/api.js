@@ -406,10 +406,10 @@ const { webFetch } = require("../web-fetch");
 
 // Fetch a URL and return extracted content
 router.post("/fetch", async (req, res) => {
-  const { url, method, headers, body, timeout, extractText, extractLinks, extractMeta, selector } = req.body;
+  const { url, method, headers, body, timeout, extractText, extractLinks, extractMeta, extractImages, extractHeadings, selector, readability, maxTextLength } = req.body;
   if (!url) return res.status(400).json({ error: "url parameter is required" });
   try {
-    const result = await webFetch({ url, method, headers, body, timeout, extractText, extractLinks, extractMeta, selector });
+    const result = await webFetch({ url, method, headers, body, timeout, extractText, extractLinks, extractMeta, extractImages, extractHeadings, selector, readability, maxTextLength });
     res.json(result);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -426,7 +426,11 @@ router.get("/fetch", async (req, res) => {
       extractText: req.query.text !== "false",
       extractLinks: req.query.links === "true",
       extractMeta: req.query.meta === "true",
-      selector: req.query.selector
+      extractImages: req.query.images === "true",
+      extractHeadings: req.query.headings === "true",
+      readability: req.query.readability === "true",
+      selector: req.query.selector,
+      maxTextLength: req.query.maxTextLength ? parseInt(req.query.maxTextLength, 10) : undefined
     });
     res.json(result);
   } catch (e) {

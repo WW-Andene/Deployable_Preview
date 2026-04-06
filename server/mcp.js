@@ -169,19 +169,23 @@ const TOOLS = [
   },
   {
     name: "web_fetch",
-    description: "Fetch a URL and extract its content. Supports HTML pages (extracts readable text, links, meta tags), JSON APIs, and plain text. Use this to read web pages, scrape content, check API responses, or download text data from the internet. Works without Puppeteer.",
+    description: "Fetch a URL and extract its content. Supports HTML pages (extracts readable text, links, images, headings, meta tags), JSON APIs, and plain text. Use this to read web pages, scrape content, check API responses, or download text data from the internet. Works without Puppeteer. Supports gzip/deflate/brotli compression transparently.",
     inputSchema: {
       type: "object",
       properties: {
-        url:          { type: "string", description: "URL to fetch (http or https)" },
-        method:       { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"], description: "HTTP method (default: GET)" },
-        headers:      { type: "object", description: "Custom request headers as key-value pairs" },
-        body:         { type: "string", description: "Request body for POST/PUT/PATCH requests" },
-        timeout:      { type: "number", description: "Request timeout in milliseconds (default: 15000, max: 30000)" },
-        extractText:  { type: "boolean", description: "For HTML: strip tags and return readable text (default: true for HTML)" },
-        extractLinks: { type: "boolean", description: "For HTML: extract all links with their text" },
-        extractMeta:  { type: "boolean", description: "For HTML: extract meta tags (title, description, Open Graph, etc.)" },
-        selector:     { type: "string", description: "For HTML: extract content from specific tag (e.g. 'article', 'main', 'p')" }
+        url:             { type: "string", description: "URL to fetch (http or https)" },
+        method:          { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"], description: "HTTP method (default: GET)" },
+        headers:         { type: "object", description: "Custom request headers as key-value pairs" },
+        body:            { type: "string", description: "Request body for POST/PUT/PATCH requests" },
+        timeout:         { type: "number", description: "Request timeout in milliseconds (default: 15000, max: 30000)" },
+        extractText:     { type: "boolean", description: "For HTML: strip tags and return readable text (default: true for HTML)" },
+        extractLinks:    { type: "boolean", description: "For HTML: extract all links with their text" },
+        extractMeta:     { type: "boolean", description: "For HTML: extract meta tags (title, description, Open Graph, etc.)" },
+        extractImages:   { type: "boolean", description: "For HTML: extract image URLs with alt text, width, and height" },
+        extractHeadings: { type: "boolean", description: "For HTML: extract heading structure (h1-h6) as an outline" },
+        selector:        { type: "string", description: "For HTML: CSS-like selector to extract specific content. Supports: tag name ('article'), class ('.content'), id ('#main'), or combined ('div.post')" },
+        readability:     { type: "boolean", description: "For HTML: strip nav/footer/sidebar/header boilerplate for cleaner text extraction" },
+        maxTextLength:   { type: "number", description: "Max text extraction length in characters (default: 50000, max: 200000)" }
       },
       required: ["url"]
     }
@@ -336,6 +340,12 @@ async function handleTool(name, args) {
       } else if (result.body) {
         parts.push("\n" + result.body);
       }
+      if (result.headings && result.headings.length) {
+        parts.push("\n--- Page Outline (" + result.headings.length + " headings) ---");
+        for (const h of result.headings) {
+          parts.push("  ".repeat(h.level - 1) + "H" + h.level + ": " + h.text);
+        }
+      }
       if (result.links && result.links.length) {
         parts.push("\n--- Links (" + result.links.length + ") ---");
         // Show first 100 links in MCP response to keep it manageable
@@ -344,6 +354,18 @@ async function handleTool(name, args) {
         }
         if (result.links.length > 100) {
           parts.push("... and " + (result.links.length - 100) + " more links");
+        }
+      }
+      if (result.images && result.images.length) {
+        parts.push("\n--- Images (" + result.images.length + ") ---");
+        for (const img of result.images.slice(0, 50)) {
+          let desc = img.src;
+          if (img.alt) desc += " [" + img.alt + "]";
+          if (img.width && img.height) desc += " (" + img.width + "x" + img.height + ")";
+          parts.push(desc);
+        }
+        if (result.images.length > 50) {
+          parts.push("... and " + (result.images.length - 50) + " more images");
         }
       }
       if (result.meta && Object.keys(result.meta).length) {
