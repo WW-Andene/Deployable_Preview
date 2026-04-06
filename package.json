@@ -3,6 +3,28 @@
   "version": "1.0.0",
   "description": "Build, serve, and preview your app from GitHub — replaces Vercel/Netlify/Screenfly",
   "main": "server/index.js",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/WW-Andene/Deployable_Preview.git"
+  },
+  "homepage": "https://github.com/WW-Andene/Deployable_Preview",
+  "keywords": [
+    "deploy",
+    "preview",
+    "github",
+    "ci",
+    "cd",
+    "build",
+    "vercel",
+    "netlify",
+    "mcp",
+    "claude",
+    "ai"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "start": "node server/index.js",
     "mcp": "node server/mcp.js",

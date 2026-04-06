@@ -11,6 +11,20 @@ const { runningServers, killServer } = require("../process");
 const { loadLog, logStreams } = require("../logs");
 const { apkStatus, buildApk, APK_DIR } = require("../apk");
 
+// ── Input validation helper ──────────────────────────────────────────────────
+// Reject owner/repo names with characters that could break shell commands or paths
+const SAFE_NAME_RE = /^[a-zA-Z0-9._-]+$/;
+
+function validateParams(req, res, next) {
+  const { owner, repo } = req.params;
+  if (owner && !SAFE_NAME_RE.test(owner)) return res.status(400).json({ error: "Invalid owner name" });
+  if (repo && !SAFE_NAME_RE.test(repo)) return res.status(400).json({ error: "Invalid repo name" });
+  next();
+}
+
+router.param("owner", validateParams);
+router.param("repo", validateParams);
+
 // Token
 router.post("/token", (req, res) => {
   const config = getConfig();

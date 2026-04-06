@@ -44,17 +44,29 @@ DV.views.mcp = function(app) {
       '{\n  "mcpServers": {\n    "deployview": {\n      "command": "node",\n      "args": ["server/mcp.js"],\n      "cwd": "/path/to/Deployable_Preview"\n    }\n  }\n}')
   ]));
 
+  // Claude Web (Streamable HTTP) connection info
+  statusPanel.appendChild(el("div", { s: { background: "var(--sf1)", borderRadius: "6px", padding: "12px 14px", marginBottom: "12px" } }, [
+    el("div", { s: { fontWeight: "600", fontSize: "12px", marginBottom: "8px", color: "var(--accent)" } }, "Claude Web (claude.ai) — Streamable HTTP"),
+    el("div", { s: { fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--tx2)", lineHeight: "1.8" } }, [
+      el("div", {}, "Endpoint: " + window.location.origin + "/mcp"),
+      el("div", {}, "Protocol: MCP Streamable HTTP (JSON-RPC 2.0)"),
+      el("div", { s: { marginTop: "6px", color: "var(--tx3)", fontSize: "10px" } }, "In claude.ai → Settings → Integrations, add this URL as an MCP server.")
+    ])
+  ]));
+
   // HTTP endpoints reference
   statusPanel.appendChild(el("div", { s: { background: "var(--sf1)", borderRadius: "6px", padding: "12px 14px" } }, [
     el("div", { s: { fontWeight: "600", fontSize: "12px", marginBottom: "8px", color: "var(--accent)" } }, "HTTP API Endpoints"),
     el("div", { s: { fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--tx2)", lineHeight: "2" } }, [
+      el("div", {}, "POST /mcp — MCP Streamable HTTP (for Claude web)"),
       el("div", {}, "GET  /api/mcp/tools — List available tools"),
       el("div", {}, "POST /api/mcp/call — Invoke any MCP tool"),
       el("div", {}, "GET  /api/mcp/screenshot/:owner/:repo/:slug — Screenshot"),
       el("div", {}, "GET  /api/mcp/inspect/:owner/:repo/:slug — DOM inspection"),
       el("div", {}, "GET  /api/mcp/console/:owner/:repo/:slug — Console logs"),
       el("div", {}, "POST /api/mcp/interact/:owner/:repo/:slug — Interact"),
-      el("div", {}, "GET  /api/mcp/previews — List active previews")
+      el("div", {}, "GET  /api/mcp/previews — List active previews"),
+      el("div", {}, "GET  /api/health — Server health check")
     ])
   ]));
 
