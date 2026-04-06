@@ -61,6 +61,8 @@ DV.views.mcp = function(app) {
       el("div", {}, "POST /mcp — MCP Streamable HTTP (for Claude web)"),
       el("div", {}, "GET  /api/mcp/tools — List available tools"),
       el("div", {}, "POST /api/mcp/call — Invoke any MCP tool"),
+      el("div", {}, "POST /api/fetch — Fetch/scrape a URL"),
+      el("div", {}, "GET  /api/fetch?url=... — Quick URL fetch"),
       el("div", {}, "GET  /api/mcp/screenshot/:owner/:repo/:slug — Screenshot"),
       el("div", {}, "GET  /api/mcp/inspect/:owner/:repo/:slug — DOM inspection"),
       el("div", {}, "GET  /api/mcp/console/:owner/:repo/:slug — Console logs"),
@@ -92,6 +94,102 @@ DV.views.mcp = function(app) {
       ct.appendChild(toolCard);
     })(S.mcpTools[i]);
   }
+
+  // ── Web Fetch panel ──────────────────────────────────────────────────────
+  ct.appendChild(el("h3", { s: { fontSize: "14px", fontWeight: "600", marginTop: "24px", marginBottom: "12px" } }, "🌐 Web Fetch"));
+
+  var fetchPanel = el("div", { c: "card", s: { marginBottom: "20px" } });
+  var fetchUrl = el("input", { attr: { type: "text", placeholder: "https://example.com", id: "mcp-fetch-url" }, s: { width: "100%", padding: "8px 12px", fontFamily: "var(--font-mono)", fontSize: "12px", background: "var(--sf1)", border: "1px solid var(--sf3)", borderRadius: "6px", color: "var(--tx1)", boxSizing: "border-box", marginBottom: "8px" } });
+  fetchPanel.appendChild(fetchUrl);
+
+  var fetchOpts = el("div", { s: { display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "10px", alignItems: "center" } });
+
+  var fetchExtractText = el("label", { s: { fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--tx2)", display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" } });
+  var chkText = el("input", { attr: { type: "checkbox", checked: "checked" } });
+  fetchExtractText.appendChild(chkText);
+  fetchExtractText.appendChild(document.createTextNode("Text"));
+  fetchOpts.appendChild(fetchExtractText);
+
+  var fetchExtractLinks = el("label", { s: { fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--tx2)", display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" } });
+  var chkLinks = el("input", { attr: { type: "checkbox" } });
+  fetchExtractLinks.appendChild(chkLinks);
+  fetchExtractLinks.appendChild(document.createTextNode("Links"));
+  fetchOpts.appendChild(fetchExtractLinks);
+
+  var fetchExtractMeta = el("label", { s: { fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--tx2)", display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" } });
+  var chkMeta = el("input", { attr: { type: "checkbox" } });
+  fetchExtractMeta.appendChild(chkMeta);
+  fetchExtractMeta.appendChild(document.createTextNode("Meta"));
+  fetchOpts.appendChild(fetchExtractMeta);
+
+  var selectorInput = el("input", { attr: { type: "text", placeholder: "tag filter (e.g. article)" }, s: { width: "140px", padding: "4px 8px", fontFamily: "var(--font-mono)", fontSize: "11px", background: "var(--sf1)", border: "1px solid var(--sf3)", borderRadius: "4px", color: "var(--tx1)" } });
+  fetchOpts.appendChild(selectorInput);
+
+  var fetchBtn = el("button", { c: "bg bs", s: { background: "var(--accent-dim)", color: "var(--accent)", border: "1px solid var(--accent)", marginLeft: "auto", padding: "6px 16px", cursor: "pointer", fontWeight: "600", fontSize: "12px" }, on: { click: function() {
+    var urlVal = fetchUrl.value.trim();
+    if (!urlVal) return;
+    fetchResultDiv.innerHTML = "";
+    fetchResultDiv.appendChild(el("div", { s: { color: "var(--accent)", fontSize: "12px" } }, "Fetching..."));
+    fetch("/api/fetch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: urlVal,
+        extractText: chkText.checked,
+        extractLinks: chkLinks.checked,
+        extractMeta: chkMeta.checked,
+        selector: selectorInput.value.trim() || undefined
+      })
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      fetchResultDiv.innerHTML = "";
+      if (data.error) {
+        fetchResultDiv.appendChild(el("div", { s: { color: "var(--err)", fontSize: "12px" } }, "Error: " + data.error));
+        return;
+      }
+      var info = el("div", { s: { fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--tx2)", marginBottom: "8px" } }, [
+        el("span", {}, "Status: " + data.statusCode + " | "),
+        el("span", {}, "Type: " + data.contentType + " | "),
+        el("span", {}, "Size: " + (data.contentLength || 0) + " bytes")
+      ]);
+      fetchResultDiv.appendChild(info);
+      if (data.title) {
+        fetchResultDiv.appendChild(el("div", { s: { fontWeight: "600", fontSize: "13px", marginBottom: "6px", color: "var(--tx1)" } }, data.title));
+      }
+      var body = data.text || data.body || (data.json ? JSON.stringify(data.json, null, 2) : "");
+      if (body) {
+        fetchResultDiv.appendChild(el("pre", { s: { fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--tx2)", whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: "400px", overflow: "auto", background: "var(--sf1)", padding: "10px", borderRadius: "6px" } }, body.slice(0, 20000)));
+      }
+      if (data.links && data.links.length) {
+        var linksSection = el("details", { s: { marginTop: "8px" } });
+        linksSection.appendChild(el("summary", { s: { fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--accent)", cursor: "pointer" } }, "Links (" + data.links.length + ")"));
+        var linksList = el("div", { s: { fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--tx3)", lineHeight: "1.8", padding: "6px 0", maxHeight: "200px", overflow: "auto" } });
+        for (var li = 0; li < Math.min(data.links.length, 50); li++) {
+          linksList.appendChild(el("div", {}, (data.links[li].text ? data.links[li].text + " → " : "") + data.links[li].href));
+        }
+        linksSection.appendChild(linksList);
+        fetchResultDiv.appendChild(linksSection);
+      }
+      if (data.meta && Object.keys(data.meta).length) {
+        var metaSection = el("details", { s: { marginTop: "8px" } });
+        metaSection.appendChild(el("summary", { s: { fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--accent)", cursor: "pointer" } }, "Meta Tags (" + Object.keys(data.meta).length + ")"));
+        var metaList = el("div", { s: { fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--tx3)", lineHeight: "1.8", padding: "6px 0" } });
+        for (var mk in data.meta) {
+          metaList.appendChild(el("div", {}, mk + ": " + data.meta[mk]));
+        }
+        metaSection.appendChild(metaList);
+        fetchResultDiv.appendChild(metaSection);
+      }
+    }).catch(function(e) {
+      fetchResultDiv.innerHTML = "";
+      fetchResultDiv.appendChild(el("div", { s: { color: "var(--err)", fontSize: "12px" } }, "Failed: " + e.message));
+    });
+  } } }, "Fetch");
+  fetchOpts.appendChild(fetchBtn);
+
+  fetchPanel.appendChild(fetchOpts);
+  var fetchResultDiv = el("div", { attr: { id: "mcp-fetch-result" } });
+  fetchPanel.appendChild(fetchResultDiv);
+  ct.appendChild(fetchPanel);
 
   // Live preview panel — interactive tool runner
   ct.appendChild(el("h3", { s: { fontSize: "14px", fontWeight: "600", marginTop: "24px", marginBottom: "12px" } }, "Quick Actions"));

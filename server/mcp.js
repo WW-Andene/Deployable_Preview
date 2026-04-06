@@ -36,6 +36,7 @@ const { loadConfig, getConfig, migrateConfig } = require("./config");
 const { buildStatus, branchSlug, buildKey, deployBranch } = require("./build");
 const { runningServers, killServer } = require("./process");
 const { loadLog } = require("./logs");
+const { webFetch } = require("./web-fetch");
 
 // Load config on startup
 loadConfig();
@@ -165,6 +166,25 @@ const TOOLS = [
       },
       required: ["owner", "repo", "slug"]
     }
+  },
+  {
+    name: "web_fetch",
+    description: "Fetch a URL and extract its content. Supports HTML pages (extracts readable text, links, meta tags), JSON APIs, and plain text. Use this to read web pages, scrape content, check API responses, or download text data from the internet. Works without Puppeteer.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url:          { type: "string", description: "URL to fetch (http or https)" },
+        method:       { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"], description: "HTTP method (default: GET)" },
+        headers:      { type: "object", description: "Custom request headers as key-value pairs" },
+        body:         { type: "string", description: "Request body for POST/PUT/PATCH requests" },
+        timeout:      { type: "number", description: "Request timeout in milliseconds (default: 15000, max: 30000)" },
+        extractText:  { type: "boolean", description: "For HTML: strip tags and return readable text (default: true for HTML)" },
+        extractLinks: { type: "boolean", description: "For HTML: extract all links with their text" },
+        extractMeta:  { type: "boolean", description: "For HTML: extract meta tags (title, description, Open Graph, etc.)" },
+        selector:     { type: "string", description: "For HTML: extract content from specific tag (e.g. 'article', 'main', 'p')" }
+      },
+      required: ["url"]
+    }
   }
 ];
 
@@ -293,6 +313,45 @@ async function handleTool(name, args) {
         content: [{
           type: "text",
           text: log || "No build log available for " + key
+        }]
+      };
+    }
+
+    case "web_fetch": {
+      const result = await webFetch(args);
+      if (result.error) {
+        return { content: [{ type: "text", text: "Fetch error: " + result.error }], isError: true };
+      }
+      // Build a clean text summary for the AI
+      const parts = [];
+      parts.push("URL: " + result.url);
+      parts.push("Status: " + result.statusCode);
+      parts.push("Content-Type: " + result.contentType);
+      if (result.truncated) parts.push("⚠ Response was truncated (exceeded size limit)");
+      if (result.title) parts.push("Title: " + result.title);
+      if (result.json !== undefined) {
+        parts.push("\n" + JSON.stringify(result.json, null, 2));
+      } else if (result.text) {
+        parts.push("\n" + result.text);
+      } else if (result.body) {
+        parts.push("\n" + result.body);
+      }
+      if (result.links && result.links.length) {
+        parts.push("\n--- Links (" + result.links.length + ") ---");
+        for (const link of result.links.slice(0, 100)) {
+          parts.push((link.text ? link.text + " → " : "") + link.href);
+        }
+      }
+      if (result.meta && Object.keys(result.meta).length) {
+        parts.push("\n--- Meta Tags ---");
+        for (const k in result.meta) {
+          parts.push(k + ": " + result.meta[k]);
+        }
+      }
+      return {
+        content: [{
+          type: "text",
+          text: parts.join("\n")
         }]
       };
     }

@@ -400,4 +400,38 @@ router.get("/mcp/previews", (req, res) => {
   res.json(mcpBrowser.listPreviews());
 });
 
+// ── Web Fetch tool (HTTP API) ──────────────────────────────────────────────
+
+const { webFetch } = require("../web-fetch");
+
+// Fetch a URL and return extracted content
+router.post("/fetch", async (req, res) => {
+  const { url, method, headers, body, timeout, extractText, extractLinks, extractMeta, selector } = req.body;
+  if (!url) return res.status(400).json({ error: "url parameter is required" });
+  try {
+    const result = await webFetch({ url, method, headers, body, timeout, extractText, extractLinks, extractMeta, selector });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET shortcut for quick fetches
+router.get("/fetch", async (req, res) => {
+  const url = req.query.url;
+  if (!url) return res.status(400).json({ error: "url query parameter is required" });
+  try {
+    const result = await webFetch({
+      url,
+      extractText: req.query.text !== "false",
+      extractLinks: req.query.links === "true",
+      extractMeta: req.query.meta === "true",
+      selector: req.query.selector
+    });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
