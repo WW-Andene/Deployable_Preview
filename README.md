@@ -75,6 +75,28 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
+### MCP Setup: Claude Web (claude.ai)
+
+DeployView exposes an MCP Streamable HTTP endpoint at `/mcp` so Claude's web
+interface can connect directly.
+
+1. Start DeployView and make it reachable from the internet (e.g. via a tunnel
+   or by deploying to a server):
+
+   ```bash
+   npm start          # listens on http://localhost:3000
+   ```
+
+2. In **claude.ai → Settings → Integrations**, add a new MCP server with the
+   URL of your DeployView instance:
+
+   ```
+   https://your-server.example.com/mcp
+   ```
+
+   Claude will connect over Streamable HTTP and discover all available tools
+   (screenshots, DOM inspection, interaction, build control, etc.).
+
 ### MCP Modes
 
 ```bash

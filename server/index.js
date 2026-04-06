@@ -6,6 +6,7 @@ const { ghApi } = require("./github");
 const { deployBranch } = require("./build");
 const apiRoutes = require("./routes/api");
 const previewRoutes = require("./routes/preview");
+const { setupStreamableHTTP } = require("./mcp-streamable-http");
 
 // ── MCP stdio mode ──
 if (process.argv.includes("--mcp-only")) {
@@ -25,6 +26,7 @@ app.use(express.static(path.join(__dirname, "..", "public")));
 
 // ── Routes ──
 app.use("/api", apiRoutes);
+setupStreamableHTTP(app, "/mcp");
 app.use(previewRoutes);
 
 // ── Polling ──
@@ -65,6 +67,7 @@ app.listen(PORT, () => {
   console.log("  Dashboard: http://localhost:" + PORT);
   console.log("  Previews:  http://localhost:" + PORT + "/preview/{owner}/{repo}/{branch}/");
   console.log("  MCP tools: http://localhost:" + PORT + "/api/mcp/tools");
+  console.log("  MCP endpoint (Streamable HTTP): http://localhost:" + PORT + "/mcp");
   console.log("");
 
   // Start MCP stdio server alongside HTTP if --mcp flag passed
