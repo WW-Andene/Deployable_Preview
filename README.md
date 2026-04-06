@@ -185,7 +185,7 @@ Config saved to `deployview.json` in the project root (git-ignored).
 
 | Issue | Solution |
 |-------|----------|
-| `git pull` fails with "local changes would be overwritten" | Run `git stash && git pull && git stash pop` to preserve your changes, or `git checkout -- <file>` to discard them |
+| `git pull` fails with "local changes would be overwritten" | If the conflict is in `package.json` (caused by `npm install` rewriting versions), run `git checkout -- package.json && git pull origin main`. For other files, run `git stash && git pull && git stash pop` to preserve your changes, or `git checkout -- <file>` to discard them |
 | Build fails with "npm not found" | Ensure your build tools (npm/yarn/pnpm) are in PATH |
 | Server mode times out | Your app must listen on the port from `process.env.PORT` within 60s |
 | Puppeteer not working | Run `npm install puppeteer` (it's optional) |
