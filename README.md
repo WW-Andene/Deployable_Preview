@@ -185,6 +185,7 @@ Config saved to `deployview.json` in the project root (git-ignored).
 
 | Issue | Solution |
 |-------|----------|
+| `git pull` fails with "untracked working tree files would be overwritten" | Delete the conflicting file (e.g. `rm package-lock.json`) then pull again |
 | Build fails with "npm not found" | Ensure your build tools (npm/yarn/pnpm) are in PATH |
 | Server mode times out | Your app must listen on the port from `process.env.PORT` within 60s |
 | Puppeteer not working | Run `npm install puppeteer` (it's optional) |
