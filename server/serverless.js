@@ -53,7 +53,7 @@ function executeHandler(route, envVars, req, res) {
   for (const k in envVars) process.env[k] = envVars[k];
 
   // Clear require cache so changes are picked up on rebuild
-  delete require.cache[require.resolve(route.filePath)];
+  try { delete require.cache[require.resolve(route.filePath)]; } catch (_) {}
 
   let handler;
   try {

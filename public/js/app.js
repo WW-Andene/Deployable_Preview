@@ -29,6 +29,8 @@ var S = {
   availableBranches: [],
   branchFilter: "",
   addBranchBaseDir: "",
+  addBranchMode: "static",
+  addBranchStartCmd: "",
   editModal: null,
   logModal: null,
   apkModal: null,

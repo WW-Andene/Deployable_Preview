@@ -393,7 +393,7 @@ function startStdioServer() {
   rl.on("close", () => {
     process.stderr.write("[MCP] stdin closed, shutting down\n");
     const browser = getBrowserModule();
-    browser.closeBrowser().then(() => process.exit(0));
+    browser.closeBrowser().catch(() => {}).then(() => process.exit(0));
   });
 }
 
