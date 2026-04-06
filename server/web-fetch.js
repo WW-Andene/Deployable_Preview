@@ -28,11 +28,15 @@ const { URL } = require("url");
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;   // 2 MB max response body
 const DEFAULT_TIMEOUT_MS = 15000;               // 15 second timeout
 const MAX_REDIRECTS = 5;
+const MAX_TEXT_CHARS = 50000;                    // Max text extraction length
+const MAX_BODY_CHARS = 100000;                   // Max plain-text body length
+const MAX_EXTRACTED_LINKS = 200;                 // Max links to extract from HTML
+const MIN_TIMEOUT_MS = 5000;                     // Minimum allowed timeout
 const USER_AGENT = "DeployView/1.0 (MCP web-fetch tool)";
 
 // ── Blocked hosts (prevent SSRF to internal networks) ────────────────────────
 
-const BLOCKED_HOST_RE = /^(127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+|0\.0\.0\.0|localhost|::1|\[::1\])$/i;
+const BLOCKED_HOST_RE = /^(127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|0\.0\.0\.0|localhost|::1|\[::1\])$/i;
 
 function isBlockedHost(hostname) {
   return BLOCKED_HOST_RE.test(hostname);
@@ -81,7 +85,7 @@ function webFetch(opts) {
     }
 
     const method = (opts.method || "GET").toUpperCase();
-    const timeout = Math.min(Math.max(opts.timeout || DEFAULT_TIMEOUT_MS, 1000), 30000);
+    const timeout = Math.min(Math.max(opts.timeout || DEFAULT_TIMEOUT_MS, MIN_TIMEOUT_MS), 30000);
     const maxRedirects = Math.min(opts.maxRedirects || MAX_REDIRECTS, 10);
     const maxSize = Math.min(opts.maxSize || MAX_RESPONSE_BYTES, 5 * 1024 * 1024);
 
@@ -161,7 +165,7 @@ function doFetch(parsedUrl, method, headers, body, timeout, redirectsLeft, maxSi
         try {
           result.json = JSON.parse(rawBody);
         } catch (e) {
-          result.body = rawBody.slice(0, 50000);
+          result.body = rawBody.slice(0, MAX_TEXT_CHARS);
         }
         return resolve(result);
       }
@@ -187,7 +191,7 @@ function doFetch(parsedUrl, method, headers, body, timeout, redirectsLeft, maxSi
       }
 
       // Plain text / other
-      result.body = rawBody.slice(0, 100000);
+      result.body = rawBody.slice(0, MAX_BODY_CHARS);
       return resolve(result);
     });
 
@@ -240,10 +244,14 @@ function extractText(html, selector) {
     content = matches.length ? matches.join("\n\n") : html;
   }
 
-  // Remove script and style blocks
-  content = content.replace(/<script[\s\S]*?<\/script>/gi, "");
-  content = content.replace(/<style[\s\S]*?<\/style>/gi, "");
-  content = content.replace(/<noscript[\s\S]*?<\/noscript>/gi, "");
+  // Remove script and style blocks (loop to handle nested/malformed tags)
+  let prev;
+  do {
+    prev = content;
+    content = content.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "");
+    content = content.replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, "");
+    content = content.replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript\s*>/gi, "");
+  } while (content !== prev);
 
   // Replace block-level tags with newlines
   content = content.replace(/<\/?(p|div|br|hr|h[1-6]|li|tr|blockquote|pre|section|article|header|footer|nav|aside|main|figure|figcaption|details|summary)[^>]*>/gi, "\n");
@@ -260,8 +268,8 @@ function extractText(html, selector) {
   content = content.trim();
 
   // Limit length for MCP responses
-  if (content.length > 50000) {
-    content = content.slice(0, 50000) + "\n\n[... truncated at 50,000 characters]";
+  if (content.length > MAX_TEXT_CHARS) {
+    content = content.slice(0, MAX_TEXT_CHARS) + "\n\n[... truncated at " + MAX_TEXT_CHARS + " characters]";
   }
 
   return content;
@@ -272,9 +280,11 @@ function extractText(html, selector) {
  */
 function extractLinks(html, baseUrl) {
   const links = [];
+  // Strip script tags first to avoid extracting links from JS code
+  const safeHtml = html.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "");
   const re = /<a\s[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let m;
-  while ((m = re.exec(html)) !== null && links.length < 200) {
+  while ((m = re.exec(safeHtml)) !== null && links.length < MAX_EXTRACTED_LINKS) {
     let href = m[1];
     const text = m[2].replace(/<[^>]+>/g, "").trim();
     // Resolve relative URLs
@@ -283,7 +293,10 @@ function extractLinks(html, baseUrl) {
     } catch (e) {
       // Keep as-is if can't resolve
     }
-    if (href && !href.startsWith("javascript:") && !href.startsWith("data:")) {
+    // Block dangerous URI schemes
+    const scheme = href.split(":")[0].toLowerCase();
+    if (scheme === "javascript" || scheme === "vbscript" || scheme === "data") continue;
+    if (href) {
       links.push({ href, text: text.slice(0, 200) });
     }
   }
@@ -320,10 +333,10 @@ function extractMeta(html) {
 
 /**
  * Decode common HTML entities.
+ * Note: &amp; is decoded last to prevent double-unescaping (e.g., &amp;lt; → &lt; → <)
  */
 function decodeEntities(str) {
   return str
-    .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
@@ -331,7 +344,8 @@ function decodeEntities(str) {
     .replace(/&apos;/g, "'")
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
     .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
-    .replace(/&nbsp;/g, " ");
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&");
 }
 
 /**

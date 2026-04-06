@@ -338,8 +338,12 @@ async function handleTool(name, args) {
       }
       if (result.links && result.links.length) {
         parts.push("\n--- Links (" + result.links.length + ") ---");
+        // Show first 100 links in MCP response to keep it manageable
         for (const link of result.links.slice(0, 100)) {
           parts.push((link.text ? link.text + " → " : "") + link.href);
+        }
+        if (result.links.length > 100) {
+          parts.push("... and " + (result.links.length - 100) + " more links");
         }
       }
       if (result.meta && Object.keys(result.meta).length) {
