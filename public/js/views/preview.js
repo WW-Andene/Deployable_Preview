@@ -8,11 +8,11 @@ DV.views.preview = function(app) {
   var url = baseUrl + S.activeBranch + "/";
   var cmpUrl = S.compareBranch ? baseUrl + S.compareBranch + "/" : "";
 
-  var ctrls = el("div", { s: { padding: "10px 16px", borderBottom: "1.5px solid var(--border)", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", background: "var(--sf1)" } });
+  var ctrls = el("div", { c: "preview-controls" });
 
   var slugs = Object.keys(repo.branchStatuses || {});
   var sel = document.createElement("select");
-  sel.style.cssText = "width:auto;min-width:150px;padding:8px;font-size:13px;font-family:monospace;background:var(--bg);border:1.5px solid var(--border);color:var(--tx1);border-radius:6px";
+  sel.className = "select-inline";
   for (var i = 0; i < slugs.length; i++) {
     var bsInfo = repo.branchStatuses[slugs[i]] || {};
     var label = bsInfo.branch + (bsInfo.baseDir ? " \u2192 " + bsInfo.baseDir : "");
@@ -23,8 +23,9 @@ DV.views.preview = function(app) {
   ctrls.appendChild(sel);
 
   if (S.compareMode) {
-    ctrls.appendChild(el("span", { s: { color: "var(--tx3)", fontFamily: "monospace", fontSize: "12px" } }, "vs"));
-    var s2 = document.createElement("select"); s2.style.cssText = sel.style.cssText;
+    ctrls.appendChild(el("span", { c: "font-mono text-12 color-tx3" }, "vs"));
+    var s2 = document.createElement("select");
+    s2.className = "select-inline";
     s2.appendChild(el("option", { attr: { value: "" } }, "Select\u2026"));
     for (var i = 0; i < slugs.length; i++) {
       if (slugs[i] === S.activeBranch) continue;
@@ -38,7 +39,7 @@ DV.views.preview = function(app) {
   }
 
   // Add Branch dropdown
-  var addBtnWrap = el("div", { s: { position: "relative" } });
+  var addBtnWrap = el("div", { c: "relative" });
   var addBtn = el("button", { c: "bg bs", attr: { "data-dd-toggle": "1" }, on: { click: function(evt) {
     evt.stopPropagation();
     S.showBranchDropdown = !S.showBranchDropdown;
@@ -51,9 +52,9 @@ DV.views.preview = function(app) {
   if (S.showBranchDropdown) {
     var dd = el("div", { c: "add-branch-dropdown" });
 
-    var ddModeRow = el("div", { s: { display: "flex", gap: "4px", margin: "4px 6px" } });
-    ddModeRow.appendChild(el("div", { c: "chip" + ((S.addBranchMode || "static") === "static" ? " on" : ""), s: { fontSize: "10px", padding: "4px 10px" }, on: { click: function(e) { e.stopPropagation(); S.addBranchMode = "static"; DV.render(); } } }, "Static"));
-    ddModeRow.appendChild(el("div", { c: "chip" + ((S.addBranchMode || "static") === "server" ? " on" : ""), s: { fontSize: "10px", padding: "4px 10px" }, on: { click: function(e) { e.stopPropagation(); S.addBranchMode = "server"; DV.render(); } } }, "Server"));
+    var ddModeRow = el("div", { c: "preview-chip-bar" });
+    ddModeRow.appendChild(el("div", { c: "chip preview-chip-sm" + ((S.addBranchMode || "static") === "static" ? " on" : ""), on: { click: function(e) { e.stopPropagation(); S.addBranchMode = "static"; DV.render(); } } }, "Static"));
+    ddModeRow.appendChild(el("div", { c: "chip preview-chip-sm" + ((S.addBranchMode || "static") === "server" ? " on" : ""), on: { click: function(e) { e.stopPropagation(); S.addBranchMode = "server"; DV.render(); } } }, "Server"));
     dd.appendChild(ddModeRow);
 
     if ((S.addBranchMode || "static") === "server") {
@@ -80,7 +81,6 @@ DV.views.preview = function(app) {
     searchInput.value = S.branchFilter;
     searchInput.addEventListener("input", function(e) {
       S.branchFilter = e.target.value;
-      // Filter in place without full re-render (preserves focus)
       var items = dd.querySelectorAll('.dd-item');
       var val = e.target.value.toLowerCase();
       for (var fi = 0; fi < items.length; fi++) {
@@ -92,7 +92,7 @@ DV.views.preview = function(app) {
     dd.appendChild(searchInput);
 
     if (S.availableBranches.length === 0) {
-      dd.appendChild(el("div", { s: { padding: "12px 14px", textAlign: "center" } }, [el("span", { c: "spin" })]));
+      dd.appendChild(el("div", { c: "text-center pad-md" }, [el("span", { c: "spin" })]));
     } else {
       var activeSet = {};
       var activeBranches = repo.activeBranches || [];
@@ -112,13 +112,13 @@ DV.views.preview = function(app) {
             e.stopPropagation();
             if (!isDuplicate) DV.addBranchToRepo(b, S.addBranchBaseDir || "", S.addBranchMode || "static", S.addBranchStartCmd || "");
           } } }, [
-            el("span", { s: { color: isDuplicate ? "var(--tx3)" : "var(--accent)", fontSize: "10px", flexShrink: "0" } }, isDuplicate ? "ok" : "+"),
+            el("span", { c: isDuplicate ? "frame-label-dup" : "frame-label-accent" }, isDuplicate ? "ok" : "+"),
             document.createTextNode(b),
-            pendingBaseDir ? el("span", { s: { color: "var(--tx3)", fontSize: "10px", marginLeft: "6px" } }, "\u2192 " + pendingBaseDir) : null
+            pendingBaseDir ? el("span", { c: "frame-info-badge" }, "\u2192 " + pendingBaseDir) : null
           ]));
         })(filtered[i]);
       }
-      if (!filtered.length) dd.appendChild(el("div", { s: { padding: "10px 14px", color: "var(--tx3)", fontFamily: "monospace", fontSize: "12px" } }, "No matching branches"));
+      if (!filtered.length) dd.appendChild(el("div", { c: "preview-empty-text pad-md" }, "No matching branches"));
     }
     addBtnWrap.appendChild(dd);
 
@@ -139,14 +139,18 @@ DV.views.preview = function(app) {
   ctrls.appendChild(addBtnWrap);
 
   var bs = (repo.branchStatuses || {})[S.activeBranch] || {};
-  ctrls.appendChild(el("div", { s: { flex: "1", display: "flex", alignItems: "center", gap: "6px" } }, [
+  var isReady = bs.status === "ready" || bs.status === "running";
+  ctrls.appendChild(el("div", { c: "flex-1 flex-row items-center gap-6" }, [
     el("span", { c: statusClass(bs.status) }),
-    el("span", { s: { fontFamily: "monospace", fontSize: "11px", color: (bs.status === "ready" || bs.status === "running") ? "var(--ok)" : "var(--tx3)" } }, (bs.status === "ready" || bs.status === "running") ? url : (bs.status || "idle"))
+    el("span", { c: "frame-branch-status " + (isReady ? "frame-branch-status-ok" : "frame-branch-status-dim") }, isReady ? url : (bs.status || "idle"))
   ]));
   app.appendChild(ctrls);
 
+  // URL bar
+  app.appendChild(el("div", { c: "preview-url-bar" }, url));
+
   // View toggles
-  var ratioBar = el("div", { s: { padding: "8px 16px", borderBottom: "1.5px solid var(--border)", display: "flex", gap: "6px", flexWrap: "wrap" } });
+  var ratioBar = el("div", { c: "preview-branch-bar" });
   var presetKeys = Object.keys(VIEW_PRESETS);
   for (var pi = 0; pi < presetKeys.length; pi++) {
     (function(key) {
@@ -160,45 +164,58 @@ DV.views.preview = function(app) {
       } } }, preset.label));
     })(presetKeys[pi]);
   }
+
+  ratioBar.appendChild(el("div", { c: "chip" + (S.isFullscreen ? " on" : ""), on: { click: function() {
+    S.isFullscreen = !S.isFullscreen;
+    DV.render();
+  } } }, "Fullscreen"));
+
+  ratioBar.appendChild(el("div", { c: "chip" + (S.rotated ? " on" : ""), on: { click: function() {
+    S.rotated = !S.rotated;
+    DV.render();
+  } } }, "Rotate"));
+
   app.appendChild(ratioBar);
 
   // Frames
-  var container = el("div", { s: { padding: "16px", display: "flex", flexDirection: "column", gap: "20px" } });
+  var container = el("div", { c: "preview-body" });
   var activePresets = presetKeys.filter(function(k) { return S.activeViews.indexOf(k) !== -1; });
 
-  function makeFrame(presetKey, src, label, color) {
+  function makeFrame(presetKey, src, label, colorClass) {
     var preset = VIEW_PRESETS[presetKey];
-    var pixelW = preset.w, pixelH = preset.h, sc = preset.scale || 1;
-    var f = el("div", { c: "preview-frame" });
+    var pixelW = S.rotated ? preset.h : preset.w;
+    var pixelH = S.rotated ? preset.w : preset.h;
+    var sc = preset.scale || 1;
+    var f = el("div", { c: "preview-frame" + (S.isFullscreen ? " fullscreen" : "") });
     f.appendChild(el("div", { c: "frame-label" }, [
       el("span", { c: statusClass(src ? "ready" : "idle") }),
-      el("span", { s: color ? { color: color } : {} }, label),
-      el("span", { s: { marginLeft: "auto", fontSize: "10px", color: "var(--tx3)" } }, preset.res)
+      el("span", { c: colorClass || "" }, label),
+      el("span", { c: "frame-info-badge ml-auto" }, preset.res)
     ]));
     var body = el("div", { c: "frame-body", s: { width: pixelW + "px", height: pixelH + "px", transform: sc !== 1 ? "scale(" + sc + ")" : "none", transformOrigin: "top left" } });
     if (src && (bs.status === "ready" || bs.status === "running")) {
       var iframe = document.createElement("iframe");
       iframe.src = src + "?_r=" + S.refreshKey; iframe.title = label;
       iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups allow-modals");
-      iframe.style.cssText = "border:none;width:" + pixelW + "px;height:" + pixelH + "px;display:block;";
-      var loader = el("div", { s: { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)", zIndex: "2", transition: "opacity .3s" } }, [el("span", { c: "spin" })]);
+      iframe.style.cssText = "width:" + pixelW + "px;height:" + pixelH + "px;";
+      var loader = el("div", { c: "frame-loader" }, [el("span", { c: "spin" })]);
       iframe.onload = function() { loader.style.opacity = "0"; setTimeout(function() { if (loader.parentNode) loader.remove(); }, 300); };
       body.appendChild(iframe); body.appendChild(loader);
     } else {
-      var stateWrap = el("div", { s: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: "16px" } });
+      var stateWrap = el("div", { c: "frame-state" });
       if (bs.status === "building") {
-        var loadWrap = el("div", { s: { width: "120px" } });
+        var loadWrap = el("div", { c: "preview-loading-bar" });
         loadWrap.appendChild(el("div", { c: "dv-loading" }));
         stateWrap.appendChild(loadWrap);
-        stateWrap.appendChild(el("div", { s: { color: "var(--tx3)", fontFamily: "var(--font-mono)", fontSize: "10px", letterSpacing: "0.08em" } }, "BUILDING..."));
+        stateWrap.appendChild(el("div", { c: "frame-status-text" }, "BUILDING..."));
       } else {
-        stateWrap.appendChild(el("div", { s: { width: "32px", height: "32px", borderRadius: "50%", border: "1px solid var(--border-h)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--tx3)", fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: "600" } }, "DV"));
-        stateWrap.appendChild(el("div", { s: { color: "var(--tx3)", fontFamily: "var(--font-mono)", fontSize: "10px", letterSpacing: "0.08em" } }, "AWAITING BUILD"));
+        stateWrap.appendChild(el("div", { c: "frame-status-circle" }, "DV"));
+        stateWrap.appendChild(el("div", { c: "frame-status-text" }, "AWAITING BUILD"));
       }
       body.appendChild(stateWrap);
     }
     if (sc !== 1) {
-      var wrapper = el("div", { s: { width: Math.floor(pixelW * sc) + "px", height: Math.floor(pixelH * sc) + "px", overflow: "hidden" } });
+      var wrapper = el("div", { c: "overflow-hidden", s: { width: Math.floor(pixelW * sc) + "px", height: Math.floor(pixelH * sc) + "px" } });
       wrapper.appendChild(body); f.appendChild(wrapper);
     } else { f.appendChild(body); }
     return f;
@@ -206,15 +223,15 @@ DV.views.preview = function(app) {
 
   if (S.compareMode) {
     activePresets.forEach(function(key) {
-      var scrollWrap = el("div", { s: { overflowX: "auto", overflowY: "hidden", paddingBottom: "8px" } });
-      var row = el("div", { s: { display: "inline-flex", gap: "16px", flexWrap: "nowrap" } });
-            row.appendChild(makeFrame(key, url, S.activeBranch + " \u2014 " + VIEW_PRESETS[key].label, "var(--accent)"));
-      row.appendChild(makeFrame(key, S.compareBranch ? cmpUrl : "", S.compareBranch || "Select branch", "var(--run)"));
+      var scrollWrap = el("div", { c: "device-scroll" });
+      var row = el("div", { c: "compare-row" });
+      row.appendChild(makeFrame(key, url, S.activeBranch + " \u2014 " + VIEW_PRESETS[key].label, "color-accent"));
+      row.appendChild(makeFrame(key, S.compareBranch ? cmpUrl : "", S.compareBranch || "Select branch", "color-run"));
       scrollWrap.appendChild(row); container.appendChild(scrollWrap);
     });
   } else {
     activePresets.forEach(function(key) {
-      var scrollWrap = el("div", { s: { overflowX: "auto", overflowY: "hidden", paddingBottom: "8px" } });
+      var scrollWrap = el("div", { c: "device-scroll" });
       scrollWrap.appendChild(makeFrame(key, url, VIEW_PRESETS[key].label, null));
       container.appendChild(scrollWrap);
     });
