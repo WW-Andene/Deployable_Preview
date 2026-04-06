@@ -30,7 +30,8 @@ var S = {
   branchFilter: "",
   addBranchBaseDir: "",
   editModal: null,
-  logModal: null
+  logModal: null,
+  apkModal: null
 };
 
 var _dropdownCloseHandler = null;

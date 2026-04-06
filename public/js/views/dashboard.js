@@ -101,6 +101,10 @@ DV.views.dashboard = function(app) {
             actions.appendChild(el("button", { c: "bg bs", on: { click: function() {
               S.logModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: repo.owner + "/" + repo.repo + ":" + slug }; DV.render();
             } } }, "Log"));
+            actions.appendChild(el("button", { c: "bg bs", title: "Build Android APK", s: { background: "var(--accent-dim)", color: "var(--accent)", border: "1px solid var(--accent)" }, on: { click: function() {
+              S.apkModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: repo.owner + "/" + repo.repo + ":" + slug };
+              DV.render();
+            } } }, "APK"));
             actions.appendChild(el("button", { c: "bg bs", on: { click: function() {
               S.editModal = { owner: repo.owner, repo: repo.repo, slug: slug, branch: bs.branch, baseDir: bs.baseDir || "", buildCommand: bs.buildCommand || "", outputDir: bs.outputDir || "", mode: bs.mode || "static", startCommand: bs.startCommand || "", envVars: bs.envVars || "" }; DV.render();
             } } }, "Edit"));

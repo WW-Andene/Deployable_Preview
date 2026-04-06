@@ -1,5 +1,6 @@
 const express = require("express");
 const { exec } = require("child_process");
+const fs = require("fs");
 const router = express.Router();
 
 const { getConfig, saveConfig, parseEnvVars } = require("../config");
@@ -7,6 +8,7 @@ const { ghApi } = require("../github");
 const { buildStatus, branchSlug, buildKey, getBranchDir, deployBranch } = require("../build");
 const { runningServers, killServer } = require("../process");
 const { loadLog, logStreams } = require("../logs");
+const { apkStatus, buildApk, apkOutputPath } = require("../apk");
 
 // Token
 router.post("/token", (req, res) => {
@@ -214,6 +216,63 @@ router.get("/log/:owner/:repo", (req, res) => {
   const s = buildStatus[key];
   const log = s && s.log ? s.log : loadLog(key);
   res.type("text/plain").send(log || "No build log.");
+});
+
+// ── APK build ──────────────────────────────────────────────────────────────
+
+// Trigger APK build for a deployed branch
+router.post("/apk/:owner/:repo", (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: "slug query param required" });
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  if (apkStatus[key] && apkStatus[key].status === "building") {
+    return res.status(409).json({ error: "APK build already in progress" });
+  }
+  // fire and forget — client polls /api/apk/status
+  buildApk(req.params.owner, req.params.repo, slug);
+  res.json({ ok: true, message: "APK build started" });
+});
+
+// Poll APK build status
+router.get("/apk/:owner/:repo/status", (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: "slug query param required" });
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  res.json(apkStatus[key] || { status: "idle" });
+});
+
+// Stream APK build log (SSE)
+router.get("/apk/:owner/:repo/log-stream", (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: "slug query param required" });
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+  res.write("data: " + JSON.stringify({ connected: true }) + "\n\n");
+  // send existing log
+  if (apkStatus[key] && apkStatus[key].log) {
+    res.write("data: " + JSON.stringify({ log: apkStatus[key].log }) + "\n\n");
+  }
+  const stream = { res, key: "apk:" + key, closed: false };
+  logStreams.push(stream);
+  req.on("close", () => { stream.closed = true; });
+});
+
+// Download the finished APK
+router.get("/apk/:owner/:repo/download", (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: "slug query param required" });
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  const st = apkStatus[key];
+  if (!st || st.status !== "ready" || !st.apkPath) {
+    return res.status(404).json({ error: "APK not ready" });
+  }
+  if (!fs.existsSync(st.apkPath)) {
+    return res.status(410).json({ error: "APK file missing — rebuild required" });
+  }
+  const filename = req.params.owner + "-" + req.params.repo + "-" + slug + ".apk";
+  res.setHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
+  res.setHeader("Content-Type", "application/vnd.android.package-archive");
+  res.sendFile(st.apkPath);
 });
 
 module.exports = router;
