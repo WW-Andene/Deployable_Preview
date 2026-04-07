@@ -5,7 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const router = express.Router();
 
-const { getConfig, saveConfig, parseEnvVars } = require("../config");
+const { getConfig, saveConfig, parseEnvVars, getSecret } = require("../config");
 const { ghApi } = require("../github");
 const { buildStatus, branchSlug, buildKey, getBranchDir, deployBranch, cancelBuild } = require("../build");
 const { runningServers, killServer } = require("../process");
@@ -67,6 +67,73 @@ router.post("/token", (req, res) => {
 
 router.get("/token", (req, res) => {
   res.json({ hasToken: !!getConfig().token });
+});
+
+// ── Secrets / Keys management ────────────────────────────────────────────────
+// Known keys and their metadata
+const SECRET_KEYS = [
+  { key: "GITHUB_TOKEN",    envKey: "GITHUB_TOKEN",    label: "GitHub Token",         hint: "Personal Access Token with repo + workflow scope", link: "https://github.com/settings/tokens/new?scopes=repo,workflow&description=DeployView" },
+  { key: "NGROK_AUTHTOKEN", envKey: "NGROK_AUTHTOKEN", label: "ngrok Auth Token",     hint: "Free at ngrok.com — enables HTTPS tunnels for Claude web", link: "https://dashboard.ngrok.com/get-started/your-authtoken" },
+  { key: "WEBHOOK_SECRET",  envKey: "WEBHOOK_SECRET",  label: "Webhook Secret",       hint: "GitHub webhook secret for HMAC signature verification (optional)" },
+];
+
+router.get("/secrets", (req, res) => {
+  const config = getConfig();
+  const secrets = config.secrets || {};
+  // Return key metadata + masked values (never expose full secrets)
+  const result = SECRET_KEYS.map((sk) => {
+    const val = secrets[sk.key] || process.env[sk.envKey] || "";
+    // For GitHub token, also check the legacy config.token field
+    const effective = sk.key === "GITHUB_TOKEN" ? (val || config.token || "") : val;
+    return {
+      key: sk.key,
+      label: sk.label,
+      hint: sk.hint,
+      link: sk.link || null,
+      hasValue: !!effective,
+      masked: effective ? effective.slice(0, 4) + "..." + effective.slice(-4) : "",
+      source: secrets[sk.key] ? "config" : (process.env[sk.envKey] ? "env" : (sk.key === "GITHUB_TOKEN" && config.token ? "config" : "none"))
+    };
+  });
+  res.json(result);
+});
+
+router.post("/secrets", (req, res) => {
+  const config = getConfig();
+  if (!config.secrets) config.secrets = {};
+  const { key, value } = req.body;
+  if (!key || typeof key !== "string") return res.status(400).json({ error: "key required" });
+  // Only allow known keys
+  const known = SECRET_KEYS.find((sk) => sk.key === key);
+  if (!known) return res.status(400).json({ error: "Unknown key: " + key });
+  if (value === undefined || value === null) return res.status(400).json({ error: "value required" });
+  const trimmed = String(value).trim();
+  if (trimmed) {
+    config.secrets[key] = trimmed;
+    // Also sync GitHub token to the legacy config.token field
+    if (key === "GITHUB_TOKEN") config.token = trimmed;
+    // Set in process.env so modules pick it up immediately
+    if (known.envKey) process.env[known.envKey] = trimmed;
+  } else {
+    delete config.secrets[key];
+    if (key === "GITHUB_TOKEN") config.token = "";
+    if (known.envKey) delete process.env[known.envKey];
+  }
+  saveConfig();
+  res.json({ ok: true, key, hasValue: !!trimmed });
+});
+
+router.delete("/secrets/:key", (req, res) => {
+  const config = getConfig();
+  if (!config.secrets) config.secrets = {};
+  const key = req.params.key;
+  const known = SECRET_KEYS.find((sk) => sk.key === key);
+  if (!known) return res.status(400).json({ error: "Unknown key: " + key });
+  delete config.secrets[key];
+  if (key === "GITHUB_TOKEN") config.token = "";
+  if (known.envKey) delete process.env[known.envKey];
+  saveConfig();
+  res.json({ ok: true, key, removed: true });
 });
 
 // GitHub branches — sorted by most recent commit
@@ -213,7 +280,7 @@ router.put("/repos/:owner/:repo/branch", (req, res) => {
 router.post("/webhook", (req, res) => {
   const config = getConfig();
   // Verify webhook signature if WEBHOOK_SECRET is set
-  const secret = process.env.WEBHOOK_SECRET;
+  const secret = getSecret("WEBHOOK_SECRET", "WEBHOOK_SECRET");
   if (secret) {
     const sig = req.headers["x-hub-signature-256"] || "";
     const body = JSON.stringify(req.body);

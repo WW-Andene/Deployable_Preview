@@ -3,7 +3,7 @@ const path = require("path");
 
 const CONFIG_FILE = path.join(__dirname, "..", "deployview.json");
 
-let config = { token: "", repos: [] };
+let config = { token: "", repos: [], secrets: {} };
 
 function loadConfig() {
   try {
@@ -15,6 +15,7 @@ function loadConfig() {
         config = parsed;
         if (!Array.isArray(config.repos)) config.repos = [];
         if (typeof config.token !== "string") config.token = "";
+        if (typeof config.secrets !== "object" || config.secrets === null) config.secrets = {};
       } else {
         throw new Error("Config is not an object");
       }
@@ -72,4 +73,12 @@ function parseEnvVars(envStr) {
   return env;
 }
 
-module.exports = { loadConfig, saveConfig, getConfig, migrateConfig, parseEnvVars };
+// Get a secret: config.secrets[key] first, then process.env[envKey] fallback
+function getSecret(key, envKey) {
+  const val = config.secrets && config.secrets[key];
+  if (val) return val;
+  if (envKey && process.env[envKey]) return process.env[envKey];
+  return "";
+}
+
+module.exports = { loadConfig, saveConfig, getConfig, migrateConfig, parseEnvVars, getSecret };

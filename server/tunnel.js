@@ -205,9 +205,11 @@ function loadNgrok() {
 }
 
 function tryNgrok(port, onUrl, onFail) {
-  const token = process.env.NGROK_AUTHTOKEN;
+  // Check config secrets first, then env var
+  let token = process.env.NGROK_AUTHTOKEN;
+  try { const { getSecret } = require("./config"); token = getSecret("NGROK_AUTHTOKEN", "NGROK_AUTHTOKEN") || token; } catch (_) {}
   if (!token) {
-    onFail(new Error("NGROK_AUTHTOKEN env var not set — skipping ngrok"));
+    onFail(new Error("NGROK_AUTHTOKEN not set — add it in Settings or set env var"));
     return;
   }
 

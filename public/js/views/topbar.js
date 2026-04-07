@@ -39,8 +39,13 @@ if (!DV._kbBound) {
           e.preventDefault();
         }
         break;
+      case "s": case "S":
+        if (S.view === "dashboard" || S.view === "preview") {
+          S.view = "settings"; DV.render(); e.preventDefault();
+        }
+        break;
       case "?":
-        DV.showToast("Shortcuts: R=Reload, N=New Repo, C=Compare, T=Test, Esc=Back", "info");
+        DV.showToast("Shortcuts: R=Reload, N=New Repo, C=Compare, T=Test, S=Settings, Esc=Back", "info");
         e.preventDefault();
         break;
     }
@@ -48,7 +53,7 @@ if (!DV._kbBound) {
 }
 
 DV.views.topbar = function(app) {
-  var viewLabels = { preview: "Preview", addRepo: "Add Repo", mcp: "MCP Tools" };
+  var viewLabels = { preview: "Preview", addRepo: "Add Repo", mcp: "MCP Tools", settings: "Settings" };
   var left = el("div", { c: "topbar-left" });
   if (S.view !== "setup" && S.view !== "dashboard" && S.view !== "loading") {
     left.appendChild(el("button", { c: "bg bs", attr: { title: "Back (Esc)" }, on: { click: function() { S.view = "dashboard"; S.showBranchDropdown = false; DV.render(); } } }, "< Back"));
@@ -128,8 +133,11 @@ DV.views.topbar = function(app) {
     } } }, "Run Test"));
   }
   if (S.view !== "setup" && S.view !== "loading") {
+    right.appendChild(el("button", { c: "bg bs", attr: { title: "API Keys & Settings (S)" }, on: { click: function() {
+      S.view = "settings"; DV.render();
+    } } }, "\u2699 Keys"));
     right.appendChild(el("button", { c: "bg bs", attr: { title: "Keyboard shortcuts (?)" }, on: { click: function() {
-      DV.showToast("Shortcuts: R=Reload, N=New Repo, C=Compare, T=Test, Esc=Back", "info");
+      DV.showToast("Shortcuts: R=Reload, N=New Repo, C=Compare, T=Test, S=Settings, Esc=Back", "info");
     } } }, "?"));
     right.appendChild(el("button", { c: "bg bs", attr: { title: "Logout" }, on: { click: function() {
       api("POST", "/api/token", { token: "" }).then(function() { S.hasToken = false; S.view = "setup"; DV.render(); });

@@ -1915,6 +1915,87 @@ button:disabled, button[disabled] {
 /* ══════════════════════════════════════════════════
    §12 — RESPONSIVE
    ══════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════
+   §13 — SETTINGS PAGE
+   ══════════════════════════════════════════════════ */
+.settings-page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: calc(var(--sp) * 3) calc(var(--sp) * 2.5);
+}
+.settings-key-card {
+  margin-bottom: calc(var(--sp) * 2);
+}
+.settings-key-label {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--tx1);
+}
+.settings-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+}
+.settings-status-ok {
+  background: var(--ok-dim);
+  color: var(--ok);
+  border: 1px solid rgba(56,168,120,.25);
+}
+.settings-status-missing {
+  background: var(--err-dim);
+  color: var(--err);
+  border: 1px solid rgba(196,80,64,.25);
+}
+.settings-masked {
+  font-size: 11px;
+  color: var(--tx3);
+  letter-spacing: 0.02em;
+}
+.settings-source-badge {
+  display: inline-flex;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--run);
+  background: var(--run-dim);
+  border: 1px solid rgba(72,136,200,.2);
+}
+.settings-hint {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tx3);
+  line-height: 1.6;
+}
+.settings-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+.settings-link:hover {
+  text-decoration: underline;
+}
+.settings-info-box {
+  background: var(--sf1);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-card);
+  padding: calc(var(--sp) * 2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tx3);
+  line-height: 1.8;
+}
+.settings-info-title {
+  font-weight: 600;
+  color: var(--tx2);
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
 @media (max-width: 640px) {
   .container { padding: 12px 10px; }
   .branch-row { flex-direction: column; align-items: flex-start; gap: 8px; }

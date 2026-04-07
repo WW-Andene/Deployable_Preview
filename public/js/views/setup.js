@@ -7,7 +7,11 @@ DV.views.setup = function(app) {
   function submit() {
     var t = inp.value; if (!t) return; btn.innerHTML = "<span class='spin'></span>";
     api("POST", "/api/token", { token: t }).then(function(r) {
-      if (r.ok) { S.hasToken = true; S.view = "dashboard"; DV.loadRepos(); DV.startStatusPoll(); }
+      if (r.ok) {
+        // Also save to secrets store so it appears in Settings
+        fetch("/api/secrets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "GITHUB_TOKEN", value: t }) }).catch(function(){});
+        S.hasToken = true; S.view = "dashboard"; DV.loadRepos(); DV.startStatusPoll();
+      }
       else { err.classList.remove("hidden"); btn.textContent = "Connect"; }
     }).catch(function() { err.classList.remove("hidden"); btn.textContent = "Connect"; });
   }
