@@ -15,26 +15,26 @@ DV.views.mcp = function(app) {
   var statusPanel = el("div", { c: "card mb-20" });
   var statusHeader = el("div", { c: "mcp-status-row" });
   statusHeader.appendChild(el("h3", { c: "mcp-status-label" }, "Server Status"));
-  var puppeteerDot = el("span", { c: "dot idle ml-auto" });
-  var puppeteerLabel = el("span", { c: "mcp-status-meta" }, "Checking Puppeteer...");
-  statusHeader.appendChild(puppeteerDot);
-  statusHeader.appendChild(puppeteerLabel);
+  var playwrightDot = el("span", { c: "dot idle ml-auto" });
+  var playwrightLabel = el("span", { c: "mcp-status-meta" }, "Checking Playwright...");
+  statusHeader.appendChild(playwrightDot);
+  statusHeader.appendChild(playwrightLabel);
   statusPanel.appendChild(statusHeader);
 
   // Fetch MCP status
   fetch("/api/mcp/tools").then(function(r) { return r.json(); }).then(function(data) {
-    if (data.puppeteerAvailable) {
-      puppeteerDot.className = "dot ok";
-      puppeteerLabel.textContent = "Puppeteer available — screenshots & interaction enabled";
-      puppeteerLabel.className = "mcp-status-meta color-ok";
+    if (data.playwrightAvailable) {
+      playwrightDot.className = "dot ok";
+      playwrightLabel.textContent = "Playwright available — screenshots & interaction enabled";
+      playwrightLabel.className = "mcp-status-meta color-ok";
     } else {
-      puppeteerDot.className = "dot err";
-      puppeteerLabel.textContent = "Puppeteer not installed — run: npm install puppeteer";
-      puppeteerLabel.className = "mcp-status-meta color-err";
+      playwrightDot.className = "dot err";
+      playwrightLabel.textContent = "Playwright not installed — run: npm install playwright";
+      playwrightLabel.className = "mcp-status-meta color-err";
     }
   }).catch(function() {
-    puppeteerLabel.textContent = "Could not reach MCP endpoint";
-    puppeteerDot.className = "dot err";
+    playwrightLabel.textContent = "Could not reach MCP endpoint";
+    playwrightDot.className = "dot err";
   });
 
   // Claude Desktop config

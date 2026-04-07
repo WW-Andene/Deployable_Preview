@@ -29,7 +29,7 @@ Open **http://localhost:3000** in your browser.
 - Node.js 18+
 - Git installed
 - The build tools your project needs (npm, yarn, pnpm)
-- Puppeteer (optional — for MCP screenshot and interaction tools)
+- Playwright (optional — for MCP screenshot and interaction tools)
 
 ## How it works
 
@@ -76,24 +76,48 @@ Add to your `claude_desktop_config.json`:
 ### MCP Setup: Claude Web (claude.ai)
 
 DeployView exposes an MCP Streamable HTTP endpoint at `/mcp` so Claude's web
-interface can connect directly.
+interface can connect directly. Claude web **requires HTTPS**.
 
-1. Start DeployView and make it reachable from the internet (e.g. via a tunnel
-   or by deploying to a server):
+**Option A — Built-in HTTPS (recommended for local development):**
 
-   ```bash
-   npm start          # listens on http://localhost:3000
-   ```
+Generate a self-signed certificate and start with HTTPS enabled:
 
-2. In **claude.ai → Settings → Integrations**, add a new MCP server with the
-   URL of your DeployView instance:
+```bash
+# Generate self-signed cert (one-time)
+openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes -subj '/CN=localhost'
 
-   ```
-   https://your-server.example.com/mcp
-   ```
+# Start with HTTPS on port 3443
+HTTPS_CERT=cert.pem HTTPS_KEY=key.pem npm start
+```
 
-   Claude will connect over Streamable HTTP and discover all available tools
-   (screenshots, DOM inspection, interaction, build control, etc.).
+Then expose port 3443 via a tunnel so Claude web can reach it:
+
+```bash
+# Using cloudflared (recommended — gives you a public HTTPS URL)
+cloudflared tunnel --url https://localhost:3443
+
+# Or using ngrok
+ngrok http https://localhost:3443
+```
+
+**Option B — Reverse proxy / deploy to a server:**
+
+Deploy DeployView to a server with a proper TLS certificate (e.g. via
+Let's Encrypt, Caddy, or nginx):
+
+```bash
+npm start          # listens on http://localhost:3000
+```
+
+Then in **claude.ai → Settings → Integrations**, add a new MCP server with
+the public HTTPS URL of your DeployView instance:
+
+```
+https://your-server.example.com/mcp
+```
+
+Claude will connect over Streamable HTTP and discover all available tools
+(screenshots, DOM inspection, interaction, build control, etc.).
 
 ### MCP Modes
 
@@ -188,7 +212,7 @@ Config saved to `deployview.json` in the project root (git-ignored).
 | `git pull` fails with "local changes would be overwritten" | If the conflict is in `package.json` (caused by `npm install` rewriting versions), run `git checkout -- package.json && git pull origin main`. For other files, run `git stash && git pull && git stash pop` to preserve your changes, or `git checkout -- <file>` to discard them |
 | Build fails with "npm not found" | Ensure your build tools (npm/yarn/pnpm) are in PATH |
 | Server mode times out | Your app must listen on the port from `process.env.PORT` within 60s |
-| Puppeteer not working | Run `npm install puppeteer` (it's optional) |
+| Playwright not working | Run `npm install playwright` (it's optional) |
 | APK build fails | Ensure your GitHub token has the `workflow` scope |
 | Preview shows blank page | Check that the output directory is correct (try `build` instead of `dist`) |
 

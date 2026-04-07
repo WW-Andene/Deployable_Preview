@@ -35,7 +35,7 @@
     "express": "4.22.1"
   },
   "optionalDependencies": {
-    "puppeteer": "24.40.0"
+    "playwright": "1.59.1"
   },
   "overrides": {
     "path-to-regexp": "0.1.13"

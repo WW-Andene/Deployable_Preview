@@ -8,6 +8,7 @@ if (process.argv.includes("--mcp-only")) {
 
 const express = require("express");
 const path = require("path");
+const fs = require("fs");
 const { execSync } = require("child_process");
 
 const { loadConfig, getConfig, migrateConfig } = require("./config");
@@ -125,18 +126,24 @@ function shutdown(signal) {
     killServer(key);
   }
 
-  // Close Puppeteer browser
+  // Close Playwright browser
   try {
     const mcpBrowser = require("./mcp-browser");
     mcpBrowser.closeBrowser().catch(() => {});
   } catch (e) { /* not loaded */ }
 
-  // Close HTTP server
-  if (httpServer) {
-    httpServer.close(() => {
-      console.log("  HTTP server closed.");
+  // Close HTTP and HTTPS servers
+  let pendingClose = 0;
+  function onServerClosed() {
+    pendingClose--;
+    if (pendingClose <= 0) {
+      console.log("  Server(s) closed.");
       process.exit(0);
-    });
+    }
+  }
+  if (httpServer) { pendingClose++; httpServer.close(onServerClosed); }
+  if (httpsServer) { pendingClose++; httpsServer.close(onServerClosed); }
+  if (pendingClose > 0) {
     // Force exit after 5s if graceful close hangs
     setTimeout(() => process.exit(1), 5000);
   } else {
@@ -158,6 +165,34 @@ process.on("unhandledRejection", (reason) => {
 
 // ── Start ──
 const PORT = process.env.PORT || 3000;
+
+// ── Optional HTTPS support ──
+// Set HTTPS_CERT and HTTPS_KEY env vars (file paths) to enable TLS.
+// This is required for Claude web (claude.ai) MCP integration, which
+// requires an HTTPS endpoint.
+const certPath = process.env.HTTPS_CERT;
+const keyPath  = process.env.HTTPS_KEY;
+let httpsServer = null;
+
+if (certPath && keyPath) {
+  try {
+    const https = require("https");
+    const tlsOpts = {
+      cert: fs.readFileSync(certPath),
+      key:  fs.readFileSync(keyPath)
+    };
+    const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
+    httpsServer = https.createServer(tlsOpts, app).listen(HTTPS_PORT, () => {
+      console.log("");
+      console.log("  🔒 DeployView HTTPS running on https://localhost:" + HTTPS_PORT);
+      console.log("    MCP HTTPS:     https://localhost:" + HTTPS_PORT + "/mcp  (for Claude web)");
+    });
+  } catch (e) {
+    console.error("  ⚠ Failed to start HTTPS server: " + e.message);
+    console.error("    Check HTTPS_CERT and HTTPS_KEY environment variables.");
+  }
+}
+
 httpServer = app.listen(PORT, () => {
   console.log("");
   console.log("  ⚡ DeployView running on http://localhost:" + PORT);
@@ -171,6 +206,11 @@ httpServer = app.listen(PORT, () => {
   console.log("    MCP tools:     http://localhost:" + PORT + "/api/mcp/tools");
   console.log("    Dashboard:     http://localhost:" + PORT);
   console.log("    Health:        http://localhost:" + PORT + "/api/health");
+  if (!httpsServer) {
+    console.log("");
+    console.log("  💡 For Claude web (HTTPS), set HTTPS_CERT and HTTPS_KEY env vars:");
+    console.log("     HTTPS_CERT=cert.pem HTTPS_KEY=key.pem npm start");
+  }
   console.log("");
 
   // Always start MCP stdio server alongside HTTP —
