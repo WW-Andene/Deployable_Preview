@@ -60,6 +60,21 @@ function loadLib() {
   return null;
 }
 
+// ── Compatibility helpers (Playwright vs Puppeteer) ─────────────────────────
+async function setViewport(page, width, height) {
+  if (typeof page.setViewportSize === "function") {
+    await page.setViewportSize({ width, height });
+  } else if (typeof page.setViewport === "function") {
+    await page.setViewport({ width, height });
+  }
+}
+
+function getViewport(page) {
+  if (typeof page.viewportSize === "function") return page.viewportSize();
+  if (page.viewport && typeof page.viewport === "function") return page.viewport();
+  return { width: 1280, height: 720 };
+}
+
 function hasPlaywright() {
   return !!loadLib();
 }
@@ -122,7 +137,7 @@ async function takeScreenshot(opts) {
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
-    await page.setViewportSize({ width: width || 1280, height: height || 720 });
+    await setViewport(page, width || 1280, height || 720);
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
 
     let buf;
@@ -139,7 +154,7 @@ async function takeScreenshot(opts) {
 
     const base64 = buf.toString("base64");
     const title = await page.title();
-    const viewport = page.viewportSize();
+    const viewport = getViewport(page);
 
     return {
       base64,
@@ -175,7 +190,12 @@ async function inspectDOM(opts) {
   try {
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
 
-    const snapshot = await page.accessibility.snapshot();
+    let snapshot = null;
+    try {
+      if (page.accessibility && typeof page.accessibility.snapshot === "function") {
+        snapshot = await page.accessibility.snapshot();
+      }
+    } catch (_) {}
 
     // Also get computed styles for the target selector if provided
     let elementInfo = null;
@@ -317,7 +337,7 @@ async function interact(opts) {
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
-    await page.setViewportSize({ width: 1280, height: 720 });
+    await setViewport(page, 1280, 720);
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
 
     let result = { success: true, action, url };
@@ -335,14 +355,24 @@ async function interact(opts) {
       case "type":
         if (!selector) throw new Error("selector required for type action");
         await page.click(selector);
-        await page.fill(selector, value || "");
+        if (typeof page.fill === "function") {
+          await page.fill(selector, value || "");
+        } else {
+          // Puppeteer: clear then type
+          await page.evaluate(function(sel) { document.querySelector(sel).value = ""; }, selector);
+          await page.type(selector, value || "");
+        }
         result.typed = value;
         result.into = selector;
         break;
 
       case "select":
         if (!selector) throw new Error("selector required for select action");
-        await page.selectOption(selector, value || "");
+        if (typeof page.selectOption === "function") {
+          await page.selectOption(selector, value || "");
+        } else {
+          await page.select(selector, value || "");
+        }
         result.selected = value;
         result.from = selector;
         break;
