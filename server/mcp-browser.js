@@ -29,7 +29,7 @@ function hasPlaywright() {
 
 async function getBrowser() {
   if (browserInstance && browserInstance.isConnected()) return browserInstance;
-  if (!hasPlaywright()) throw new Error("Playwright is not installed. Run: npm install playwright");
+  if (!hasPlaywright()) throw new Error("Playwright is not installed. Run: npm install playwright && npx playwright install chromium");
   browserInstance = await pw.chromium.launch({
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]

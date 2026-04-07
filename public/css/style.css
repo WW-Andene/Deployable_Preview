@@ -1746,3 +1746,62 @@ button:disabled, button[disabled] {
   .page-header { gap: 8px; margin-bottom: 16px; }
   .preview-controls { padding: 8px 10px; gap: 8px; }
 }
+
+/* ══════════════════════════════════════════════════
+   §TUNNEL — HTTPS tunnel panel (MCP settings)
+   ══════════════════════════════════════════════════ */
+.tunnel-url-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+.tunnel-url {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ok);
+  word-break: break-all;
+}
+.tunnel-start-btn,
+.tunnel-stop-btn {
+  margin-top: 10px;
+  font-size: 13px;
+}
+.color-err { color: var(--err); }
+.color-ok  { color: var(--ok);  }
+
+/* ══════════════════════════════════════════════════
+   §APK-WD — APK working-directory input row
+   ══════════════════════════════════════════════════ */
+.apk-wd-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 0 6px;
+  border-top: 1px solid var(--br);
+  margin-bottom: 4px;
+}
+.apk-wd-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tx2);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.apk-wd-input {
+  background: var(--bg2);
+  border: 1px solid var(--br);
+  border-radius: 6px;
+  color: var(--tx1);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 6px 10px;
+  outline: none;
+  transition: border-color .15s;
+}
+.apk-wd-input:focus { border-color: var(--accent); }
+.apk-wd-hint {
+  font-size: 11px;
+  color: var(--tx3);
+}

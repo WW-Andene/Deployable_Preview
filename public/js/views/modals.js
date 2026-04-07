@@ -193,13 +193,34 @@ DV.views.modals = function(app) {
 
     /* Actions */
     var apkBtnRow = el("div", { c: "btn-row" });
+
+    /* Working directory input — shown above the button row */
+    var wdRow = el("div", { c: "apk-wd-row" });
+    wdRow.appendChild(el("label", { c: "apk-wd-label", attr: { "for": "apk-wd-input" } }, "Working directory"));
+    var wdInput = el("input", { c: "apk-wd-input", attr: {
+      id: "apk-wd-input",
+      type: "text",
+      placeholder: ". (repo root)",
+      title: "Subdirectory containing package.json, e.g. \"app\" or \"frontend\". Leave blank for repo root."
+    } });
+    if (am.workingDir) wdInput.value = am.workingDir;
+    wdRow.appendChild(wdInput);
+    wdRow.appendChild(el("span", { c: "apk-wd-hint" }, "Subdirectory with package.json — leave blank if it\u2019s in the repo root"));
+    apkBox.appendChild(wdRow);
+
     apkBtnRow.appendChild(el("button", { c: "bg", on: { click: function() {
       S.apkModal = null; if (S._apkSSE) { S._apkSSE.close(); S._apkSSE = null; } DV.render();
     } } }, "Close"));
     apkBtnRow.appendChild(el("button", { c: "bp flex-1", on: { click: function(e) {
+      var wd = wdInput.value.trim() || ".";
+      am.workingDir = wd; // remember for re-renders
       e.target.disabled = true; e.target.textContent = "Starting\u2026";
       apkLogDiv.classList.remove("hidden"); apkLogDiv.textContent = "";
-      fetch("/api/apk/" + am.owner + "/" + am.repo + "?slug=" + encodeURIComponent(am.slug), { method: "POST" })
+      fetch("/api/apk/" + am.owner + "/" + am.repo + "?slug=" + encodeURIComponent(am.slug), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workingDir: wd })
+      })
         .then(function(r) { return r.json(); })
         .then(function() {
           if (S._apkSSE) S._apkSSE.close();

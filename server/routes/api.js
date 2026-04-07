@@ -243,8 +243,13 @@ router.post("/apk/:owner/:repo", (req, res) => {
   if (apkStatus[key] && apkStatus[key].status === "building") {
     return res.status(409).json({ error: "APK build already in progress" });
   }
+  let workingDir = (req.body && req.body.workingDir) ? String(req.body.workingDir).trim() : ".";
+  // Sanitize: reject path traversal attempts
+  if (/\.\.[\\/]|[\\/]\.\./.test(workingDir) || /^[\\/]/.test(workingDir)) {
+    return res.status(400).json({ error: "Invalid workingDir — must be a relative path without '..'" });
+  }
   // fire and forget — client polls /api/apk/status
-  buildApk(req.params.owner, req.params.repo, slug);
+  buildApk(req.params.owner, req.params.repo, slug, workingDir);
   res.json({ ok: true, message: "APK build started" });
 });
 
@@ -436,6 +441,32 @@ router.get("/fetch", async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── Tunnel routes (HTTPS exposure for Claude.ai MCP) ─────────────────────────
+
+const tunnel = require("../tunnel");
+
+// GET /api/tunnel/status
+router.get("/tunnel/status", (req, res) => {
+  res.json(tunnel.status());
+});
+
+// POST /api/tunnel/start  — body: { port?: number }
+router.post("/tunnel/start", async (req, res) => {
+  const port = (req.body && req.body.port) || process.env.PORT || 3000;
+  try {
+    const result = await tunnel.start(port);
+    res.json({ ok: true, url: result.url, provider: tunnel.status().provider });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// POST /api/tunnel/stop
+router.post("/tunnel/stop", (req, res) => {
+  tunnel.stop();
+  res.json({ ok: true });
 });
 
 module.exports = router;
