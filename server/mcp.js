@@ -182,6 +182,20 @@ const TOOLS = [
     }
   },
   {
+    name: "run_test",
+    description: "Run the automated test harness on a deployed preview. Tests all tabs, buttons, inputs, toggles, dropdowns, and captures console errors. Returns structured results with pass/fail counts and full log.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string", description: "Repository owner" },
+        repo:  { type: "string", description: "Repository name" },
+        slug:  { type: "string", description: "Branch slug" },
+        mode:  { type: "string", enum: ["full", "quick"], description: "Test mode: 'full' (deep interaction, ~2min) or 'quick' (tab navigation only, ~30s). Default: full" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
     name: "web_fetch",
     description: "Fetch a URL and extract its content. Supports HTML pages (extracts readable text, links, images, headings, meta tags), JSON APIs, and plain text. Use this to read web pages, scrape content, check API responses, or download text data from the internet. Works without Playwright. Supports gzip/deflate/brotli compression transparently.",
     inputSchema: {
@@ -353,6 +367,32 @@ async function handleTool(name, args) {
       }
       browser.closeAllSessions();
       return { content: [{ type: "text", text: "All browser sessions reset." }] };
+    }
+
+    case "run_test": {
+      const result = await browser.runTest(args);
+      if (result.error) {
+        return { content: [{ type: "text", text: "Test error: " + result.error }], isError: true };
+      }
+      const content = [];
+      // Screenshot of results
+      if (result.screenshot) {
+        content.push({
+          type: "image",
+          data: result.screenshot.base64,
+          mimeType: result.screenshot.mimeType
+        });
+      }
+      // Summary text
+      const statsLine = result.stats.map(s => s.label + ": " + s.value).join(", ");
+      content.push({
+        type: "text",
+        text: (result.passed ? "✓ ALL PASSED" : "✗ FAILURES DETECTED")
+          + " (" + result.mode + " test)\n"
+          + statsLine + "\n\n"
+          + result.fullLog
+      });
+      return { content };
     }
 
     case "web_fetch": {

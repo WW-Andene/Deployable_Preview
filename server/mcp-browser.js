@@ -714,11 +714,116 @@ function listPreviews() {
   return previews;
 }
 
+// ── Run Test Harness ─────────────────────────────────────────────────────────
+
+/**
+ * Load the test harness page and run the full or quick test suite.
+ * Waits for completion and returns structured results.
+ * @param {object} opts - { owner, repo, slug, mode }
+ * mode: "full" (default) | "quick"
+ */
+async function runTest(opts) {
+  const { owner, repo, slug, mode } = opts;
+
+  if (!hasPlaywright()) {
+    return { error: "No browser available." };
+  }
+
+  // Build the test harness URL
+  const safeOwner = (owner || "").replace(/[^a-zA-Z0-9_-]/g, "");
+  const safeRepo  = (repo || "").replace(/[^a-zA-Z0-9_-]/g, "");
+  const safeSlug  = (slug || "").replace(/[^a-zA-Z0-9_-]/g, "");
+  if (!safeOwner || !safeRepo || !safeSlug) {
+    throw new Error("Invalid owner, repo, or slug");
+  }
+
+  let baseUrl = "http://127.0.0.1:" + (process.env.PORT || 3000);
+  if (getRemoteWSEndpoint()) {
+    try {
+      const tunnelStatus = require("./tunnel").status();
+      if (tunnelStatus && tunnelStatus.url) baseUrl = tunnelStatus.url;
+      else throw new Error("No tunnel URL for remote browser");
+    } catch (e) {
+      throw new Error("Remote browser needs tunnel URL: " + e.message);
+    }
+  }
+  const testUrl = baseUrl + "/test/" + safeOwner + "/" + safeRepo + "/" + safeSlug;
+
+  const browser = await getBrowser();
+  const page = await newPage(browser);
+  try {
+    await setViewport(page, 1280, 900);
+    console.log("[mcp-browser] Loading test harness: " + testUrl);
+    await page.goto(testUrl, { waitUntil: "networkidle0", timeout: 30000 });
+
+    // Click the appropriate test button
+    const btnText = (mode === "quick") ? "Quick Test" : "Run Full Test";
+    await page.evaluate((text) => {
+      const btns = [...document.querySelectorAll("button")];
+      const btn = btns.find(b => b.textContent.trim() === text);
+      if (btn) btn.click();
+      else throw new Error("Button '" + text + "' not found");
+    }, btnText);
+
+    console.log("[mcp-browser] Test started: " + btnText);
+
+    // Poll for completion (check status element for "Done!" text)
+    const maxWaitMs = (mode === "quick") ? 120000 : 300000;
+    const pollInterval = 2000;
+    let elapsed = 0;
+    let done = false;
+
+    while (elapsed < maxWaitMs) {
+      await new Promise(r => setTimeout(r, pollInterval));
+      elapsed += pollInterval;
+      const statusText = await page.evaluate(() => {
+        const s = document.getElementById("status");
+        return s ? s.textContent : "";
+      });
+      if (statusText === "Done!") { done = true; break; }
+    }
+
+    if (!done) {
+      return { error: "Test timed out after " + (maxWaitMs / 1000) + "s" };
+    }
+
+    // Extract results
+    const results = await page.evaluate(() => {
+      const logEl = document.getElementById("log");
+      const sumEl = document.getElementById("sum");
+      return {
+        summary: sumEl ? sumEl.textContent : "",
+        passed: sumEl ? sumEl.classList.contains("pass") : false,
+        fullLog: logEl ? logEl.textContent : "",
+        // Extract stats from stats row
+        stats: [...document.querySelectorAll(".stat-box")].map(box => ({
+          label: box.querySelector(".lbl")?.textContent || "",
+          value: parseInt(box.querySelector(".num")?.textContent || "0")
+        }))
+      };
+    });
+
+    // Take screenshot of the results
+    const screenshotBuf = await page.screenshot({ type: "png" });
+    results.screenshot = {
+      base64: screenshotBuf.toString("base64"),
+      mimeType: "image/png"
+    };
+    results.testUrl = testUrl;
+    results.mode = mode || "full";
+
+    return results;
+  } finally {
+    await page.close();
+  }
+}
+
 module.exports = {
   takeScreenshot,
   inspectDOM,
   captureConsole,
   interact,
+  runTest,
   listPreviews,
   closeBrowser,
   closeSession,
