@@ -177,6 +177,7 @@ function render() {
   if (S.view === "dashboard" && views.dashboard) { views.dashboard(app); if (views.modals) views.modals(app); return; }
   if (S.view === "addRepo" && views.addRepo) { views.addRepo(app); return; }
   if (S.view === "mcp" && views.mcp) { views.mcp(app); return; }
+  if (S.view === "settings" && views.settings) { views.settings(app); return; }
   if (S.view === "preview" && views.preview) { views.preview(app); if (views.modals) views.modals(app); }
 }
 

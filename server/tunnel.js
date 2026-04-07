@@ -205,9 +205,11 @@ function loadNgrok() {
 }
 
 function tryNgrok(port, onUrl, onFail) {
-  const token = process.env.NGROK_AUTHTOKEN;
+  // Check config secrets first, then env var
+  let token = process.env.NGROK_AUTHTOKEN;
+  try { const { getSecret } = require("./config"); token = getSecret("NGROK_AUTHTOKEN", "NGROK_AUTHTOKEN") || token; } catch (_) {}
   if (!token) {
-    onFail(new Error("NGROK_AUTHTOKEN env var not set — skipping ngrok"));
+    onFail(new Error("NGROK_AUTHTOKEN not set — add it in Settings or set env var"));
     return;
   }
 
@@ -222,12 +224,19 @@ function tryNgrok(port, onUrl, onFail) {
   }
 
   ngrok.connect({ addr: port, authtoken: token })
-    .then((url) => {
-      if (!url) { onFail(new Error("ngrok returned no URL")); return; }
+    .then((listener) => {
+      if (!listener) { onFail(new Error("ngrok returned no listener")); return; }
+      // @ngrok/ngrok returns a Listener object; extract the URL string
+      var url = typeof listener === "string" ? listener
+        : (typeof listener.url === "function" ? listener.url() : listener.url);
+      if (!url || typeof url !== "string") {
+        onFail(new Error("ngrok returned unexpected type: " + typeof listener));
+        return;
+      }
       proc = {
         kill: () => {
-          try { ngrok.disconnect(url); } catch (_) {}
-          try { ngrok.kill(); }          catch (_) {}
+          try { if (typeof listener.close === "function") listener.close(); else ngrok.disconnect(url); } catch (_) {}
+          try { ngrok.kill(); } catch (_) {}
         }
       };
       onUrl(url, "ngrok");

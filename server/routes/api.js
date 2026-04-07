@@ -5,7 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const router = express.Router();
 
-const { getConfig, saveConfig, parseEnvVars } = require("../config");
+const { getConfig, saveConfig, parseEnvVars, getSecret } = require("../config");
 const { ghApi } = require("../github");
 const { buildStatus, branchSlug, buildKey, getBranchDir, deployBranch, cancelBuild } = require("../build");
 const { runningServers, killServer } = require("../process");
@@ -67,6 +67,91 @@ router.post("/token", (req, res) => {
 
 router.get("/token", (req, res) => {
   res.json({ hasToken: !!getConfig().token });
+});
+
+// ── Secrets / Keys management ────────────────────────────────────────────────
+// Suggested keys with hints (but any key is allowed)
+const SUGGESTED_KEYS = [
+  { key: "GITHUB_TOKEN",    label: "GitHub Token",         hint: "Personal Access Token with repo + workflow scope", link: "https://github.com/settings/tokens/new?scopes=repo,workflow&description=DeployView" },
+  { key: "NGROK_AUTHTOKEN", label: "ngrok Auth Token",     hint: "Free at ngrok.com \u2014 enables HTTPS tunnels", link: "https://dashboard.ngrok.com/get-started/your-authtoken" },
+  { key: "WEBHOOK_SECRET",  label: "Webhook Secret",       hint: "GitHub webhook HMAC verification (optional)" },
+  { key: "OPENAI_API_KEY",  label: "OpenAI API Key",       hint: "For AI-powered features in your apps", link: "https://platform.openai.com/api-keys" },
+  { key: "ANTHROPIC_API_KEY", label: "Anthropic API Key",  hint: "Claude API access for your apps", link: "https://console.anthropic.com/settings/keys" },
+  { key: "VERCEL_TOKEN",    label: "Vercel Token",         hint: "For Vercel API integrations" },
+  { key: "SUPABASE_KEY",    label: "Supabase Key",         hint: "Supabase project API key" },
+  { key: "DATABASE_URL",    label: "Database URL",         hint: "PostgreSQL / MySQL connection string" },
+  { key: "STRIPE_SECRET_KEY", label: "Stripe Secret Key",  hint: "For payment integrations", link: "https://dashboard.stripe.com/apikeys" },
+  { key: "RESEND_API_KEY",  label: "Resend API Key",       hint: "For email sending", link: "https://resend.com/api-keys" },
+];
+const SAFE_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+
+function maskValue(val) {
+  if (!val) return "";
+  if (val.length <= 8) return val.slice(0, 2) + "...";
+  return val.slice(0, 4) + "\u2022\u2022\u2022" + val.slice(-4);
+}
+
+router.get("/secrets", (req, res) => {
+  const config = getConfig();
+  const secrets = config.secrets || {};
+  // Merge: suggested keys + any custom keys already saved
+  const allKeys = new Map();
+  for (const sk of SUGGESTED_KEYS) allKeys.set(sk.key, { ...sk });
+  for (const k of Object.keys(secrets)) {
+    if (!allKeys.has(k)) allKeys.set(k, { key: k, label: k, hint: "Custom key" });
+  }
+  const result = [];
+  for (const [key, meta] of allKeys) {
+    let val = secrets[key] || process.env[key] || "";
+    if (key === "GITHUB_TOKEN" && !val) val = config.token || "";
+    result.push({
+      key,
+      label: meta.label || key,
+      hint: meta.hint || "",
+      link: meta.link || null,
+      suggested: SUGGESTED_KEYS.some((sk) => sk.key === key),
+      hasValue: !!val,
+      masked: maskValue(val),
+      source: secrets[key] ? "config" : (process.env[key] ? "env" : (key === "GITHUB_TOKEN" && config.token ? "config" : "none"))
+    });
+  }
+  res.json(result);
+});
+
+router.get("/secrets/suggestions", (req, res) => {
+  res.json(SUGGESTED_KEYS);
+});
+
+router.post("/secrets", (req, res) => {
+  const config = getConfig();
+  if (!config.secrets) config.secrets = {};
+  const { key, value } = req.body;
+  if (!key || typeof key !== "string") return res.status(400).json({ error: "key required" });
+  if (!SAFE_KEY_RE.test(key)) return res.status(400).json({ error: "Invalid key name \u2014 use A-Z, 0-9, _ only" });
+  if (value === undefined || value === null) return res.status(400).json({ error: "value required" });
+  const trimmed = String(value).trim();
+  if (trimmed) {
+    config.secrets[key] = trimmed;
+    if (key === "GITHUB_TOKEN") config.token = trimmed;
+    process.env[key] = trimmed;
+  } else {
+    delete config.secrets[key];
+    if (key === "GITHUB_TOKEN") config.token = "";
+    delete process.env[key];
+  }
+  saveConfig();
+  res.json({ ok: true, key, hasValue: !!trimmed });
+});
+
+router.delete("/secrets/:key", (req, res) => {
+  const config = getConfig();
+  if (!config.secrets) config.secrets = {};
+  const key = req.params.key;
+  delete config.secrets[key];
+  if (key === "GITHUB_TOKEN") config.token = "";
+  delete process.env[key];
+  saveConfig();
+  res.json({ ok: true, key, removed: true });
 });
 
 // GitHub branches — sorted by most recent commit
@@ -213,7 +298,7 @@ router.put("/repos/:owner/:repo/branch", (req, res) => {
 router.post("/webhook", (req, res) => {
   const config = getConfig();
   // Verify webhook signature if WEBHOOK_SECRET is set
-  const secret = process.env.WEBHOOK_SECRET;
+  const secret = getSecret("WEBHOOK_SECRET", "WEBHOOK_SECRET");
   if (secret) {
     const sig = req.headers["x-hub-signature-256"] || "";
     const body = JSON.stringify(req.body);
