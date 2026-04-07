@@ -66,8 +66,7 @@ function tryLocaltunnel(port, onUrl, onFail) {
   console.log("  [tunnel] Spawning localtunnel via npx...");
   proc = spawn("npx", ["--yes", "localtunnel", "--port", String(port)], {
     stdio: ["ignore", "pipe", "pipe"],
-    cwd: ROOT,
-    env: { ...process.env }  // inherit PATH so npx is resolved
+    cwd: ROOT
   });
 
   proc.on("error", onFail);
