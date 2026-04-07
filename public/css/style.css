@@ -2018,6 +2018,17 @@ button:disabled, button[disabled] {
   gap: 6px;
   align-items: center;
 }
+.settings-bulk {
+  background: var(--sf1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  padding: calc(var(--sp) * 2);
+}
+.settings-bulk-textarea {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+}
 .settings-url {
   font-family: var(--font-mono);
   font-size: 12px;

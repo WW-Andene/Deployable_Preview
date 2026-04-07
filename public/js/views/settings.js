@@ -66,7 +66,7 @@ DV.views.settings = function(app) {
   keysBody.appendChild(el("div", { c: "text-center pad-md" }, [el("span", { c: "spin" })]));
 
   function saveKey(key, value, btn) {
-    btn.disabled = true; btn.textContent = "...";
+    btn.disabled = true; btn.textContent = "\u2026";
     fetch("/api/secrets", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -75,12 +75,52 @@ DV.views.settings = function(app) {
       if (r.ok) {
         DV.showToast(key + " saved", "success");
         if (key === "GITHUB_TOKEN") S.hasToken = true;
-        DV.render();
+        loadKeys();  // refresh keys section only, no full re-render
       } else {
         DV.showToast(r.error || "Failed", "error");
         btn.disabled = false; btn.textContent = "Save";
       }
     }).catch(function() { btn.disabled = false; btn.textContent = "Save"; });
+  }
+
+  function saveBulk(text, btn) {
+    var lines = text.split("\n");
+    var pairs = [];
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim();
+      if (!line || line.charAt(0) === "#") continue;
+      // Support: KEY=value, KEY = value, export KEY=value, KEY="value"
+      var clean = line.replace(/^export\s+/i, "");
+      var eq = clean.indexOf("=");
+      if (eq <= 0) continue;
+      var k = clean.slice(0, eq).trim();
+      var v = clean.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
+      if (k && v) pairs.push({ key: k, value: v });
+    }
+    if (pairs.length === 0) {
+      DV.showToast("No valid KEY=value pairs found", "error");
+      return;
+    }
+    btn.disabled = true; btn.textContent = "Saving " + pairs.length + "\u2026";
+    var done = 0, errors = 0;
+    pairs.forEach(function(p) {
+      fetch("/api/secrets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: p.key, value: p.value })
+      }).then(function(r) { return r.json(); }).then(function(r) {
+        if (!r.ok) errors++;
+        if (r.ok && p.key === "GITHUB_TOKEN") S.hasToken = true;
+      }).catch(function() { errors++; }).finally(function() {
+        done++;
+        if (done === pairs.length) {
+          var msg = (pairs.length - errors) + " key(s) saved";
+          if (errors) msg += ", " + errors + " failed";
+          DV.showToast(msg, errors ? "error" : "success");
+          loadKeys();
+        }
+      });
+    });
   }
 
   function deleteKey(key) {
@@ -90,7 +130,7 @@ DV.views.settings = function(app) {
         if (r.ok) {
           DV.showToast(key + " removed", "info");
           if (key === "GITHUB_TOKEN") S.hasToken = false;
-          DV.render();
+          loadKeys();
         }
       });
   }
@@ -99,7 +139,7 @@ DV.views.settings = function(app) {
     fetch("/api/secrets").then(function(r) { return r.json(); }).then(function(secrets) {
       keysBody.innerHTML = "";
 
-      // Separate: keys with values first, then suggested empty, hide the rest
+      // Active keys first, then suggested empties
       var active = secrets.filter(function(s) { return s.hasValue; });
       var suggested = secrets.filter(function(s) { return !s.hasValue && s.suggested; });
 
@@ -112,7 +152,24 @@ DV.views.settings = function(app) {
         suggested.forEach(function(s) { keysBody.appendChild(keyRow(s, saveKey, deleteKey)); });
       }
 
-      // Custom key adder
+      // Bulk paste area
+      keysBody.appendChild(el("div", { c: "settings-divider-label mt-16" }, "Bulk import"));
+      var bulkWrap = el("div", { c: "settings-bulk" });
+      var bulkTA = document.createElement("textarea");
+      bulkTA.className = "settings-bulk-textarea";
+      bulkTA.placeholder = "Paste multiple keys \u2014 one per line:\n\nGITHUB_TOKEN=ghp_xxxx\nOPENAI_API_KEY=sk-xxxx\nSTRIPE_SECRET_KEY=sk_live_xxxx\nMY_CUSTOM_KEY=some_value\n\nSupports: KEY=value, export KEY=value, KEY=\"value\"";
+      bulkTA.rows = 6;
+      bulkWrap.appendChild(bulkTA);
+      var bulkBtn = el("button", { c: "bp bs mt-6", on: { click: function() {
+        var text = bulkTA.value.trim();
+        if (!text) return;
+        saveBulk(text, bulkBtn);
+      } } }, "Import All Keys");
+      bulkWrap.appendChild(bulkBtn);
+      keysBody.appendChild(bulkWrap);
+
+      // Single custom key adder
+      keysBody.appendChild(el("div", { c: "settings-divider-label mt-12" }, "Add single key"));
       var addRow = el("div", { c: "settings-add-row" });
       var nameInp = document.createElement("input");
       nameInp.placeholder = "KEY_NAME"; nameInp.className = "font-mono text-12";
@@ -129,8 +186,7 @@ DV.views.settings = function(app) {
         var v = valInp.value.trim();
         if (!k || !v) { DV.showToast("Both name and value required", "error"); return; }
         saveKey(k, v, this);
-      } } }, "+ Add"));
-      keysBody.appendChild(el("div", { c: "settings-divider-label mt-12" }, "Custom key"));
+      } } }, "+"));
       keysBody.appendChild(addRow);
 
     }).catch(function(e) {
@@ -140,7 +196,7 @@ DV.views.settings = function(app) {
   }
   loadKeys();
   page.appendChild(section("API Keys & Secrets", [
-    el("div", { c: "settings-hint mb-8" }, "Saved to this server only. Env vars work as fallback."),
+    el("div", { c: "settings-hint mb-8" }, "Saved to this server only. Env vars work as fallback. All keys are injected into build environments."),
     keysBody
   ]));
 
@@ -152,26 +208,26 @@ DV.views.settings = function(app) {
       S._tunnelStatus = st;
       if (st.running && st.url) {
         var mcpUrl = st.url + "/mcp";
-        tunnelBody.appendChild(el("div", { c: "flex-row gap-6 items-center mb-8" }, [
+        tunnelBody.appendChild(el("div", { c: "flex-row gap-6 items-center mb-8 flex-wrap" }, [
           el("span", { c: "pill pill-ok" }, st.provider),
           el("code", { c: "settings-url" }, mcpUrl),
           el("button", { c: "bg bs", on: { click: function() {
             navigator.clipboard.writeText(mcpUrl).then(function() { DV.showToast("Copied", "info"); }).catch(function(){});
           } } }, "Copy")
         ]));
-        tunnelBody.appendChild(el("div", { c: "settings-hint mb-8" }, "Paste this URL into claude.ai \u2192 Settings \u2192 Integrations."));
+        tunnelBody.appendChild(el("div", { c: "settings-hint mb-8" }, "Paste into claude.ai \u2192 Settings \u2192 Integrations."));
         tunnelBody.appendChild(el("button", { c: "bd bs", on: { click: function() {
-          fetch("/api/tunnel/stop", { method: "POST" }).then(function() { refreshTunnel(); DV.showToast("Tunnel stopped", "info"); });
+          fetch("/api/tunnel/stop", { method: "POST" }).then(function() { refreshTunnel(); DV.showToast("Stopped", "info"); });
         } } }, "Stop Tunnel"));
       } else {
-        tunnelBody.appendChild(el("div", { c: "settings-hint mb-8" }, "Start an HTTPS tunnel so claude.ai can reach this server. Uses cloudflared \u2192 ngrok \u2192 localtunnel fallback."));
+        tunnelBody.appendChild(el("div", { c: "settings-hint mb-8" }, "HTTPS tunnel so claude.ai can reach this server. Fallback: cloudflared \u2192 ngrok \u2192 localtunnel."));
         if (st.error) tunnelBody.appendChild(el("div", { c: "color-err text-11 mb-8" }, st.error));
         tunnelBody.appendChild(el("button", { c: "bp bs", on: { click: function() {
           var btn = this; btn.disabled = true; btn.textContent = "Starting\u2026";
           fetch("/api/tunnel/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
             .then(function(r) { return r.json(); })
             .then(function(r) {
-              if (r.ok) { DV.showToast("Tunnel active: " + r.url, "success"); refreshTunnel(); }
+              if (r.ok) { DV.showToast("Tunnel: " + r.url, "success"); refreshTunnel(); }
               else { DV.showToast(r.error || "Failed", "error"); btn.disabled = false; btn.textContent = "Start Tunnel"; }
             }).catch(function() { btn.disabled = false; btn.textContent = "Start Tunnel"; });
         } } }, "Start Tunnel"));
@@ -185,16 +241,16 @@ DV.views.settings = function(app) {
   var wsBody = el("div", {});
   fetch("/api/workspace/stats").then(function(r) { return r.json(); }).then(function(stats) {
     wsBody.innerHTML = "";
-    wsBody.appendChild(el("div", { c: "settings-hint mb-8" }, stats.total + " dir(s) total \u2014 " + stats.active + " active, " + stats.orphaned + " orphaned"));
+    wsBody.appendChild(el("div", { c: "settings-hint mb-8" }, stats.total + " workspace dir(s) \u2014 " + stats.active + " active, " + stats.orphaned + " orphaned"));
     if (stats.orphaned > 0) {
       wsBody.appendChild(el("button", { c: "bd bs", on: { click: function() {
-        if (!confirm("Remove " + stats.orphaned + " orphaned workspace dir(s)?")) return;
+        if (!confirm("Remove " + stats.orphaned + " orphaned dir(s)?")) return;
         fetch("/api/workspace/cleanup", { method: "POST" }).then(function(r) { return r.json(); }).then(function(r) {
-          DV.showToast("Cleaned " + r.removed + " dir(s)", "success"); DV.render();
+          DV.showToast("Cleaned " + r.removed + " dir(s)", "success");
         });
-      } } }, "Clean " + stats.orphaned + " orphaned dir(s)"));
+      } } }, "Clean " + stats.orphaned + " orphaned"));
     }
-  }).catch(function() { wsBody.textContent = "Could not load workspace stats."; });
+  }).catch(function() { wsBody.textContent = "Could not load."; });
   page.appendChild(section("Workspace", [wsBody]));
 
   /* ══════════ Section: Actions ══════════ */
@@ -203,14 +259,10 @@ DV.views.settings = function(app) {
       el("button", { c: "bg bs", on: { click: function() {
         if (!confirm("Rebuild all branches?")) return;
         for (var i = 0; i < S.repos.length; i++) {
-          var r = S.repos[i];
-          var slugs = Object.keys(r.branchStatuses || {});
-          for (var j = 0; j < slugs.length; j++) {
-            api("POST", "/api/build/" + r.owner + "/" + r.repo + "?slug=" + encodeURIComponent(slugs[j]));
-          }
+          var r = S.repos[i]; var slugs = Object.keys(r.branchStatuses || {});
+          for (var j = 0; j < slugs.length; j++) api("POST", "/api/build/" + r.owner + "/" + r.repo + "?slug=" + encodeURIComponent(slugs[j]));
         }
-        DV.showToast("Rebuilding all branches\u2026", "info");
-        setTimeout(DV.loadRepos, 1000);
+        DV.showToast("Rebuilding all\u2026", "info"); setTimeout(DV.loadRepos, 1000);
       } } }, "Rebuild All"),
       el("a", { c: "bg bs", attr: { href: "/api/config/export", download: "deployview-config.json" } }, "Export Config"),
       el("button", { c: "bg bs", on: { click: function() {
@@ -240,15 +292,9 @@ DV.views.settings = function(app) {
   var aboutBody = el("div", { c: "settings-about" });
   fetch("/api/health").then(function(r) { return r.json(); }).then(function(h) {
     aboutBody.innerHTML = "";
-    var items = [
-      ["Version", "v" + h.version],
-      ["Node.js", "v" + h.node],
-      ["Uptime", Math.floor(h.uptime / 60) + "m"],
-      ["Memory", h.memory],
-      ["Repos", h.repos],
-      ["Previews", h.previews.ready + " ready, " + h.previews.building + " building"]
-    ];
-    items.forEach(function(item) {
+    [["Version", "v" + h.version], ["Node.js", "v" + h.node], ["Uptime", Math.floor(h.uptime / 60) + "m"],
+     ["Memory", h.memory], ["Repos", h.repos], ["Previews", h.previews.ready + " ready, " + h.previews.building + " building"]
+    ].forEach(function(item) {
       aboutBody.appendChild(el("div", { c: "settings-about-row" }, [
         el("span", { c: "settings-about-label" }, item[0]),
         el("span", { c: "settings-about-value" }, String(item[1]))
