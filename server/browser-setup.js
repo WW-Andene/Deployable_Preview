@@ -133,7 +133,6 @@ async function setupTermux() {
   process.env.PUPPETEER_EXECUTABLE_PATH           = chromePath;
 
   log("Testing Playwright with system Chromium...");
-  if (!require.resolve) {}
   const hasPw = (() => { try { require.resolve("playwright"); return true; } catch (_) { return false; } })();
   if (!hasPw) { try { npmInstall("playwright"); } catch (_) {} }
 

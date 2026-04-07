@@ -366,8 +366,19 @@ async function interact(opts) {
       case "navigate":
         if (value) {
           // Only allow navigation within the local preview (prevent SSRF)
-          var navUrl = value.startsWith("/") ? url.replace(/\/preview\/.*$/, "") + value : url + value;
-          if (!navUrl.startsWith("http://127.0.0.1:")) {
+          var navUrl;
+          if (value.startsWith("/") && !value.startsWith("//")) {
+            navUrl = url.replace(/\/preview\/.*$/, "") + value;
+          } else {
+            navUrl = url + value;
+          }
+          // Validate using URL parsing to prevent scheme-relative bypasses
+          try {
+            var parsed = new URL(navUrl);
+            if (parsed.hostname !== "127.0.0.1" && parsed.hostname !== "localhost") {
+              throw new Error("Navigation restricted to local previews only");
+            }
+          } catch (parseErr) {
             throw new Error("Navigation restricted to local previews only");
           }
           await page.goto(navUrl, { waitUntil: "networkidle", timeout: 30000 });

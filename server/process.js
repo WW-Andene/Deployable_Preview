@@ -9,7 +9,7 @@ function runCmd(cmd, cwd, extraEnv) {
     child.stderr.on("data", (d) => (stderr += d));
     child.on("close", (code) => {
       if (code === 0) resolve(stdout);
-      else reject(new Error("Exit " + code + "\n" + stderr.slice(-2000)));
+      else reject(new Error("Exit " + code + "\n" + (stderr || "").slice(-2000)));
     });
     child.on("error", reject);
   });
@@ -51,6 +51,12 @@ function killServer(key) {
   try { process.kill(-srv.proc.pid, "SIGTERM"); } catch (e) {
     try { srv.proc.kill("SIGTERM"); } catch (e2) {}
   }
+  // SIGKILL fallback after 5s if process is still alive
+  const pid = srv.proc.pid;
+  setTimeout(() => {
+    try { process.kill(pid, 0); /* check if alive */ process.kill(-pid, "SIGKILL"); } catch (_) {}
+    try { process.kill(pid, 0); process.kill(pid, "SIGKILL"); } catch (_) {}
+  }, 5000);
   delete runningServers[key];
 }
 

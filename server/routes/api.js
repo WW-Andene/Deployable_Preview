@@ -190,7 +190,14 @@ router.post("/webhook", (req, res) => {
   const repoConfig = config.repos.find((r) => r.owner === owner && r.repo === repo);
   if (!repoConfig) return res.json({ ok: true, skipped: true });
   let triggered = 0;
-  for (const bc of repoConfig.activeBranches) { if (bc.branch === ref) { deployBranch(repoConfig, bc); triggered++; } }
+  for (const bc of repoConfig.activeBranches) {
+    if (bc.branch === ref) {
+      Promise.resolve(deployBranch(repoConfig, bc)).catch((e) => {
+        console.error("[WEBHOOK] Build failed for " + fullName + ":" + ref + " — " + e.message);
+      });
+      triggered++;
+    }
+  }
   console.log("[WEBHOOK] " + fullName + ":" + ref + " — " + triggered + " build(s)");
   res.json({ ok: true, triggered });
 });
