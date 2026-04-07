@@ -97,6 +97,28 @@ async function getBrowser() {
                    process.env.PUPPETEER_EXECUTABLE_PATH;
   if (execPath) opts.executablePath = execPath;
 
+  // Auto-detect Playwright's Chrome binary for Puppeteer-core
+  if (!opts.executablePath && lib.type === "puppeteer") {
+    const fs = require("fs");
+    const path = require("path");
+    const pwBrowsers = "/opt/pw-browsers";
+    try {
+      if (fs.existsSync(pwBrowsers)) {
+        const dirs = fs.readdirSync(pwBrowsers).filter(d => d.startsWith("chromium-")).sort().reverse();
+        for (const d of dirs) {
+          const candidates = [
+            path.join(pwBrowsers, d, "chrome-linux64", "chrome"),
+            path.join(pwBrowsers, d, "chrome-linux", "chrome"),
+          ];
+          for (const c of candidates) {
+            if (fs.existsSync(c)) { opts.executablePath = c; break; }
+          }
+          if (opts.executablePath) break;
+        }
+      }
+    } catch (_) {}
+  }
+
   browserInstance = await lib.launch(opts);
   return browserInstance;
 }
