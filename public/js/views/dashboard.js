@@ -146,47 +146,45 @@ DV.views.dashboard = function(app) {
             row.appendChild(el("div", { c: "branch-status-text flex-row gap-6 items-center flex-wrap" }, statusParts));
 
             var actions = el("div", { c: "branch-actions" });
+
+            /* Primary action */
             if (bs.status === "building" || bs.status === "queued") {
-              actions.appendChild(el("button", { c: "bd bs", attr: { title: "Cancel build" }, on: { click: function() {
+              actions.appendChild(el("button", { c: "bd bs", attr: { title: "Cancel" }, on: { click: function() {
                 api("POST", "/api/cancel/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(function(r) {
-                  if (r.ok) DV.showToast("Build cancelled", "info");
-                  DV.loadRepos();
+                  if (r.ok) DV.showToast("Cancelled", "info"); DV.loadRepos();
                 });
-              } } }, "Cancel"));
-            }
-            actions.appendChild(el("button", { c: "bg bs", attr: { title: "Rebuild" }, on: { click: function() {
-              api("POST", "/api/build/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug));
-              DV.loadRepos();
-            } } }, "R"));
-            if (branchMode === "server" && bs.status === "running") {
-              actions.appendChild(el("button", { c: "bg bs", attr: { title: "Stop server" }, on: { click: function() {
-                api("POST", "/api/stop/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(DV.loadRepos);
-              } } }, "Stop"));
-            }
-            if (isLive) {
-              actions.appendChild(el("button", { c: "bp bs", attr: { title: "Open preview" }, on: { click: function() {
+              } } }, "\u2715"));
+            } else if (isLive) {
+              actions.appendChild(el("button", { c: "bp bs", attr: { title: "Preview" }, on: { click: function() {
                 S.activeRepo = repo; S.activeBranch = slug; S.compareMode = false; S.compareBranch = ""; S.view = "preview"; DV.render();
-              } } }, "Go"));
-              actions.appendChild(el("button", { c: "bg bs", attr: { title: "Open in new tab" }, on: { click: function() {
+              } } }, "\u25B6"));
+              actions.appendChild(el("button", { c: "bg bs", attr: { title: "New tab" }, on: { click: function() {
                 window.open(previewUrl, "_blank");
               } } }, "\u2197"));
-            } else {
-              actions.appendChild(el("button", { c: "bp bs opacity-dim", attr: { disabled: "", title: "Preview unavailable" } }, "Go"));
             }
-            actions.appendChild(el("button", { c: "bg bs", attr: { title: "View build log" }, on: { click: function() {
+
+            /* Secondary actions */
+            if (branchMode === "server" && bs.status === "running") {
+              actions.appendChild(el("button", { c: "bg bs", attr: { title: "Stop" }, on: { click: function() {
+                api("POST", "/api/stop/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(DV.loadRepos);
+              } } }, "\u25A0"));
+            }
+            actions.appendChild(el("button", { c: "bg bs", attr: { title: "Rebuild" }, on: { click: function() {
+              api("POST", "/api/build/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)); DV.loadRepos();
+            } } }, "\u21BB"));
+            actions.appendChild(el("button", { c: "bg bs", attr: { title: "Log" }, on: { click: function() {
               S.logModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: repo.owner + "/" + repo.repo + ":" + slug }; DV.render();
-            } } }, "Log"));
-            actions.appendChild(el("button", { c: "bg bs btn-accent-highlight", attr: { title: "Build Android APK" }, on: { click: function() {
-              S.apkModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: repo.owner + "/" + repo.repo + ":" + slug };
-              DV.render();
-            } } }, "APK"));
-            actions.appendChild(el("button", { c: "bg bs", attr: { title: "Edit branch settings" }, on: { click: function() {
+            } } }, "\u2261"));
+            actions.appendChild(el("button", { c: "bg bs", attr: { title: "Edit" }, on: { click: function() {
               S.editModal = { owner: repo.owner, repo: repo.repo, slug: slug, branch: bs.branch, baseDir: bs.baseDir || "", buildCommand: bs.buildCommand || "", outputDir: bs.outputDir || "", mode: bs.mode || "static", startCommand: bs.startCommand || "", envVars: bs.envVars || "" }; DV.render();
-            } } }, "Edit"));
-            actions.appendChild(el("button", { c: "bd bs", attr: { title: "Delete branch" }, on: { click: function() {
-              if (!confirm("Delete this branch?")) return;
+            } } }, "\u270E"));
+            actions.appendChild(el("button", { c: "bg bs btn-accent-highlight", attr: { title: "APK" }, on: { click: function() {
+              S.apkModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: repo.owner + "/" + repo.repo + ":" + slug }; DV.render();
+            } } }, "APK"));
+            actions.appendChild(el("button", { c: "bd bs", attr: { title: "Delete" }, on: { click: function() {
+              if (!confirm("Remove this branch?")) return;
               api("DELETE", "/api/repos/" + repo.owner + "/" + repo.repo + "/branch?slug=" + encodeURIComponent(slug)).then(DV.loadRepos);
-            } } }, "x"));
+            } } }, "\u2715"));
             row.appendChild(actions);
 
             card.appendChild(row);

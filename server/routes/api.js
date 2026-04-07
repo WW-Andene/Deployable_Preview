@@ -70,32 +70,56 @@ router.get("/token", (req, res) => {
 });
 
 // ── Secrets / Keys management ────────────────────────────────────────────────
-// Known keys and their metadata
-const SECRET_KEYS = [
-  { key: "GITHUB_TOKEN",    envKey: "GITHUB_TOKEN",    label: "GitHub Token",         hint: "Personal Access Token with repo + workflow scope", link: "https://github.com/settings/tokens/new?scopes=repo,workflow&description=DeployView" },
-  { key: "NGROK_AUTHTOKEN", envKey: "NGROK_AUTHTOKEN", label: "ngrok Auth Token",     hint: "Free at ngrok.com — enables HTTPS tunnels for Claude web", link: "https://dashboard.ngrok.com/get-started/your-authtoken" },
-  { key: "WEBHOOK_SECRET",  envKey: "WEBHOOK_SECRET",  label: "Webhook Secret",       hint: "GitHub webhook secret for HMAC signature verification (optional)" },
+// Suggested keys with hints (but any key is allowed)
+const SUGGESTED_KEYS = [
+  { key: "GITHUB_TOKEN",    label: "GitHub Token",         hint: "Personal Access Token with repo + workflow scope", link: "https://github.com/settings/tokens/new?scopes=repo,workflow&description=DeployView" },
+  { key: "NGROK_AUTHTOKEN", label: "ngrok Auth Token",     hint: "Free at ngrok.com \u2014 enables HTTPS tunnels", link: "https://dashboard.ngrok.com/get-started/your-authtoken" },
+  { key: "WEBHOOK_SECRET",  label: "Webhook Secret",       hint: "GitHub webhook HMAC verification (optional)" },
+  { key: "OPENAI_API_KEY",  label: "OpenAI API Key",       hint: "For AI-powered features in your apps", link: "https://platform.openai.com/api-keys" },
+  { key: "ANTHROPIC_API_KEY", label: "Anthropic API Key",  hint: "Claude API access for your apps", link: "https://console.anthropic.com/settings/keys" },
+  { key: "VERCEL_TOKEN",    label: "Vercel Token",         hint: "For Vercel API integrations" },
+  { key: "SUPABASE_KEY",    label: "Supabase Key",         hint: "Supabase project API key" },
+  { key: "DATABASE_URL",    label: "Database URL",         hint: "PostgreSQL / MySQL connection string" },
+  { key: "STRIPE_SECRET_KEY", label: "Stripe Secret Key",  hint: "For payment integrations", link: "https://dashboard.stripe.com/apikeys" },
+  { key: "RESEND_API_KEY",  label: "Resend API Key",       hint: "For email sending", link: "https://resend.com/api-keys" },
 ];
+const SAFE_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+
+function maskValue(val) {
+  if (!val) return "";
+  if (val.length <= 8) return val.slice(0, 2) + "...";
+  return val.slice(0, 4) + "\u2022\u2022\u2022" + val.slice(-4);
+}
 
 router.get("/secrets", (req, res) => {
   const config = getConfig();
   const secrets = config.secrets || {};
-  // Return key metadata + masked values (never expose full secrets)
-  const result = SECRET_KEYS.map((sk) => {
-    const val = secrets[sk.key] || process.env[sk.envKey] || "";
-    // For GitHub token, also check the legacy config.token field
-    const effective = sk.key === "GITHUB_TOKEN" ? (val || config.token || "") : val;
-    return {
-      key: sk.key,
-      label: sk.label,
-      hint: sk.hint,
-      link: sk.link || null,
-      hasValue: !!effective,
-      masked: effective ? effective.slice(0, 4) + "..." + effective.slice(-4) : "",
-      source: secrets[sk.key] ? "config" : (process.env[sk.envKey] ? "env" : (sk.key === "GITHUB_TOKEN" && config.token ? "config" : "none"))
-    };
-  });
+  // Merge: suggested keys + any custom keys already saved
+  const allKeys = new Map();
+  for (const sk of SUGGESTED_KEYS) allKeys.set(sk.key, { ...sk });
+  for (const k of Object.keys(secrets)) {
+    if (!allKeys.has(k)) allKeys.set(k, { key: k, label: k, hint: "Custom key" });
+  }
+  const result = [];
+  for (const [key, meta] of allKeys) {
+    let val = secrets[key] || process.env[key] || "";
+    if (key === "GITHUB_TOKEN" && !val) val = config.token || "";
+    result.push({
+      key,
+      label: meta.label || key,
+      hint: meta.hint || "",
+      link: meta.link || null,
+      suggested: SUGGESTED_KEYS.some((sk) => sk.key === key),
+      hasValue: !!val,
+      masked: maskValue(val),
+      source: secrets[key] ? "config" : (process.env[key] ? "env" : (key === "GITHUB_TOKEN" && config.token ? "config" : "none"))
+    });
+  }
   res.json(result);
+});
+
+router.get("/secrets/suggestions", (req, res) => {
+  res.json(SUGGESTED_KEYS);
 });
 
 router.post("/secrets", (req, res) => {
@@ -103,21 +127,17 @@ router.post("/secrets", (req, res) => {
   if (!config.secrets) config.secrets = {};
   const { key, value } = req.body;
   if (!key || typeof key !== "string") return res.status(400).json({ error: "key required" });
-  // Only allow known keys
-  const known = SECRET_KEYS.find((sk) => sk.key === key);
-  if (!known) return res.status(400).json({ error: "Unknown key: " + key });
+  if (!SAFE_KEY_RE.test(key)) return res.status(400).json({ error: "Invalid key name \u2014 use A-Z, 0-9, _ only" });
   if (value === undefined || value === null) return res.status(400).json({ error: "value required" });
   const trimmed = String(value).trim();
   if (trimmed) {
     config.secrets[key] = trimmed;
-    // Also sync GitHub token to the legacy config.token field
     if (key === "GITHUB_TOKEN") config.token = trimmed;
-    // Set in process.env so modules pick it up immediately
-    if (known.envKey) process.env[known.envKey] = trimmed;
+    process.env[key] = trimmed;
   } else {
     delete config.secrets[key];
     if (key === "GITHUB_TOKEN") config.token = "";
-    if (known.envKey) delete process.env[known.envKey];
+    delete process.env[key];
   }
   saveConfig();
   res.json({ ok: true, key, hasValue: !!trimmed });
@@ -127,11 +147,9 @@ router.delete("/secrets/:key", (req, res) => {
   const config = getConfig();
   if (!config.secrets) config.secrets = {};
   const key = req.params.key;
-  const known = SECRET_KEYS.find((sk) => sk.key === key);
-  if (!known) return res.status(400).json({ error: "Unknown key: " + key });
   delete config.secrets[key];
   if (key === "GITHUB_TOKEN") config.token = "";
-  if (known.envKey) delete process.env[known.envKey];
+  delete process.env[key];
   saveConfig();
   res.json({ ok: true, key, removed: true });
 });

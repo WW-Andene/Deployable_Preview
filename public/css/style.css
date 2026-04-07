@@ -1916,85 +1916,155 @@ button:disabled, button[disabled] {
    §12 — RESPONSIVE
    ══════════════════════════════════════════════════ */
 /* ══════════════════════════════════════════════════
-   §13 — SETTINGS PAGE
+   §13 — TOPBAR ICONS & PILLS
+   ══════════════════════════════════════════════════ */
+.topbar-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px; height: 32px;
+  border-radius: var(--r-btn);
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--tx3);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 0;
+  transition: all var(--dur-micro) var(--ease-fast);
+}
+.topbar-icon:hover { background: var(--sf2); color: var(--tx1); border-color: var(--border-h); }
+.topbar-icon-active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+.topbar-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.topbar-pill-ok {
+  background: var(--ok-dim);
+  color: var(--ok);
+  border: 1px solid rgba(56,168,120,.2);
+}
+
+/* ══════════════════════════════════════════════════
+   §14 — SETTINGS PAGE
    ══════════════════════════════════════════════════ */
 .settings-page {
   max-width: 640px;
   margin: 0 auto;
   padding: calc(var(--sp) * 3) calc(var(--sp) * 2.5);
 }
-.settings-key-card {
-  margin-bottom: calc(var(--sp) * 2);
+.settings-section {
+  margin-bottom: calc(var(--sp) * 4);
 }
-.settings-key-label {
+.settings-section-title {
+  font-size: 13px;
   font-weight: 600;
-  font-size: 14px;
+  color: var(--tx2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-family: var(--font-mono);
+  margin-bottom: calc(var(--sp) * 1.5);
+  padding-bottom: calc(var(--sp));
+  border-bottom: 1px solid var(--border);
+}
+.settings-key-row {
+  background: var(--sf1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  padding: calc(var(--sp) * 1.5) calc(var(--sp) * 2);
+  margin-bottom: var(--sp);
+  transition: border-color var(--dur-micro) var(--ease-fast);
+}
+.settings-key-row:hover { border-color: var(--border-h); }
+.settings-key-name {
+  font-weight: 600;
+  font-size: 13px;
   color: var(--tx1);
 }
-.settings-status-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: var(--r-pill);
+.settings-masked {
   font-family: var(--font-mono);
   font-size: 10px;
-  font-weight: 600;
-}
-.settings-status-ok {
-  background: var(--ok-dim);
-  color: var(--ok);
-  border: 1px solid rgba(56,168,120,.25);
-}
-.settings-status-missing {
-  background: var(--err-dim);
-  color: var(--err);
-  border: 1px solid rgba(196,80,64,.25);
-}
-.settings-masked {
-  font-size: 11px;
   color: var(--tx3);
   letter-spacing: 0.02em;
 }
-.settings-source-badge {
-  display: inline-flex;
-  padding: 1px 6px;
-  border-radius: var(--r-pill);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--run);
-  background: var(--run-dim);
-  border: 1px solid rgba(72,136,200,.2);
-}
 .settings-hint {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10px;
   color: var(--tx3);
-  line-height: 1.6;
+  line-height: 1.5;
+  margin-top: 2px;
 }
 .settings-link {
   color: var(--accent);
   text-decoration: none;
 }
-.settings-link:hover {
-  text-decoration: underline;
-}
-.settings-info-box {
-  background: var(--sf1);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: var(--r-card);
-  padding: calc(var(--sp) * 2);
+.settings-link:hover { text-decoration: underline; }
+.settings-divider-label {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 9px;
   color: var(--tx3);
-  line-height: 1.8;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: calc(var(--sp) * 2);
+  margin-bottom: var(--sp);
 }
-.settings-info-title {
-  font-weight: 600;
-  color: var(--tx2);
-  margin-bottom: 4px;
+.settings-add-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.settings-url {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent);
+  word-break: break-all;
+}
+.settings-actions-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.settings-actions-grid a {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+.settings-about-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
   font-size: 12px;
 }
+.settings-about-label {
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.settings-about-value {
+  color: var(--tx1);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ── Generic pills ── */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+}
+.pill-ok   { background: var(--ok-dim); color: var(--ok); }
+.pill-warn { background: var(--sf2); color: var(--tx3); }
+.pill-info { background: var(--run-dim); color: var(--run); }
 
 @media (max-width: 640px) {
   .container { padding: 12px 10px; }
