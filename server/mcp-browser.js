@@ -88,14 +88,40 @@ function hasPlaywright() {
 // ── Page factory (sets headers needed for ngrok etc.) ───────────────────────
 async function newPage(browser) {
   const page = await browser.newPage();
-  // Skip ngrok free-tier interstitial when using remote browser
+  // Skip ngrok free-tier interstitial — only for same-origin requests
   if (getRemoteWSEndpoint()) {
-    if (typeof page.setExtraHTTPHeaders === "function") {
-      await page.setExtraHTTPHeaders({ "ngrok-skip-browser-warning": "true" });
-    } else if (typeof page.setExtraHTTPHeaders !== "function" && page.route) {
-      // Playwright: use route to add header
+    // Determine the ngrok origin to match against
+    let ngrokOrigin = null;
+    try {
+      const tunnelStatus = require("./tunnel").status();
+      if (tunnelStatus && tunnelStatus.url) {
+        ngrokOrigin = new URL(tunnelStatus.url).origin;
+      }
+    } catch (_) {}
+
+    if (typeof page.setRequestInterception === "function") {
+      // Puppeteer: intercept requests and only add header for same-origin
+      await page.setRequestInterception(true);
+      page.on("request", (req) => {
+        const headers = { ...req.headers() };
+        try {
+          const reqOrigin = new URL(req.url()).origin;
+          if (ngrokOrigin && reqOrigin === ngrokOrigin) {
+            headers["ngrok-skip-browser-warning"] = "true";
+          }
+        } catch (_) {}
+        req.continue({ headers });
+      });
+    } else if (page.route) {
+      // Playwright: use route to add header only for same-origin
       await page.route("**/*", (route) => {
-        const headers = { ...route.request().headers(), "ngrok-skip-browser-warning": "true" };
+        const headers = { ...route.request().headers() };
+        try {
+          const reqOrigin = new URL(route.request().url()).origin;
+          if (ngrokOrigin && reqOrigin === ngrokOrigin) {
+            headers["ngrok-skip-browser-warning"] = "true";
+          }
+        } catch (_) {}
         route.continue({ headers });
       });
     }
