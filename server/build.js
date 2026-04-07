@@ -16,6 +16,13 @@ if (!fs.existsSync(WORKSPACE)) fs.mkdirSync(WORKSPACE, { recursive: true });
 
 const buildStatus = {};
 const buildLocks = {};   // prevents concurrent builds for the same key
+const MAX_CONCURRENT_BUILDS = parseInt(process.env.MAX_CONCURRENT_BUILDS, 10) || 4;
+
+function countActiveBuilds() {
+  let count = 0;
+  for (const k in buildLocks) { if (buildLocks[k]) count++; }
+  return count;
+}
 
 // ── Slug & path helpers ──
 function branchSlug(bc) {
@@ -110,6 +117,14 @@ async function buildBranch(repoConfig, branchConfig) {
     console.log("[" + key + "] Build already in progress, skipping");
     return;
   }
+  // Enforce max concurrent builds
+  if (countActiveBuilds() >= MAX_CONCURRENT_BUILDS) {
+    console.log("[" + key + "] Max concurrent builds (" + MAX_CONCURRENT_BUILDS + ") reached, queuing...");
+    buildStatus[key] = { status: "queued", log: "Waiting for build slot...\n", lastBuild: null, commitSha: "", mode: "static" };
+    // Retry after 5 seconds
+    setTimeout(() => buildBranch(repoConfig, branchConfig), 5000);
+    return;
+  }
   buildLocks[key] = true;
 
   const branchDir = getBranchDir(owner, repo, branchConfig);
@@ -175,6 +190,13 @@ async function startServer(repoConfig, branchConfig, isRestart) {
   // Prevent concurrent starts for the same key (allow restarts to proceed)
   if (buildLocks[key] && !isRestart) {
     console.log("[" + key + "] Server start already in progress, skipping");
+    return;
+  }
+  // Enforce max concurrent builds (restarts skip the queue)
+  if (!isRestart && countActiveBuilds() >= MAX_CONCURRENT_BUILDS) {
+    console.log("[" + key + "] Max concurrent builds (" + MAX_CONCURRENT_BUILDS + ") reached, queuing...");
+    buildStatus[key] = { status: "queued", log: "Waiting for build slot...\n", lastBuild: null, commitSha: "", mode: "server" };
+    setTimeout(() => startServer(repoConfig, branchConfig, false), 5000);
     return;
   }
   buildLocks[key] = true;

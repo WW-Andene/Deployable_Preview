@@ -91,7 +91,9 @@ DV.views.dashboard = function(app) {
             ]));
 
             var statusParts = [];
-            if (bs.status === "building") {
+            if (bs.status === "queued") {
+              statusParts.push(el("span", {}, "Queued..."));
+            } else if (bs.status === "building") {
               statusParts.push(el("span", {}, branchMode === "server" ? "Starting..." : "Building..."));
             } else if (bs.status === "running") {
               statusParts.push(el("span", {}, "Running \u2014 port " + (bs.serverPort || "?")));

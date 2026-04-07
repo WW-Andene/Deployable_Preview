@@ -490,6 +490,35 @@ router.get("/fetch", async (req, res) => {
   }
 });
 
+// ── Config export/import ──────────────────────────────────────────────────
+router.get("/config/export", (req, res) => {
+  const config = getConfig();
+  // Strip the token for safety
+  const safe = { ...config, token: config.token ? "[redacted]" : "" };
+  res.setHeader("Content-Disposition", 'attachment; filename="deployview-config.json"');
+  res.json(safe);
+});
+
+router.post("/config/import", (req, res) => {
+  const config = getConfig();
+  const imported = req.body;
+  if (!imported || !Array.isArray(imported.repos)) {
+    return res.status(400).json({ error: "Invalid config: repos array required" });
+  }
+  // Merge: add repos that don't already exist
+  let added = 0;
+  for (const repo of imported.repos) {
+    if (!repo.owner || !repo.repo) continue;
+    if (!SAFE_NAME_RE.test(repo.owner) || !SAFE_NAME_RE.test(repo.repo)) continue;
+    const id = repo.owner + "/" + repo.repo;
+    if (config.repos.some((r) => r.id === id)) continue;
+    config.repos.push({ ...repo, id });
+    added++;
+  }
+  if (added > 0) saveConfig();
+  res.json({ ok: true, added, total: config.repos.length });
+});
+
 // ── Tunnel routes (HTTPS exposure for Claude.ai MCP) ─────────────────────────
 
 const tunnel = require("../tunnel");

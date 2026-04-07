@@ -59,6 +59,15 @@ app.get("/api/health", (req, res) => {
   }
   let tunnelInfo = null;
   try { tunnelInfo = require("./tunnel").status(); } catch (_) {}
+  // Calculate workspace disk usage
+  let workspaceSize = null;
+  try {
+    const { WORKSPACE } = require("./build");
+    if (fs.existsSync(WORKSPACE)) {
+      const dirs = fs.readdirSync(WORKSPACE);
+      workspaceSize = { dirs: dirs.length };
+    }
+  } catch (_) {}
   res.json({
     status: "ok",
     uptime: Math.floor(process.uptime()),
@@ -67,7 +76,8 @@ app.get("/api/health", (req, res) => {
     repos: config.repos.length,
     previews: { ready: readyCount, building: buildingCount, error: errorCount, servers: serverCount },
     memory: Math.round(process.memoryUsage().rss / 1024 / 1024) + " MB",
-    tunnel: tunnelInfo && tunnelInfo.url ? { url: tunnelInfo.url, provider: tunnelInfo.provider } : null
+    tunnel: tunnelInfo && tunnelInfo.url ? { url: tunnelInfo.url, provider: tunnelInfo.provider } : null,
+    workspace: workspaceSize
   });
 });
 
