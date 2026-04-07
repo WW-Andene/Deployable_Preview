@@ -16,24 +16,73 @@ const path = require("path");
 const { buildStatus, branchSlug, buildKey } = require("./build");
 const { runningServers } = require("./process");
 
-// ── Playwright lazy loader ───────────────────────────────────────────────────
-let pw = null;
+// ── Browser library loader ───────────────────────────────────────────────────
+// browser-setup.js runs at startup and sets which library actually works.
+// We honour that choice here, with a live fallback chain if needed.
+
+let _lib = null;          // { launch: fn, type: "playwright"|"puppeteer" }
 let browserInstance = null;
 
-function hasPlaywright() {
-  if (pw) return true;
-  try { pw = require("playwright"); return true; } catch (e) {
-    try { pw = require("playwright-core"); return true; } catch (e2) { return false; }
+function loadLib() {
+  if (_lib) return _lib;
+
+  // Ask browser-setup which library it verified at startup
+  let preferred = null;
+  try { preferred = require("./browser-setup").getActiveBrowser(); } catch (_) {}
+
+  // Try preferred first, then the other
+  const order = preferred === "puppeteer"
+    ? ["puppeteer", "playwright"]
+    : ["playwright", "puppeteer"];
+
+  for (const name of order) {
+    try {
+      if (name === "playwright") {
+        let pw;
+        try { pw = require("playwright"); } catch (_) { pw = require("playwright-core"); }
+        _lib = {
+          type: "playwright",
+          launch: (opts) => pw.chromium.launch(opts)
+        };
+        return _lib;
+      }
+      if (name === "puppeteer") {
+        let pptr;
+        try { pptr = require("puppeteer"); } catch (_) { pptr = require("puppeteer-core"); }
+        _lib = {
+          type: "puppeteer",
+          launch: (opts) => pptr.launch(opts)
+        };
+        return _lib;
+      }
+    } catch (_) { /* try next */ }
   }
+  return null;
+}
+
+function hasPlaywright() {
+  return !!loadLib();
 }
 
 async function getBrowser() {
   if (browserInstance && browserInstance.isConnected()) return browserInstance;
-  if (!hasPlaywright()) throw new Error("Playwright is not installed. Run: npm install playwright && npx playwright install chromium");
-  browserInstance = await pw.chromium.launch({
+
+  const lib = loadLib();
+  if (!lib) throw new Error(
+    "No browser library available. Run: npm install playwright && npx playwright install chromium"
+  );
+
+  const opts = {
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
-  });
+  };
+
+  // Use system Chromium path if set (Termux / Android)
+  const execPath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ||
+                   process.env.PUPPETEER_EXECUTABLE_PATH;
+  if (execPath) opts.executablePath = execPath;
+
+  browserInstance = await lib.launch(opts);
   return browserInstance;
 }
 
@@ -67,7 +116,7 @@ async function takeScreenshot(opts) {
   const url = resolvePreviewUrl(owner, repo, slug);
 
   if (!hasPlaywright()) {
-    return { error: "Playwright not installed. Run: npm install playwright", url };
+    return { error: "No browser available — server is still setting one up, try again in a moment.", url };
   }
 
   const browser = await getBrowser();
@@ -218,7 +267,7 @@ async function captureConsole(opts) {
   const url = resolvePreviewUrl(owner, repo, slug);
 
   if (!hasPlaywright()) {
-    return { error: "Playwright not installed. Run: npm install playwright", url };
+    return { error: "No browser available — server is still setting one up, try again in a moment.", url };
   }
 
   const browser = await getBrowser();
@@ -262,7 +311,7 @@ async function interact(opts) {
   const url = resolvePreviewUrl(owner, repo, slug);
 
   if (!hasPlaywright()) {
-    return { error: "Playwright not installed. Run: npm install playwright", url };
+    return { error: "No browser available — server is still setting one up, try again in a moment.", url };
   }
 
   const browser = await getBrowser();
