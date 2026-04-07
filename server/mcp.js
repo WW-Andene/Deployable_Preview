@@ -443,10 +443,13 @@ async function handleMessage(msg) {
 // ── stdio transport ──────────────────────────────────────────────────────────
 
 function startStdioServer() {
+  // Detect whether we are the main entry point (standalone) or embedded in the HTTP server
+  const isStandalone = require.main === module;
+
   const rl = readline.createInterface({ input: process.stdin, terminal: false });
   let buffer = "";
 
-  process.stderr.write("[MCP] DeployView MCP server starting on stdio...\n");
+  process.stderr.write("[MCP] DeployView MCP server ready on stdio\n");
 
   rl.on("line", async (line) => {
     try {
@@ -476,9 +479,16 @@ function startStdioServer() {
   });
 
   rl.on("close", () => {
-    process.stderr.write("[MCP] stdin closed, shutting down\n");
-    const browser = getBrowserModule();
-    browser.closeBrowser().catch((e) => { process.stderr.write("[MCP] Browser cleanup error: " + e.message + "\n"); }).then(() => process.exit(0));
+    process.stderr.write("[MCP] stdin closed\n");
+    // Only close the browser if it was previously loaded
+    const cleanup = mcpBrowser
+      ? mcpBrowser.closeBrowser().catch((e) => { process.stderr.write("[MCP] Browser cleanup error: " + e.message + "\n"); })
+      : Promise.resolve();
+    if (isStandalone) {
+      // In standalone mode, exit the process after cleanup
+      cleanup.then(() => process.exit(0));
+    }
+    // In combined mode (HTTP + MCP), just clean up — don't kill the HTTP server
   });
 }
 
