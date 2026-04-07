@@ -41,28 +41,6 @@ function which(cmd) {
   } catch (_) { return null; }
 }
 
-function ensureLocaltunnel() {
-  // Check if already installed locally
-  try {
-    require.resolve("localtunnel");
-    return true;
-  } catch (_) {}
-
-  console.log("  [tunnel] localtunnel not found — installing...");
-  try {
-    execSync("npm install localtunnel --no-save", {
-      stdio: "inherit",
-      cwd: ROOT,
-      timeout: 2 * 60 * 1000
-    });
-    console.log("  [tunnel] localtunnel installed.");
-    return true;
-  } catch (e) {
-    console.warn("  [tunnel] \u26a0 Could not install localtunnel: " + e.message);
-    return false;
-  }
-}
-
 // ── Tunnel starters ───────────────────────────────────────────────────────────
 
 function tryCloudflared(port, onUrl, onFail) {
@@ -84,11 +62,9 @@ function tryCloudflared(port, onUrl, onFail) {
 }
 
 function tryLocaltunnel(port, onUrl, onFail) {
-  if (!ensureLocaltunnel()) { onFail(new Error("Could not install localtunnel")); return; }
-
-  // Use the installed binary directly
-  const ltBin = path.join(ROOT, "node_modules", ".bin", "lt");
-  proc = spawn(ltBin, ["--port", String(port)], {
+  // Use npx --yes so no pre-install step is needed; works across environments.
+  console.log("  [tunnel] Spawning localtunnel via npx...");
+  proc = spawn("npx", ["--yes", "localtunnel", "--port", String(port)], {
     stdio: ["ignore", "pipe", "pipe"],
     cwd: ROOT
   });
@@ -96,13 +72,19 @@ function tryLocaltunnel(port, onUrl, onFail) {
   proc.on("error", onFail);
   proc.on("exit", () => { state.running = false; state.url = null; proc = null; });
 
-  proc.stdout.on("data", (data) => {
+  function checkForUrl(data) {
+    // localtunnel may print the URL to either stdout or stderr depending on version
     const url = extractLocaltunnelUrl(data.toString());
     if (url) onUrl(url, "localtunnel");
+  }
+
+  proc.stdout.on("data", (data) => {
+    checkForUrl(data);
   });
 
   proc.stderr.on("data", (data) => {
-    // localtunnel sometimes prints errors to stderr
+    // npx download progress + localtunnel output both come through stderr
+    checkForUrl(data);
     const text = data.toString();
     if (text.includes("ERR") || text.includes("error")) {
       console.warn("  [tunnel] localtunnel stderr: " + text.trim());
@@ -124,9 +106,9 @@ function start(port) {
 
     const timeout = setTimeout(() => {
       cleanup();
-      state.error = "Timed out waiting for tunnel URL (90s)";
+      state.error = "Timed out waiting for tunnel URL (120s)";
       reject(new Error(state.error));
-    }, 90000);
+    }, 120000);
 
     function onUrl(url, provider) {
       if (state.url) return; // already resolved
