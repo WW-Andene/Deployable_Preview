@@ -64,6 +64,7 @@ function start(port) {
     }, 60000);
 
     function tryCloudflared() {
+      let fellBack = false;  // prevent double localtunnel fallback
       // cloudflared tunnel --url http://localhost:<port>
       proc = spawn("cloudflared", ["tunnel", "--url", "http://localhost:" + port], {
         stdio: ["ignore", "pipe", "pipe"]
@@ -71,7 +72,7 @@ function start(port) {
 
       proc.on("error", () => {
         // cloudflared not installed — fall back to localtunnel
-        tryLocaltunnel();
+        if (!fellBack) { fellBack = true; tryLocaltunnel(); }
       });
 
       function onData(data) {
@@ -94,7 +95,7 @@ function start(port) {
       proc.on("exit", (code) => {
         if (!state.url) {
           // Likely not installed, try localtunnel
-          tryLocaltunnel();
+          if (!fellBack) { fellBack = true; tryLocaltunnel(); }
         } else {
           state.running = false;
           state.url = null;
