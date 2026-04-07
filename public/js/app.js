@@ -5,7 +5,8 @@
 
 // View presets
 var VIEW_PRESETS = {
-  "13t":    { w: 412,  h: 915,  label: "Xiaomi 13T",      res: "412 \u00d7 915", scale: 0.9 },
+  "13t":    { w: 439,  h: 976,  label: "Xiaomi 13T",      res: "439 \u00d7 976 @2.78x", scale: 0.9 },
+  "user":   { w: 443,  h: 986,  label: "User (DPR 2.75)", res: "443 \u00d7 986 @2.75x", scale: 0.9 },
   "ip15":   { w: 393,  h: 852,  label: "iPhone 15",       res: "393 \u00d7 852", scale: 0.9 },
   "s24":    { w: 360,  h: 780,  label: "Galaxy S24",      res: "360 \u00d7 780", scale: 0.9 },
   "ipad":   { w: 820,  h: 1180, label: "iPad Air",        res: "820 \u00d7 1180", scale: 0.5 },
