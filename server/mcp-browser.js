@@ -217,7 +217,8 @@ async function closeBrowser() {
 }
 
 // ── Resolve preview URL from owner/repo/slug ─────────────────────────────────
-// Only allows navigating to local DeployView previews to prevent SSRF
+// When using a remote browser (Browserless), the URL must be publicly reachable
+// via the tunnel, not localhost (which would be the remote server's localhost).
 function resolvePreviewUrl(owner, repo, slug, serverPort) {
   // Sanitize inputs to prevent path injection
   const safeOwner = (owner || "").replace(/[^a-zA-Z0-9_-]/g, "");
@@ -226,8 +227,20 @@ function resolvePreviewUrl(owner, repo, slug, serverPort) {
   if (!safeOwner || !safeRepo || !safeSlug) {
     throw new Error("Invalid owner, repo, or slug");
   }
+  const previewPath = "/preview/" + safeOwner + "/" + safeRepo + "/" + safeSlug + "/";
+
+  // If using remote browser, use the public tunnel URL so the remote Chrome can reach us
+  if (getRemoteWSEndpoint()) {
+    try {
+      const tunnelStatus = require("./tunnel").status();
+      if (tunnelStatus && tunnelStatus.url) {
+        return tunnelStatus.url + previewPath;
+      }
+    } catch (_) {}
+  }
+
   const port = serverPort || process.env.PORT || 3000;
-  return "http://127.0.0.1:" + port + "/preview/" + safeOwner + "/" + safeRepo + "/" + safeSlug + "/";
+  return "http://127.0.0.1:" + port + previewPath;
 }
 
 // ── Screenshot ───────────────────────────────────────────────────────────────
@@ -513,14 +526,16 @@ async function interact(opts) {
           } else {
             navUrl = url + value;
           }
-          // Validate using URL parsing to prevent scheme-relative bypasses
+          // Validate: only allow navigation to our own previews (local or tunnel)
           try {
             var parsed = new URL(navUrl);
-            if (parsed.hostname !== "127.0.0.1" && parsed.hostname !== "localhost") {
-              throw new Error("Navigation restricted to local previews only");
+            var baseUrl = new URL(url);
+            if (parsed.origin !== baseUrl.origin) {
+              throw new Error("Navigation restricted to preview origin only");
             }
           } catch (parseErr) {
-            throw new Error("Navigation restricted to local previews only");
+            if (parseErr.message.includes("restricted")) throw parseErr;
+            throw new Error("Navigation restricted to preview origin only");
           }
           await page.goto(navUrl, { waitUntil: waitUntilIdle(), timeout: 30000 });
         }
