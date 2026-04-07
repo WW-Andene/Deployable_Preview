@@ -216,57 +216,63 @@ async function handleTool(name, args) {
     }
 
     case "screenshot": {
-      const browser = getBrowserModule();
-      const result = await browser.takeScreenshot(args);
-      if (result.error) {
-        return { content: [{ type: "text", text: result.error }], isError: true };
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.takeScreenshot(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Screenshot error: " + result.error }], isError: true };
+        }
+        return {
+          content: [
+            { type: "image", data: result.base64, mimeType: result.mimeType },
+            { type: "text", text: "Screenshot of " + result.url + " (" + result.width + "x" + result.height + ") — " + result.title }
+          ]
+        };
+      } catch (e) {
+        return { content: [{ type: "text", text: "Screenshot failed: " + e.message + "\n" + (e.stack || "").split("\n").slice(0, 3).join("\n") }], isError: true };
       }
-      return {
-        content: [
-          { type: "image", data: result.base64, mimeType: result.mimeType },
-          { type: "text", text: "Screenshot of " + result.url + " (" + result.width + "x" + result.height + ") — " + result.title }
-        ]
-      };
     }
 
     case "inspect": {
-      const browser = getBrowserModule();
-      const result = await browser.inspectDOM(args);
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify(result, null, 2)
-        }]
-      };
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.inspectDOM(args);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "Inspect failed: " + e.message }], isError: true };
+      }
     }
 
     case "interact": {
-      const browser = getBrowserModule();
-      const result = await browser.interact(args);
-      if (result.error) {
-        return { content: [{ type: "text", text: result.error }], isError: true };
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.interact(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Interact error: " + result.error }], isError: true };
+        }
+        const content = [];
+        if (result.screenshot) {
+          content.push({ type: "image", data: result.screenshot.base64, mimeType: result.screenshot.mimeType });
+        }
+        const { screenshot, ...meta } = result;
+        content.push({ type: "text", text: JSON.stringify(meta, null, 2) });
+        return { content };
+      } catch (e) {
+        return { content: [{ type: "text", text: "Interact failed: " + e.message }], isError: true };
       }
-      const content = [];
-      if (result.screenshot) {
-        content.push({ type: "image", data: result.screenshot.base64, mimeType: result.screenshot.mimeType });
-      }
-      const { screenshot, ...meta } = result;
-      content.push({ type: "text", text: JSON.stringify(meta, null, 2) });
-      return { content };
     }
 
     case "console_logs": {
-      const browser = getBrowserModule();
-      const result = await browser.captureConsole(args);
-      if (result.error) {
-        return { content: [{ type: "text", text: result.error }], isError: true };
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.captureConsole(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Console error: " + result.error }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "Console failed: " + e.message }], isError: true };
       }
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify(result, null, 2)
-        }]
-      };
     }
 
     case "build_status": {

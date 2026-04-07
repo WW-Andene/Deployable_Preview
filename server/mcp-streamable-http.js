@@ -118,11 +118,11 @@ function setupStreamableHTTP(app, endpoint) {
       }
       return res.sendStatus(202);
     } catch (err) {
-      console.error("[MCP-HTTP] Error handling message:", err.message);
+      console.error("[MCP-HTTP] Error:", err.message);
       return res.status(500).json({
         jsonrpc: "2.0",
         id: body.id || null,
-        error: { code: -32603, message: "Internal error" }
+        error: { code: -32603, message: err.message || "Internal error" }
       });
     }
   });
