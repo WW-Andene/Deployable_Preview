@@ -389,14 +389,28 @@ function start(port) {
       tryNgrok(port, onUrl, (ngrokErr) => onNgrokFail(cfErr, ngrokErr));
     }
 
-    log("Starting HTTPS tunnel on port " + port + "...");
+    // Check if user set a preferred provider in config
+    let preferred = null;
+    try { preferred = require("./config").getConfig().preferences.tunnel; } catch (_) {}
 
-    ensureCloudflared()
-      .then((cfBin) => {
-        if (!cfBin) { onCloudflaredFail(new Error("not available for this platform/arch")); return; }
-        tryCloudflared(cfBin, port, onUrl, onCloudflaredFail);
-      })
-      .catch(onCloudflaredFail);
+    log("Starting HTTPS tunnel on port " + port + (preferred ? " (preferred: " + preferred + ")" : "") + "...");
+
+    if (preferred === "ngrok") {
+      tryNgrok(port, onUrl, (ngrokErr) => {
+        warn("ngrok failed: " + ngrokErr.message);
+        onLocaltunnelFail(null, ngrokErr, null);
+      });
+    } else if (preferred === "localtunnel") {
+      tryLocaltunnelApi(port, onUrl, (ltErr) => onLocaltunnelFail(null, null, ltErr));
+    } else {
+      // Default: cloudflared -> ngrok -> localtunnel
+      ensureCloudflared()
+        .then((cfBin) => {
+          if (!cfBin) { onCloudflaredFail(new Error("not available for this platform/arch")); return; }
+          tryCloudflared(cfBin, port, onUrl, onCloudflaredFail);
+        })
+        .catch(onCloudflaredFail);
+    }
   });
 }
 

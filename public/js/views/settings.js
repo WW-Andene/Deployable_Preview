@@ -200,12 +200,84 @@ DV.views.settings = function(app) {
     keysBody
   ]));
 
+  /* ══════════ Section: Browser Engine ══════════ */
+  var browserBody = el("div", {});
+  function refreshBrowser() {
+    fetch("/api/browser/status").then(function(r) { return r.json(); }).then(function(st) {
+      browserBody.innerHTML = "";
+      browserBody.appendChild(el("div", { c: "settings-hint mb-8" }, "Browser engine for MCP screenshots & interaction tools."));
+
+      var options = [
+        { id: "off", label: "Off", desc: "No browser \u2014 screenshots disabled" },
+        { id: "playwright", label: "Playwright", desc: "Recommended \u2014 richer API, auto-downloads Chromium" },
+        { id: "puppeteer", label: "Puppeteer", desc: "Fallback \u2014 lighter, uses system Chrome" }
+      ];
+      var chips = el("div", { c: "settings-chip-row" });
+      options.forEach(function(opt) {
+        var isActive = st.preferred === opt.id;
+        chips.appendChild(el("div", { c: "chip" + (isActive ? " on" : ""), on: { click: function() {
+          if (opt.id === "off") {
+            fetch("/api/browser/disable", { method: "POST" }).then(function() {
+              DV.showToast("Browser disabled", "info"); refreshBrowser();
+            });
+          } else {
+            var chip = this; chip.textContent = "Setting up\u2026";
+            fetch("/api/browser/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ engine: opt.id }) })
+              .then(function(r) { return r.json(); })
+              .then(function(r) {
+                if (r.ok) DV.showToast(opt.label + " active", "success");
+                else DV.showToast("Setup failed: " + (r.error || ""), "error");
+                refreshBrowser();
+              });
+          }
+        } } }, opt.label));
+      });
+      browserBody.appendChild(chips);
+
+      if (st.active && st.ready) {
+        browserBody.appendChild(el("div", { c: "flex-row gap-6 items-center mt-8" }, [
+          el("span", { c: "pill pill-ok" }, st.active),
+          el("span", { c: "settings-hint" }, "Ready \u2014 screenshots & interaction enabled")
+        ]));
+      } else if (st.preferred !== "off") {
+        browserBody.appendChild(el("div", { c: "settings-hint mt-8 color-tx3" }, "Not yet set up \u2014 click a provider above to install"));
+      }
+    }).catch(function() { browserBody.textContent = "Could not load."; });
+  }
+  refreshBrowser();
+  page.appendChild(section("Browser Engine", [browserBody]));
+
   /* ══════════ Section: HTTPS Tunnel ══════════ */
   var tunnelBody = el("div", {});
   function refreshTunnel() {
-    fetch("/api/tunnel/status").then(function(r) { return r.json(); }).then(function(st) {
+    Promise.all([
+      fetch("/api/tunnel/status").then(function(r) { return r.json(); }),
+      fetch("/api/preferences").then(function(r) { return r.json(); })
+    ]).then(function(results) {
+      var st = results[0];
+      var prefs = results[1];
       tunnelBody.innerHTML = "";
       S._tunnelStatus = st;
+
+      tunnelBody.appendChild(el("div", { c: "settings-hint mb-8" }, "HTTPS tunnel so claude.ai can reach this server."));
+
+      // Provider selector chips
+      var providers = [
+        { id: "cloudflared", label: "Cloudflare", desc: "Free, no account needed" },
+        { id: "ngrok", label: "ngrok", desc: "Needs NGROK_AUTHTOKEN" },
+        { id: "localtunnel", label: "Localtunnel", desc: "npm package, always available" }
+      ];
+      var currentPref = prefs.tunnel || "cloudflared";
+      var chips = el("div", { c: "settings-chip-row mb-8" });
+      providers.forEach(function(p) {
+        chips.appendChild(el("div", { c: "chip" + (currentPref === p.id ? " on" : ""), on: { click: function() {
+          fetch("/api/preferences", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tunnel: p.id }) })
+            .then(function() { DV.showToast("Preferred: " + p.label, "info"); refreshTunnel(); });
+        } } }, p.label));
+      });
+      tunnelBody.appendChild(chips);
+
+      // Status + start/stop
       if (st.running && st.url) {
         var mcpUrl = st.url + "/mcp";
         tunnelBody.appendChild(el("div", { c: "flex-row gap-6 items-center mb-8 flex-wrap" }, [
@@ -220,7 +292,6 @@ DV.views.settings = function(app) {
           fetch("/api/tunnel/stop", { method: "POST" }).then(function() { refreshTunnel(); DV.showToast("Stopped", "info"); });
         } } }, "Stop Tunnel"));
       } else {
-        tunnelBody.appendChild(el("div", { c: "settings-hint mb-8" }, "HTTPS tunnel so claude.ai can reach this server. Fallback: cloudflared \u2192 ngrok \u2192 localtunnel."));
         if (st.error) tunnelBody.appendChild(el("div", { c: "color-err text-11 mb-8" }, st.error));
         tunnelBody.appendChild(el("button", { c: "bp bs", on: { click: function() {
           var btn = this; btn.disabled = true; btn.textContent = "Starting\u2026";
@@ -232,7 +303,7 @@ DV.views.settings = function(app) {
             }).catch(function() { btn.disabled = false; btn.textContent = "Start Tunnel"; });
         } } }, "Start Tunnel"));
       }
-    }).catch(function() { tunnelBody.textContent = "Could not reach tunnel API."; });
+    }).catch(function() { tunnelBody.textContent = "Could not reach API."; });
   }
   refreshTunnel();
   page.appendChild(section("HTTPS Tunnel", [tunnelBody]));

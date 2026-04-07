@@ -154,6 +154,24 @@ router.delete("/secrets/:key", (req, res) => {
   res.json({ ok: true, key, removed: true });
 });
 
+// ── Preferences ──────────────────────────────────────────────────────────────
+router.get("/preferences", (req, res) => {
+  const config = getConfig();
+  res.json(config.preferences || {});
+});
+
+router.post("/preferences", (req, res) => {
+  const config = getConfig();
+  if (!config.preferences) config.preferences = {};
+  const updates = req.body;
+  if (typeof updates !== "object") return res.status(400).json({ error: "Object required" });
+  for (const key in updates) {
+    config.preferences[key] = updates[key];
+  }
+  saveConfig();
+  res.json({ ok: true, preferences: config.preferences });
+});
+
 // GitHub branches — sorted by most recent commit
 router.get("/github/:owner/:repo/branches", async (req, res) => {
   try {
@@ -660,6 +678,47 @@ router.post("/config/import", (req, res) => {
   }
   if (added > 0) saveConfig();
   res.json({ ok: true, added, total: config.repos.length });
+});
+
+// ── Browser setup ─────────────────────────────────────────────────────────
+router.get("/browser/status", (req, res) => {
+  try {
+    const { getActiveBrowser } = require("../browser-setup");
+    const { hasPlaywright } = require("../mcp-browser");
+    res.json({
+      active: getActiveBrowser(),
+      ready: hasPlaywright(),
+      preferred: (getConfig().preferences || {}).browser || "off"
+    });
+  } catch (e) { res.json({ active: null, ready: false, preferred: "off" }); }
+});
+
+router.post("/browser/setup", async (req, res) => {
+  const { ensureBrowser } = require("../browser-setup");
+  const config = getConfig();
+  if (!config.preferences) config.preferences = {};
+  const engine = (req.body && req.body.engine) || "playwright";
+  config.preferences.browser = engine;
+  saveConfig();
+  try {
+    await ensureBrowser();
+    const { getActiveBrowser } = require("../browser-setup");
+    res.json({ ok: true, active: getActiveBrowser() });
+  } catch (e) {
+    res.json({ ok: false, error: e.message });
+  }
+});
+
+router.post("/browser/disable", (req, res) => {
+  const config = getConfig();
+  if (!config.preferences) config.preferences = {};
+  config.preferences.browser = "off";
+  saveConfig();
+  try {
+    const mcpBrowser = require("../mcp-browser");
+    mcpBrowser.closeBrowser().catch(() => {});
+  } catch (_) {}
+  res.json({ ok: true });
 });
 
 // ── Tunnel routes (HTTPS exposure for Claude.ai MCP) ─────────────────────────

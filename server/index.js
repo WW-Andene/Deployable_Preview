@@ -254,8 +254,14 @@ httpServer = app.listen(PORT, () => {
   }
   console.log("");
 
-  // Check / install Chromium in the background — never blocks startup
-  ensureBrowser().catch(() => {});
+  // Only set up browser if explicitly enabled in preferences
+  const prefs = getConfig().preferences || {};
+  if (prefs.browser && prefs.browser !== "off") {
+    console.log("  Setting up browser: " + prefs.browser + "...");
+    ensureBrowser().catch(() => {});
+  } else {
+    console.log("  Browser tools: off (enable in Settings)");
+  }
   // this makes all modes (static, server, MCP, web fetch) run simultaneously.
   // Use --no-mcp to disable stdio MCP if stdin is not a terminal / not needed.
   if (!process.argv.includes("--no-mcp")) {
