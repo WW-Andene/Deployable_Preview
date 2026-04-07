@@ -224,8 +224,6 @@ function tryNgrok(port, onUrl, onFail) {
   ngrok.connect({ addr: port, authtoken: token })
     .then((url) => {
       if (!url) { onFail(new Error("ngrok returned no URL")); return; }
-      // Register cleanup
-      const origCleanup = cleanup;
       proc = {
         kill: () => {
           try { ngrok.disconnect(url); } catch (_) {}
