@@ -41,7 +41,9 @@ loadConfig();
 migrateConfig();
 
 const app = express();
-app.use(express.json());
+app.use(express.json({
+  verify: (req, _res, buf) => { req.rawBody = buf; }  // preserve raw body for webhook HMAC
+}));
 
 // ── Request logging with timing ──
 if (process.env.LOG_REQUESTS !== "false") {

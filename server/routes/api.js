@@ -164,8 +164,9 @@ router.post("/preferences", (req, res) => {
   const config = getConfig();
   if (!config.preferences) config.preferences = {};
   const updates = req.body;
-  if (typeof updates !== "object") return res.status(400).json({ error: "Object required" });
-  for (const key in updates) {
+  if (typeof updates !== "object" || updates === null || Array.isArray(updates)) return res.status(400).json({ error: "Object required" });
+  for (const key of Object.keys(updates)) {
+    if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
     config.preferences[key] = updates[key];
   }
   saveConfig();
@@ -319,9 +320,10 @@ router.post("/webhook", (req, res) => {
   const secret = getSecret("WEBHOOK_SECRET", "WEBHOOK_SECRET");
   if (secret) {
     const sig = req.headers["x-hub-signature-256"] || "";
-    const body = JSON.stringify(req.body);
-    const expected = "sha256=" + crypto.createHmac("sha256", secret).update(body).digest("hex");
-    if (!sig || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+    // Use raw body (preserved by express.json verify option) for accurate HMAC
+    const rawBody = req.rawBody || Buffer.from(JSON.stringify(req.body));
+    const expected = "sha256=" + crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+    if (!sig || sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
       return res.status(401).json({ error: "Invalid webhook signature" });
     }
   }
@@ -642,7 +644,9 @@ router.post("/workspace/cleanup", (req, res) => {
     let removed = 0;
     for (const d of dirs) {
       if (!activeKeys.has(d)) {
-        const fullPath = path.join(WORKSPACE, d);
+        const fullPath = path.resolve(WORKSPACE, d);
+        // Safety: ensure resolved path is inside WORKSPACE
+        if (!fullPath.startsWith(path.resolve(WORKSPACE) + path.sep)) continue;
         exec("rm -rf " + JSON.stringify(fullPath), () => {});
         removed++;
       }
@@ -654,8 +658,8 @@ router.post("/workspace/cleanup", (req, res) => {
 // ── Config export/import ──────────────────────────────────────────────────
 router.get("/config/export", (req, res) => {
   const config = getConfig();
-  // Strip the token for safety
-  const safe = { ...config, token: config.token ? "[redacted]" : "" };
+  // Strip secrets and token for safety — export only structure
+  const safe = { ...config, token: config.token ? "[redacted]" : "", secrets: undefined, preferences: config.preferences || {} };
   res.setHeader("Content-Disposition", 'attachment; filename="deployview-config.json"');
   res.json(safe);
 });
@@ -685,10 +689,12 @@ router.get("/browser/status", (req, res) => {
   try {
     const { getActiveBrowser } = require("../browser-setup");
     const { hasPlaywright } = require("../mcp-browser");
+    const preferred = (getConfig().preferences || {}).browser || "off";
+    const active = getActiveBrowser();
     res.json({
-      active: getActiveBrowser(),
-      ready: hasPlaywright(),
-      preferred: (getConfig().preferences || {}).browser || "off"
+      active: active,
+      ready: preferred !== "off" && !!active && hasPlaywright(),
+      preferred: preferred
     });
   } catch (e) { res.json({ active: null, ready: false, preferred: "off" }); }
 });
