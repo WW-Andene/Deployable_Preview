@@ -114,7 +114,7 @@ async function buildBranch(repoConfig, branchConfig) {
 
   const branchDir = getBranchDir(owner, repo, branchConfig);
 
-  buildStatus[key] = { status: "building", log: "", lastBuild: null, commitSha: "", mode: "static" };
+  buildStatus[key] = { status: "building", log: "", lastBuild: null, commitSha: "", mode: "static", startedAt: Date.now() };
   const addLog = createLogger(key);
 
   try {
@@ -145,9 +145,11 @@ async function buildBranch(repoConfig, branchConfig) {
     const apiRoutes = scanApiRoutes(workDir, addLog);
     const userEnvForRuntime = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
 
-    addLog("Build complete! Output: " + path.relative(WORKSPACE, finalOut));
+    var duration = ((Date.now() - buildStatus[key].startedAt) / 1000).toFixed(1);
+    addLog("Build complete in " + duration + "s! Output: " + path.relative(WORKSPACE, finalOut));
     buildStatus[key].status = "ready";
     buildStatus[key].lastBuild = Date.now();
+    buildStatus[key].duration = parseFloat(duration);
     buildStatus[key].outputPath = finalOut;
     buildStatus[key].apiRoutes = apiRoutes;
     buildStatus[key].workDir = workDir;
@@ -182,7 +184,7 @@ async function startServer(repoConfig, branchConfig, isRestart) {
   killServer(key);
 
   const restarts = isRestart ? ((buildStatus[key] && buildStatus[key].restarts) || 0) : 0;
-  buildStatus[key] = { status: "building", log: isRestart ? (buildStatus[key].log || "") : "", lastBuild: null, commitSha: "", mode: "server", restarts };
+  buildStatus[key] = { status: "building", log: isRestart ? (buildStatus[key].log || "") : "", lastBuild: null, commitSha: "", mode: "server", restarts, startedAt: Date.now() };
   const addLog = createLogger(key);
   if (isRestart) addLog.setLog(buildStatus[key].log);
 
@@ -227,10 +229,12 @@ async function startServer(repoConfig, branchConfig, isRestart) {
     addLog("Waiting for port " + port + "...");
     await waitForPort(port, 60000);
 
-    addLog("Server running on port " + port);
+    var duration = ((Date.now() - buildStatus[key].startedAt) / 1000).toFixed(1);
+    addLog("Server running on port " + port + " (started in " + duration + "s)");
     runningServers[key].status = "running";
     buildStatus[key].status = "running";
     buildStatus[key].lastBuild = Date.now();
+    buildStatus[key].duration = parseFloat(duration);
     buildStatus[key].serverPort = port;
     buildStatus[key].restarts = 0;
     saveLog(key, addLog.getLog());

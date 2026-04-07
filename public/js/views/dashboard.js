@@ -1,6 +1,16 @@
 (function(){
 var S = DV.S, el = DV.el, api = DV.api, statusClass = DV.statusClass;
 
+function timeAgo(ts) {
+  if (!ts) return "";
+  var diff = Math.floor((Date.now() - ts) / 1000);
+  if (diff < 5) return "just now";
+  if (diff < 60) return diff + "s ago";
+  if (diff < 3600) return Math.floor(diff / 60) + "m ago";
+  if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
+  return Math.floor(diff / 86400) + "d ago";
+}
+
 function btagClass(status) {
   return "btag btag-" + (status === "ready" ? "ready" : status === "running" ? "running" : status === "building" ? "building" : status === "error" ? "error" : "idle");
 }
@@ -80,12 +90,30 @@ DV.views.dashboard = function(app) {
               el("span", { c: btagClass(bs.status) }, label)
             ]));
 
-            row.appendChild(el("span", { c: "branch-status-text" },
-              bs.status === "building" ? (branchMode === "server" ? "Starting..." : "Building...") :
-              bs.status === "running" ? "Running \u2014 port " + (bs.serverPort || "?") :
-              bs.status === "ready" ? "Ready \u2014 " + previewUrl :
-              bs.status === "error" ? (branchMode === "server" ? "Server failed" : "Build failed") : "Idle"
-            ));
+            var statusParts = [];
+            if (bs.status === "building") {
+              statusParts.push(el("span", {}, branchMode === "server" ? "Starting..." : "Building..."));
+            } else if (bs.status === "running") {
+              statusParts.push(el("span", {}, "Running \u2014 port " + (bs.serverPort || "?")));
+            } else if (bs.status === "ready") {
+              statusParts.push(el("span", {}, "Ready"));
+            } else if (bs.status === "error") {
+              statusParts.push(el("span", {}, branchMode === "server" ? "Server failed" : "Build failed"));
+            } else {
+              statusParts.push(el("span", {}, "Idle"));
+            }
+            if (bs.duration && bs.status !== "building") {
+              statusParts.push(el("span", { c: "duration-badge" }, bs.duration + "s"));
+            }
+            if (bs.lastBuild && bs.status !== "building") {
+              statusParts.push(el("span", { c: "color-tx3 text-10 font-mono" }, timeAgo(bs.lastBuild)));
+            }
+            if (bs.commitSha && bs.status !== "building" && bs.status !== "idle") {
+              statusParts.push(el("span", { c: "sha-badge", attr: { title: "Commit: " + bs.commitSha }, on: { click: function() {
+                if (navigator.clipboard) { navigator.clipboard.writeText(bs.commitSha); DV.showToast("SHA copied: " + (bs.commitSha || "").slice(0, 7), "info"); }
+              } } }, bs.commitSha.slice(0, 7)));
+            }
+            row.appendChild(el("div", { c: "branch-status-text flex-row gap-6 items-center flex-wrap" }, statusParts));
 
             var actions = el("div", { c: "branch-actions" });
             actions.appendChild(el("button", { c: "bg bs", attr: { title: "Rebuild" }, on: { click: function() {
@@ -101,6 +129,9 @@ DV.views.dashboard = function(app) {
               actions.appendChild(el("button", { c: "bp bs", attr: { title: "Open preview" }, on: { click: function() {
                 S.activeRepo = repo; S.activeBranch = slug; S.compareMode = false; S.compareBranch = ""; S.view = "preview"; DV.render();
               } } }, "Go"));
+              actions.appendChild(el("button", { c: "bg bs", attr: { title: "Open in new tab" }, on: { click: function() {
+                window.open(previewUrl, "_blank");
+              } } }, "\u2197"));
             } else {
               actions.appendChild(el("button", { c: "bp bs opacity-dim", attr: { disabled: "", title: "Preview unavailable" } }, "Go"));
             }

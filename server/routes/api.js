@@ -1,5 +1,6 @@
 const express = require("express");
 const { exec } = require("child_process");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const router = express.Router();
@@ -10,6 +11,35 @@ const { buildStatus, branchSlug, buildKey, getBranchDir, deployBranch } = requir
 const { runningServers, killServer } = require("../process");
 const { loadLog, logStreams } = require("../logs");
 const { apkStatus, buildApk, APK_DIR } = require("../apk");
+
+// ── Simple rate limiting ─────────────────────────────────────────────────────
+const _rateLimits = {};
+function rateLimit(windowMs, maxRequests) {
+  return function(req, res, next) {
+    const ip = req.ip || req.connection.remoteAddress || "unknown";
+    const now = Date.now();
+    if (!_rateLimits[ip] || _rateLimits[ip].reset < now) {
+      _rateLimits[ip] = { count: 1, reset: now + windowMs };
+    } else {
+      _rateLimits[ip].count++;
+    }
+    if (_rateLimits[ip].count > maxRequests) {
+      return res.status(429).json({ error: "Too many requests, try again later" });
+    }
+    next();
+  };
+}
+// Clean up stale entries every 5 minutes
+setInterval(function() {
+  var now = Date.now();
+  for (var ip in _rateLimits) { if (_rateLimits[ip].reset < now) delete _rateLimits[ip]; }
+}, 5 * 60 * 1000);
+
+// Apply rate limiting to mutation endpoints
+router.post("/token", rateLimit(60000, 10));
+router.post("/repos", rateLimit(60000, 20));
+router.post("/build/:owner/:repo", rateLimit(30000, 5));
+router.post("/webhook", rateLimit(5000, 30));
 
 // ── Input validation helper ──────────────────────────────────────────────────
 // Reject owner/repo names with characters that could break shell commands or paths
@@ -182,6 +212,16 @@ router.put("/repos/:owner/:repo/branch", (req, res) => {
 // Webhook
 router.post("/webhook", (req, res) => {
   const config = getConfig();
+  // Verify webhook signature if WEBHOOK_SECRET is set
+  const secret = process.env.WEBHOOK_SECRET;
+  if (secret) {
+    const sig = req.headers["x-hub-signature-256"] || "";
+    const body = JSON.stringify(req.body);
+    const expected = "sha256=" + crypto.createHmac("sha256", secret).update(body).digest("hex");
+    if (!sig || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+      return res.status(401).json({ error: "Invalid webhook signature" });
+    }
+  }
   if (req.headers["x-github-event"] !== "push") return res.json({ ok: true, skipped: true });
   const ref = (req.body.ref || "").replace("refs/heads/", "");
   const fullName = req.body.repository && req.body.repository.full_name;

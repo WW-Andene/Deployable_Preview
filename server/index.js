@@ -57,6 +57,8 @@ app.get("/api/health", (req, res) => {
     else if (s === "building") buildingCount++;
     else if (s === "error") errorCount++;
   }
+  let tunnelInfo = null;
+  try { tunnelInfo = require("./tunnel").status(); } catch (_) {}
   res.json({
     status: "ok",
     uptime: Math.floor(process.uptime()),
@@ -64,7 +66,8 @@ app.get("/api/health", (req, res) => {
     node: process.versions.node,
     repos: config.repos.length,
     previews: { ready: readyCount, building: buildingCount, error: errorCount, servers: serverCount },
-    memory: Math.round(process.memoryUsage().rss / 1024 / 1024) + " MB"
+    memory: Math.round(process.memoryUsage().rss / 1024 / 1024) + " MB",
+    tunnel: tunnelInfo && tunnelInfo.url ? { url: tunnelInfo.url, provider: tunnelInfo.provider } : null
   });
 });
 
@@ -88,14 +91,22 @@ let pollIntervalId = null;
 async function pollForChanges() {
   const config = getConfig();
   if (!config.token) return;
+  const { buildKey, buildStatus } = require("./build");
   for (const repo of config.repos) {
     const branchNames = [...new Set((repo.activeBranches || []).map((bc) => bc.branch))];
     for (const branch of branchNames) {
+      // Skip GitHub API call if any config for this branch is currently building
+      const anyBuilding = repo.activeBranches.some((bc) => {
+        if (bc.branch !== branch) return false;
+        const st = buildStatus[buildKey(repo.owner, repo.repo, bc)];
+        return st && st.status === "building";
+      });
+      if (anyBuilding) continue;
+
       try {
         const data = await ghApi("/repos/" + repo.owner + "/" + repo.repo + "/commits?sha=" + branch + "&per_page=1", config.token);
         const latest = data[0];
         if (!latest) continue;
-        const { buildKey, buildStatus } = require("./build");
         for (const bc of repo.activeBranches) {
           if (bc.branch !== branch) continue;
           const key = buildKey(repo.owner, repo.repo, bc);
