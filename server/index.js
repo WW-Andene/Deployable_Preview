@@ -17,6 +17,7 @@ const { deployBranch } = require("./build");
 const apiRoutes = require("./routes/api");
 const previewRoutes = require("./routes/preview");
 const { setupStreamableHTTP } = require("./mcp-streamable-http");
+const { ensureBrowser } = require("./browser-setup");
 
 // ── Startup validation ──
 (function checkPrerequisites() {
@@ -213,7 +214,8 @@ httpServer = app.listen(PORT, () => {
   }
   console.log("");
 
-  // Always start MCP stdio server alongside HTTP —
+  // Check / install Chromium in the background — never blocks startup
+  ensureBrowser().catch(() => {});
   // this makes all modes (static, server, MCP, web fetch) run simultaneously.
   // Use --no-mcp to disable stdio MCP if stdin is not a terminal / not needed.
   if (!process.argv.includes("--no-mcp")) {
