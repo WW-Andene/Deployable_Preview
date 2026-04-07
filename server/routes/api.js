@@ -687,20 +687,54 @@ router.post("/config/import", (req, res) => {
 });
 
 // ── Browser setup ─────────────────────────────────────────────────────────
-// Test remote browser connection
+// Test remote browser connection — step by step diagnostic
 router.get("/browser/test", async (req, res) => {
+  const steps = [];
   try {
-    const mcpBrowser = require("../mcp-browser");
-    // Force a fresh connection
-    await mcpBrowser.closeBrowser();
-    const browser = await mcpBrowser.takeScreenshot({ owner: "test", repo: "test", slug: "test", width: 320, height: 240 });
-    if (browser.error) {
-      res.json({ ok: false, error: browser.error });
-    } else {
-      res.json({ ok: true, title: browser.title, width: browser.width, height: browser.height, screenshotBytes: (browser.base64 || "").length });
+    const { getSecret } = require("../config");
+    const token = getSecret("BROWSERLESS_API_KEY", "BROWSERLESS_API_KEY");
+    const wsUrl = getSecret("BROWSER_WS_ENDPOINT", "BROWSER_WS_ENDPOINT");
+    steps.push("token_length: " + (token || "").length);
+    steps.push("ws_url: " + (wsUrl || "none"));
+
+    const endpoint = wsUrl || (token ? "wss://production-sfo.browserless.io?token=" + token : null);
+    if (!endpoint) {
+      return res.json({ ok: false, error: "No BROWSERLESS_API_KEY or BROWSER_WS_ENDPOINT set", steps });
     }
+    steps.push("endpoint: " + endpoint.replace(/token=[^&]+/, "token=***"));
+
+    let pptr;
+    try { pptr = require("puppeteer-core"); steps.push("puppeteer-core: loaded"); }
+    catch (_) { try { pptr = require("puppeteer"); steps.push("puppeteer: loaded"); } catch (_2) { return res.json({ ok: false, error: "No puppeteer library", steps }); } }
+
+    steps.push("connecting...");
+    const browser = await pptr.connect({ browserWSEndpoint: endpoint });
+    steps.push("connected: " + browser.isConnected());
+
+    steps.push("newPage...");
+    const page = await browser.newPage();
+    steps.push("page created");
+
+    steps.push("setViewport...");
+    await page.setViewport({ width: 320, height: 240 });
+    steps.push("viewport set");
+
+    steps.push("goto about:blank...");
+    await page.goto("about:blank", { waitUntil: "networkidle0", timeout: 10000 });
+    steps.push("navigated");
+
+    steps.push("screenshot...");
+    const buf = await page.screenshot({ type: "png" });
+    steps.push("screenshot: " + buf.length + " bytes");
+
+    await page.close();
+    browser.disconnect();
+    steps.push("done");
+
+    res.json({ ok: true, steps });
   } catch (e) {
-    res.json({ ok: false, error: e.message, stack: e.stack ? e.stack.split("\n").slice(0, 5) : [] });
+    steps.push("ERROR: " + e.message);
+    res.json({ ok: false, error: e.message, steps, stack: e.stack ? e.stack.split("\n").slice(0, 3) : [] });
   }
 });
 
