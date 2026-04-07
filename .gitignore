@@ -3,3 +3,4 @@ workspace/
 deployview.json
 logs/
 .apks/
+.tunnel-bin/

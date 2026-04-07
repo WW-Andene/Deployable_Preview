@@ -2,20 +2,24 @@
  * server/tunnel.js — HTTPS tunnel manager for DeployView
  *
  * Tries in order:
- *   1. cloudflared  (if installed)
- *   2. localtunnel  (npm package — auto-installed if missing)
+ *   1. cloudflared  (system install, or auto-downloaded binary)
+ *   2. localtunnel  (via JS API — npm install, no CLI hang)
  */
 
 "use strict";
 
-const { spawn, execSync } = require("child_process");
-const path = require("path");
+const { spawn, execSync, spawnSync } = require("child_process");
+const path   = require("path");
+const fs     = require("fs");
+const https  = require("https");
+const os     = require("os");
 
 let proc  = null;
 let state = { running: false, url: null, provider: null, error: null };
 let _resolve = null;
 
-const ROOT = path.join(__dirname, "..");
+const ROOT    = path.join(__dirname, "..");
+const BIN_DIR = path.join(ROOT, ".tunnel-bin");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -34,24 +38,150 @@ function cleanup() {
 }
 
 function which(cmd) {
-  if (!/^[a-zA-Z0-9_-]+$/.test(cmd)) return null;
   try {
-    return execSync("which " + cmd + " 2>/dev/null", { stdio: ["ignore","pipe","ignore"], timeout: 3000 })
-      .toString().trim() || null;
+    return execSync("which " + cmd + " 2>/dev/null", {
+      stdio: ["ignore", "pipe", "ignore"], timeout: 3000
+    }).toString().trim() || null;
   } catch (_) { return null; }
+}
+
+// ── cloudflared auto-download ─────────────────────────────────────────────────
+
+function cloudflaredBinPath() {
+  const platform = os.platform();
+  const arch     = os.arch();
+
+  let name;
+  if (platform === "linux") {
+    name = arch === "arm64" ? "cloudflared-linux-arm64"
+         : arch === "arm"   ? "cloudflared-linux-arm"
+         :                    "cloudflared-linux-amd64";
+  } else if (platform === "darwin") {
+    name = arch === "arm64" ? "cloudflared-darwin-arm64"
+         :                    "cloudflared-darwin-amd64";
+  } else if (platform === "win32") {
+    name = arch === "arm64" ? "cloudflared-windows-arm64.exe"
+         :                    "cloudflared-windows-amd64.exe";
+  } else {
+    return null;
+  }
+
+  return path.join(BIN_DIR, name);
+}
+
+function downloadCloudflared(destPath) {
+  return new Promise((resolve, reject) => {
+    const binName = path.basename(destPath);
+    const url = "https://github.com/cloudflare/cloudflared/releases/latest/download/" + binName;
+    console.log("  [tunnel] Downloading cloudflared from GitHub releases...");
+
+    if (!fs.existsSync(BIN_DIR)) fs.mkdirSync(BIN_DIR, { recursive: true });
+
+    const tmpPath = destPath + ".tmp";
+    const file    = fs.createWriteStream(tmpPath);
+
+    function get(urlStr) {
+      https.get(urlStr, (res) => {
+        if (res.statusCode === 301 || res.statusCode === 302) {
+          get(res.headers.location);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          reject(new Error("HTTP " + res.statusCode + " downloading cloudflared"));
+          return;
+        }
+        res.pipe(file);
+        file.on("finish", () => {
+          file.close(() => {
+            fs.renameSync(tmpPath, destPath);
+            try { fs.chmodSync(destPath, 0o755); } catch (_) {}
+            console.log("  [tunnel] cloudflared downloaded to " + destPath);
+            resolve(destPath);
+          });
+        });
+      }).on("error", (err) => {
+        try { fs.unlinkSync(tmpPath); } catch (_) {}
+        reject(err);
+      });
+    }
+
+    get(url);
+  });
+}
+
+async function ensureCloudflared() {
+  // 1. Already on PATH?
+  const system = which("cloudflared");
+  if (system) return system;
+
+  // 2. Previously downloaded?
+  const binPath = cloudflaredBinPath();
+  if (!binPath) return null;
+  if (fs.existsSync(binPath)) return binPath;
+
+  // 3. Download it now
+  try {
+    return await downloadCloudflared(binPath);
+  } catch (e) {
+    console.warn("  [tunnel] Could not download cloudflared: " + e.message);
+    return null;
+  }
+}
+
+// ── localtunnel JS API (fallback) ─────────────────────────────────────────────
+
+function ensureLocaltunnelPackage() {
+  try { require.resolve("localtunnel"); return true; } catch (_) {}
+
+  console.log("  [tunnel] Installing localtunnel npm package...");
+  const r = spawnSync("npm", ["install", "localtunnel", "--no-save"], {
+    cwd: ROOT,
+    stdio: "inherit",
+    timeout: 90 * 1000,
+    shell: process.platform === "win32"
+  });
+  if (r.status !== 0) {
+    console.warn("  [tunnel] npm install localtunnel failed (exit " + r.status + ")");
+    return false;
+  }
+  console.log("  [tunnel] localtunnel installed.");
+  return true;
+}
+
+function tryLocaltunnelApi(port, onUrl, onFail) {
+  if (!ensureLocaltunnelPackage()) {
+    onFail(new Error("Could not install localtunnel"));
+    return;
+  }
+
+  try {
+    const localtunnel = require(path.join(ROOT, "node_modules", "localtunnel"));
+    localtunnel({ port })
+      .then((tunnel) => {
+        // Shim so cleanup() can close it
+        proc = { kill: () => { try { tunnel.close(); } catch (_) {} } };
+        tunnel.on("close", () => { state.running = false; state.url = null; proc = null; });
+        tunnel.on("error", (err) => { console.warn("  [tunnel] localtunnel error: " + err.message); });
+        onUrl(tunnel.url, "localtunnel");
+      })
+      .catch((err) => onFail(err));
+  } catch (e) {
+    onFail(e);
+  }
 }
 
 // ── Tunnel starters ───────────────────────────────────────────────────────────
 
-function tryCloudflared(port, onUrl, onFail) {
-  if (!which("cloudflared")) { onFail(); return; }
-
-  proc = spawn("cloudflared", ["tunnel", "--url", "http://localhost:" + port], {
+function tryCloudflared(cfBin, port, onUrl, onFail) {
+  proc = spawn(cfBin, ["tunnel", "--url", "http://localhost:" + port], {
     stdio: ["ignore", "pipe", "pipe"]
   });
 
   proc.on("error", onFail);
-  proc.on("exit", () => { if (!state.url) onFail(); else { state.running = false; state.url = null; } });
+  proc.on("exit", () => {
+    if (!state.url) onFail(new Error("cloudflared exited before emitting URL"));
+    else { state.running = false; state.url = null; }
+  });
 
   function check(data) {
     const url = extractCloudflaredUrl(data.toString());
@@ -59,37 +189,6 @@ function tryCloudflared(port, onUrl, onFail) {
   }
   proc.stdout.on("data", check);
   proc.stderr.on("data", check);
-}
-
-function tryLocaltunnel(port, onUrl, onFail) {
-  // Use npx --yes so no pre-install step is needed; works across environments.
-  console.log("  [tunnel] Spawning localtunnel via npx...");
-  proc = spawn("npx", ["--yes", "localtunnel", "--port", String(port)], {
-    stdio: ["ignore", "pipe", "pipe"],
-    cwd: ROOT
-  });
-
-  proc.on("error", onFail);
-  proc.on("exit", () => { state.running = false; state.url = null; proc = null; });
-
-  function checkForUrl(data) {
-    // localtunnel may print the URL to either stdout or stderr depending on version
-    const url = extractLocaltunnelUrl(data.toString());
-    if (url) onUrl(url, "localtunnel");
-  }
-
-  proc.stdout.on("data", (data) => {
-    checkForUrl(data);
-  });
-
-  proc.stderr.on("data", (data) => {
-    // npx download progress + localtunnel output both come through stderr
-    checkForUrl(data);
-    const text = data.toString();
-    if (text.includes("ERR") || text.includes("error")) {
-      console.warn("  [tunnel] localtunnel stderr: " + text.trim());
-    }
-  });
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -111,7 +210,7 @@ function start(port) {
     }, 120000);
 
     function onUrl(url, provider) {
-      if (state.url) return; // already resolved
+      if (state.url) return;
       clearTimeout(timeout);
       state.running  = true;
       state.url      = url;
@@ -120,18 +219,27 @@ function start(port) {
       if (_resolve) { _resolve({ url }); _resolve = null; }
     }
 
-    function onCloudflaredFail() {
-      // cloudflared not available — try localtunnel
-      console.log("  [tunnel] cloudflared unavailable, trying localtunnel...");
-      tryLocaltunnel(port, onUrl, (err) => {
+    function onCloudflaredFail(err) {
+      console.log("  [tunnel] cloudflared unavailable" +
+        (err ? " (" + err.message + ")" : "") +
+        ", trying localtunnel JS API...");
+      tryLocaltunnelApi(port, onUrl, (ltErr) => {
         clearTimeout(timeout);
-        state.error = err ? err.message : "localtunnel failed";
+        state.error = ltErr ? ltErr.message : "localtunnel failed";
         reject(new Error(state.error));
       });
     }
 
     console.log("  [tunnel] Starting HTTPS tunnel on port " + port + "...");
-    tryCloudflared(port, onUrl, onCloudflaredFail);
+
+    ensureCloudflared().then((cfBin) => {
+      if (!cfBin) {
+        onCloudflaredFail(new Error("not available on this platform"));
+        return;
+      }
+      console.log("  [tunnel] Using cloudflared: " + cfBin);
+      tryCloudflared(cfBin, port, onUrl, onCloudflaredFail);
+    }).catch(onCloudflaredFail);
   });
 }
 
