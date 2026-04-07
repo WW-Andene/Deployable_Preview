@@ -3,7 +3,7 @@ const path = require("path");
 
 const CONFIG_FILE = path.join(__dirname, "..", "deployview.json");
 
-let config = { token: "", repos: [], secrets: {} };
+let config = { token: "", repos: [], secrets: {}, preferences: {} };
 
 function loadConfig() {
   try {
@@ -16,6 +16,7 @@ function loadConfig() {
         if (!Array.isArray(config.repos)) config.repos = [];
         if (typeof config.token !== "string") config.token = "";
         if (typeof config.secrets !== "object" || config.secrets === null) config.secrets = {};
+        if (typeof config.preferences !== "object" || config.preferences === null) config.preferences = {};
       } else {
         throw new Error("Config is not an object");
       }

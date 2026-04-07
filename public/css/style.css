@@ -2013,10 +2013,26 @@ button:disabled, button[disabled] {
   margin-top: calc(var(--sp) * 2);
   margin-bottom: var(--sp);
 }
+.settings-chip-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .settings-add-row {
   display: flex;
   gap: 6px;
   align-items: center;
+}
+.settings-bulk {
+  background: var(--sf1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  padding: calc(var(--sp) * 2);
+}
+.settings-bulk-textarea {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
 }
 .settings-url {
   font-family: var(--font-mono);
