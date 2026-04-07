@@ -358,6 +358,7 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
 .status-running  { background: var(--run); box-shadow: 0 0 8px var(--run-dim), 0 0 2px var(--run); animation: pulse 2.5s infinite; }
 .status-stopped  { background: var(--stop); }
 .status-queued   { background: var(--accent); opacity: 0.5; animation: pulse 2s infinite; }
+.status-cancelled { background: var(--stop); }
 /* APK modal shorthand dot classes */
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .dot.ok       { background: var(--ok); box-shadow: 0 0 6px var(--ok-dim); }

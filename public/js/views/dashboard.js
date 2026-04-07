@@ -117,7 +117,9 @@ DV.views.dashboard = function(app) {
             ]));
 
             var statusParts = [];
-            if (bs.status === "queued") {
+            if (bs.status === "cancelled") {
+              statusParts.push(el("span", {}, "Cancelled"));
+            } else if (bs.status === "queued") {
               statusParts.push(el("span", {}, "Queued..."));
             } else if (bs.status === "building") {
               statusParts.push(el("span", {}, branchMode === "server" ? "Starting..." : "Building..."));
@@ -144,6 +146,14 @@ DV.views.dashboard = function(app) {
             row.appendChild(el("div", { c: "branch-status-text flex-row gap-6 items-center flex-wrap" }, statusParts));
 
             var actions = el("div", { c: "branch-actions" });
+            if (bs.status === "building" || bs.status === "queued") {
+              actions.appendChild(el("button", { c: "bd bs", attr: { title: "Cancel build" }, on: { click: function() {
+                api("POST", "/api/cancel/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(function(r) {
+                  if (r.ok) DV.showToast("Build cancelled", "info");
+                  DV.loadRepos();
+                });
+              } } }, "Cancel"));
+            }
             actions.appendChild(el("button", { c: "bg bs", attr: { title: "Rebuild" }, on: { click: function() {
               api("POST", "/api/build/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug));
               DV.loadRepos();

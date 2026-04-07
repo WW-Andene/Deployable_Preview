@@ -276,4 +276,17 @@ function deployBranch(repoConfig, branchConfig) {
   else buildBranch(repoConfig, branchConfig);
 }
 
-module.exports = { buildStatus, branchSlug, getBranchDir, buildKey, buildBranch, startServer, deployBranch, WORKSPACE };
+function cancelBuild(key) {
+  if (buildLocks[key]) {
+    delete buildLocks[key];
+    if (buildStatus[key]) {
+      buildStatus[key].status = "cancelled";
+      buildStatus[key].lastBuild = Date.now();
+    }
+    killServer(key);
+    return true;
+  }
+  return false;
+}
+
+module.exports = { buildStatus, branchSlug, getBranchDir, buildKey, buildBranch, startServer, deployBranch, cancelBuild, WORKSPACE };

@@ -42,6 +42,25 @@ migrateConfig();
 
 const app = express();
 app.use(express.json());
+
+// ── Request logging with timing ──
+if (process.env.LOG_REQUESTS !== "false") {
+  app.use((req, res, next) => {
+    const start = Date.now();
+    const originalEnd = res.end;
+    res.end = function(...args) {
+      const duration = Date.now() - start;
+      const status = res.statusCode;
+      // Only log API requests and slow static requests
+      if (req.url.startsWith("/api") || req.url.startsWith("/mcp") || duration > 500) {
+        console.log("[HTTP] " + req.method + " " + req.url + " " + status + " " + duration + "ms");
+      }
+      originalEnd.apply(res, args);
+    };
+    next();
+  });
+}
+
 app.use(express.static(path.join(__dirname, "..", "public")));
 
 // ── Health check ──

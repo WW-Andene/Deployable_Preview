@@ -7,7 +7,7 @@ const router = express.Router();
 
 const { getConfig, saveConfig, parseEnvVars } = require("../config");
 const { ghApi } = require("../github");
-const { buildStatus, branchSlug, buildKey, getBranchDir, deployBranch } = require("../build");
+const { buildStatus, branchSlug, buildKey, getBranchDir, deployBranch, cancelBuild } = require("../build");
 const { runningServers, killServer } = require("../process");
 const { loadLog, logStreams } = require("../logs");
 const { apkStatus, buildApk, APK_DIR } = require("../apk");
@@ -263,6 +263,19 @@ router.post("/build/:owner/:repo", (req, res) => {
   if (!bc) return res.status(404).json({ error: "Branch config not found" });
   deployBranch(repoConfig, bc);
   res.json({ ok: true, message: (bc.mode === "server" ? "Server restart" : "Build") + " started" });
+});
+
+// Cancel build
+router.post("/cancel/:owner/:repo", (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: "slug query param required" });
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  const cancelled = cancelBuild(key);
+  if (cancelled) {
+    res.json({ ok: true, message: "Build cancelled" });
+  } else {
+    res.json({ ok: false, message: "No active build to cancel" });
+  }
 });
 
 // Status & log

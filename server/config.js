@@ -7,11 +7,39 @@ let config = { token: "", repos: [] };
 
 function loadConfig() {
   try {
-    if (fs.existsSync(CONFIG_FILE)) config = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
-  } catch (e) { console.error("Config load error:", e.message); }
+    if (fs.existsSync(CONFIG_FILE)) {
+      const raw = fs.readFileSync(CONFIG_FILE, "utf8");
+      const parsed = JSON.parse(raw);
+      // Validate basic structure
+      if (typeof parsed === "object" && parsed !== null) {
+        config = parsed;
+        if (!Array.isArray(config.repos)) config.repos = [];
+        if (typeof config.token !== "string") config.token = "";
+      } else {
+        throw new Error("Config is not an object");
+      }
+    }
+  } catch (e) {
+    console.error("Config load error:", e.message);
+    // Try to recover from backup
+    const backupFile = CONFIG_FILE + ".bak";
+    if (fs.existsSync(backupFile)) {
+      console.log("  Attempting recovery from backup...");
+      try {
+        config = JSON.parse(fs.readFileSync(backupFile, "utf8"));
+        console.log("  Recovered from backup.");
+      } catch (_) { console.error("  Backup also corrupt. Starting fresh."); }
+    }
+  }
 }
 
 function saveConfig() {
+  // Write backup first, then main file (atomic-ish save)
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      fs.copyFileSync(CONFIG_FILE, CONFIG_FILE + ".bak");
+    }
+  } catch (_) {}
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
 }
 
