@@ -34,6 +34,7 @@ function cleanup() {
 }
 
 function which(cmd) {
+  if (!/^[a-zA-Z0-9_-]+$/.test(cmd)) return null;
   try {
     return execSync("which " + cmd + " 2>/dev/null", { stdio: ["ignore","pipe","ignore"], timeout: 3000 })
       .toString().trim() || null;

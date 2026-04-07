@@ -243,7 +243,11 @@ router.post("/apk/:owner/:repo", (req, res) => {
   if (apkStatus[key] && apkStatus[key].status === "building") {
     return res.status(409).json({ error: "APK build already in progress" });
   }
-  const workingDir = (req.body && req.body.workingDir) ? req.body.workingDir : ".";
+  let workingDir = (req.body && req.body.workingDir) ? String(req.body.workingDir).trim() : ".";
+  // Sanitize: reject path traversal attempts
+  if (/\.\.[\\/]|[\\/]\.\./.test(workingDir) || /^[\\/]/.test(workingDir)) {
+    return res.status(400).json({ error: "Invalid workingDir — must be a relative path without '..'" });
+  }
   // fire and forget — client polls /api/apk/status
   buildApk(req.params.owner, req.params.repo, slug, workingDir);
   res.json({ ok: true, message: "APK build started" });
