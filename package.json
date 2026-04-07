@@ -29,7 +29,8 @@
     "start": "node server/index.js",
     "start:http": "node server/index.js --no-mcp",
     "mcp": "node server/mcp.js",
-    "start:mcp": "node server/index.js"
+    "start:mcp": "node server/index.js",
+    "postinstall": "node scripts/install-playwright.js"
   },
   "dependencies": {
     "express": "4.22.1"

@@ -29,7 +29,7 @@ DV.views.mcp = function(app) {
       playwrightLabel.className = "mcp-status-meta color-ok";
     } else {
       playwrightDot.className = "dot err";
-      playwrightLabel.textContent = "Playwright not installed — run: npm install playwright";
+      playwrightLabel.textContent = "Playwright not installed — run: npm install playwright && npx playwright install chromium";
       playwrightLabel.className = "mcp-status-meta color-err";
     }
   }).catch(function() {
@@ -48,20 +48,59 @@ DV.views.mcp = function(app) {
     el("pre", { c: "config-text" }, claudeJson)
   ]));
 
-  // Claude Web (Streamable HTTP) connection info
-  var streamUrl = window.location.origin + "/mcp";
-  var streamLabel = el("div", { c: "flex-row" }, [
-    el("div", { c: "config-label" }, "Claude Web (claude.ai) — Streamable HTTP"),
-    el("button", { c: "btn-copy", on: { click: function() { navigator.clipboard.writeText(streamUrl).catch(function(){}); } } }, "Copy")
-  ]);
-  statusPanel.appendChild(el("div", { c: "config-panel" }, [
-    streamLabel,
-    el("div", { c: "config-text-loose" }, [
-      el("div", {}, "Endpoint: " + streamUrl),
-      el("div", {}, "Protocol: MCP Streamable HTTP (JSON-RPC 2.0)"),
-      el("div", { c: "config-hint" }, "In claude.ai → Settings → Integrations, add this URL as an MCP server.")
-    ])
-  ]));
+  // Claude Web (Streamable HTTP) — Tunnel panel
+  var tunnelPanel = el("div", { c: "config-panel" });
+  var tunnelLabelRow = el("div", { c: "flex-row" });
+  tunnelLabelRow.appendChild(el("div", { c: "config-label" }, "Claude Web (claude.ai) \u2014 HTTPS Tunnel"));
+  tunnelPanel.appendChild(tunnelLabelRow);
+
+  var tunnelBody = el("div", { c: "config-text-loose" });
+  tunnelPanel.appendChild(tunnelBody);
+
+  function renderTunnelBody(st) {
+    tunnelBody.innerHTML = "";
+    if (st && st.running && st.url) {
+      // Running — show the live URL and a Stop button
+      var mcpUrl = st.url + "/mcp";
+      tunnelBody.appendChild(el("div", { c: "tunnel-url-row" }, [
+        el("span", { c: "tunnel-url" }, mcpUrl),
+        el("button", { c: "btn-copy", on: { click: function() {
+          navigator.clipboard.writeText(mcpUrl).catch(function(){});
+        } } }, "Copy")
+      ]));
+      tunnelBody.appendChild(el("div", { c: "config-hint" }, "\u2713 Tunnel active via " + (st.provider || "tunnel") + ". Paste the URL above into claude.ai \u2192 Settings \u2192 Integrations."));
+      var stopBtn = el("button", { c: "bg bs tunnel-stop-btn", on: { click: function() {
+        stopBtn.disabled = true; stopBtn.textContent = "Stopping\u2026";
+        fetch("/api/tunnel/stop", { method: "POST" }).then(function() { pollTunnelStatus(); });
+      } } }, "Stop Tunnel");
+      tunnelBody.appendChild(stopBtn);
+    } else {
+      // Not running
+      tunnelBody.appendChild(el("div", {}, "Start an HTTPS tunnel so claude.ai can reach this server."));
+      tunnelBody.appendChild(el("div", { c: "config-hint" }, "Uses cloudflared if installed, otherwise npx localtunnel (no install needed)."));
+      if (st && st.error) {
+        tunnelBody.appendChild(el("div", { c: "config-hint color-err" }, "Last error: " + st.error));
+      }
+      var startBtn = el("button", { c: "bp bs tunnel-start-btn", on: { click: function() {
+        startBtn.disabled = true; startBtn.textContent = "Starting\u2026";
+        fetch("/api/tunnel/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.ok) { pollTunnelStatus(); }
+            else { startBtn.disabled = false; startBtn.textContent = "Start HTTPS Tunnel"; tunnelBody.appendChild(el("div", { c: "config-hint color-err" }, data.error || "Failed")); }
+          })
+          .catch(function(e) { startBtn.disabled = false; startBtn.textContent = "Start HTTPS Tunnel"; });
+      } } }, "Start HTTPS Tunnel");
+      tunnelBody.appendChild(startBtn);
+    }
+  }
+
+  function pollTunnelStatus() {
+    fetch("/api/tunnel/status").then(function(r) { return r.json(); }).then(renderTunnelBody).catch(function(){});
+  }
+
+  pollTunnelStatus();
+  statusPanel.appendChild(tunnelPanel);
 
   // HTTP endpoints reference
   statusPanel.appendChild(el("div", { c: "config-panel mb-0" }, [
