@@ -23,6 +23,82 @@ const { runningServers } = require("./process");
 let _lib = null;          // { launch: fn, type: "playwright"|"puppeteer" }
 let browserInstance = null;
 
+// ── Persistent page sessions ────────────────────────────────────────────────
+// Pages are kept alive across tool calls so state (localStorage, modals, etc.)
+// persists. Keyed by "owner/repo/slug".
+const pageSessions = new Map();
+const SESSION_TTL_MS = 5 * 60 * 1000; // 5 min idle expiry
+
+// Cleanup idle sessions every 60s
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, session] of pageSessions) {
+    if (now - session.lastUsed > SESSION_TTL_MS) {
+      session.page.close().catch(() => {});
+      pageSessions.delete(key);
+      console.log("[mcp-browser] Session expired: " + key);
+    }
+  }
+}, 60 * 1000);
+
+/**
+ * Get or create a persistent page for a preview.
+ * Reuses existing page if viewport matches, otherwise creates new.
+ */
+async function getSessionPage(browser, owner, repo, slug, width, height) {
+  const key = owner + "/" + repo + "/" + slug;
+  const w = width || 1280;
+  const h = height || 720;
+  const url = resolvePreviewUrl(owner, repo, slug);
+
+  const existing = pageSessions.get(key);
+  if (existing) {
+    // Check if page is still alive
+    try {
+      await existing.page.title(); // will throw if closed/crashed
+    } catch (_) {
+      pageSessions.delete(key);
+      return getSessionPage(browser, owner, repo, slug, width, height);
+    }
+
+    // Resize viewport if needed
+    if (existing.width !== w || existing.height !== h) {
+      await setViewport(existing.page, w, h);
+      existing.width = w;
+      existing.height = h;
+    }
+    existing.lastUsed = Date.now();
+    return { page: existing.page, url, isNew: false };
+  }
+
+  // Create new session
+  const page = await newPage(browser);
+  await setViewport(page, w, h);
+  await page.goto(url, { waitUntil: waitUntilIdle(), timeout: 30000 });
+
+  pageSessions.set(key, { page, width: w, height: h, lastUsed: Date.now() });
+  console.log("[mcp-browser] New session: " + key + " (" + w + "x" + h + ")");
+  return { page, url, isNew: true };
+}
+
+function closeSession(owner, repo, slug) {
+  const key = owner + "/" + repo + "/" + slug;
+  const session = pageSessions.get(key);
+  if (session) {
+    session.page.close().catch(() => {});
+    pageSessions.delete(key);
+    return true;
+  }
+  return false;
+}
+
+function closeAllSessions() {
+  for (const [key, session] of pageSessions) {
+    session.page.close().catch(() => {});
+  }
+  pageSessions.clear();
+}
+
 function loadLib() {
   if (_lib) return _lib;
 
@@ -258,8 +334,8 @@ async function getBrowser() {
 }
 
 async function closeBrowser() {
+  closeAllSessions();
   if (browserInstance) {
-    // Remote connections use disconnect(), local use close()
     if (typeof browserInstance.disconnect === "function" && getRemoteWSEndpoint()) {
       try { browserInstance.disconnect(); } catch (_) {}
     } else {
@@ -310,45 +386,38 @@ function resolvePreviewUrl(owner, repo, slug, serverPort) {
  */
 async function takeScreenshot(opts) {
   const { owner, repo, slug, width, height, fullPage, selector } = opts;
-  const url = resolvePreviewUrl(owner, repo, slug);
 
   if (!hasPlaywright()) {
-    return { error: "No browser available — server is still setting one up, try again in a moment.", url };
+    return { error: "No browser available — server is still setting one up, try again in a moment." };
   }
 
   const browser = await getBrowser();
-  const page = await newPage(browser);
-  try {
-    await setViewport(page, width || 1280, height || 720);
-    await page.goto(url, { waitUntil: waitUntilIdle(), timeout: 30000 });
+  const { page, url } = await getSessionPage(browser, owner, repo, slug, width, height);
 
-    let buf;
-    if (selector) {
-      const el = await page.$(selector);
-      if (el) {
-        buf = await el.screenshot({ type: "png" });
-      } else {
-        buf = await page.screenshot({ type: "png", fullPage: !!fullPage });
-      }
+  let buf;
+  if (selector) {
+    const el = await page.$(selector);
+    if (el) {
+      buf = await el.screenshot({ type: "png" });
     } else {
       buf = await page.screenshot({ type: "png", fullPage: !!fullPage });
     }
-
-    const base64 = buf.toString("base64");
-    const title = await page.title();
-    const viewport = getViewport(page);
-
-    return {
-      base64,
-      mimeType: "image/png",
-      width: viewport.width,
-      height: viewport.height,
-      title,
-      url
-    };
-  } finally {
-    await page.close();
+  } else {
+    buf = await page.screenshot({ type: "png", fullPage: !!fullPage });
   }
+
+  const base64 = buf.toString("base64");
+  const title = await page.title();
+  const viewport = getViewport(page);
+
+  return {
+    base64,
+    mimeType: "image/png",
+    width: viewport.width,
+    height: viewport.height,
+    title,
+    url
+  };
 }
 
 // ── DOM Inspection (accessibility tree) ──────────────────────────────────────
@@ -360,84 +429,76 @@ async function takeScreenshot(opts) {
  */
 async function inspectDOM(opts) {
   const { owner, repo, slug, selector } = opts;
-  const url = resolvePreviewUrl(owner, repo, slug);
 
   if (!hasPlaywright()) {
-    // Fallback: fetch HTML and return raw structure
+    const url = resolvePreviewUrl(owner, repo, slug);
     return await fetchDOMFallback(url, selector);
   }
 
   const browser = await getBrowser();
-  const page = await newPage(browser);
+  const { page, url } = await getSessionPage(browser, owner, repo, slug);
+
+  let snapshot = null;
   try {
-    await page.goto(url, { waitUntil: waitUntilIdle(), timeout: 30000 });
-
-    let snapshot = null;
-    try {
-      if (page.accessibility && typeof page.accessibility.snapshot === "function") {
-        snapshot = await page.accessibility.snapshot();
-      }
-    } catch (_) {}
-
-    // Also get computed styles for the target selector if provided
-    let elementInfo = null;
-    if (selector) {
-      elementInfo = await page.evaluate((sel) => {
-        const el = document.querySelector(sel);
-        if (!el) return null;
-        const rect = el.getBoundingClientRect();
-        const styles = window.getComputedStyle(el);
-        return {
-          tagName: el.tagName.toLowerCase(),
-          id: el.id,
-          className: el.className,
-          textContent: el.textContent.slice(0, 500),
-          innerHTML: el.innerHTML.slice(0, 2000),
-          rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-          computedStyles: {
-            display: styles.display,
-            position: styles.position,
-            color: styles.color,
-            backgroundColor: styles.backgroundColor,
-            fontSize: styles.fontSize,
-            fontFamily: styles.fontFamily,
-            margin: styles.margin,
-            padding: styles.padding,
-            border: styles.border,
-            visibility: styles.visibility,
-            opacity: styles.opacity,
-            overflow: styles.overflow
-          },
-          childCount: el.children.length,
-          attributes: Array.from(el.attributes).map(a => ({ name: a.name, value: a.value }))
-        };
-      }, selector);
+    if (page.accessibility && typeof page.accessibility.snapshot === "function") {
+      snapshot = await page.accessibility.snapshot();
     }
+  } catch (_) {}
 
-    // Get page metadata
-    const metadata = await page.evaluate(() => ({
-      title: document.title,
-      charset: document.characterSet,
-      doctype: document.doctype ? document.doctype.name : null,
-      bodyClasses: document.body.className,
-      elementCount: document.querySelectorAll("*").length,
-      linkCount: document.querySelectorAll("a").length,
-      imageCount: document.querySelectorAll("img").length,
-      formCount: document.querySelectorAll("form").length,
-      buttonCount: document.querySelectorAll("button").length,
-      inputCount: document.querySelectorAll("input, textarea, select").length,
-      scriptCount: document.querySelectorAll("script").length,
-      styleSheetCount: document.styleSheets.length,
-      viewportWidth: window.innerWidth,
-      viewportHeight: window.innerHeight,
-      scrollWidth: document.documentElement.scrollWidth,
-      scrollHeight: document.documentElement.scrollHeight
-    }));
-
-    return { accessibilityTree: snapshot, elementInfo, metadata, url };
-  } finally {
-    await page.close();
+  let elementInfo = null;
+  if (selector) {
+    elementInfo = await page.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return null;
+      const rect = el.getBoundingClientRect();
+      const styles = window.getComputedStyle(el);
+      return {
+        tagName: el.tagName.toLowerCase(),
+        id: el.id,
+        className: el.className,
+        textContent: el.textContent.slice(0, 500),
+        innerHTML: el.innerHTML.slice(0, 2000),
+        rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        computedStyles: {
+          display: styles.display,
+          position: styles.position,
+          color: styles.color,
+          backgroundColor: styles.backgroundColor,
+          fontSize: styles.fontSize,
+          fontFamily: styles.fontFamily,
+          margin: styles.margin,
+          padding: styles.padding,
+          border: styles.border,
+          visibility: styles.visibility,
+          opacity: styles.opacity,
+          overflow: styles.overflow
+        },
+        childCount: el.children.length,
+        attributes: Array.from(el.attributes).map(a => ({ name: a.name, value: a.value }))
+      };
+    }, selector);
   }
+
+  const metadata = await page.evaluate(() => ({
+    title: document.title,
+    charset: document.characterSet,
+    doctype: document.doctype ? document.doctype.name : null,
+    bodyClasses: document.body.className,
+    elementCount: document.querySelectorAll("*").length,
+    linkCount: document.querySelectorAll("a").length,
+    imageCount: document.querySelectorAll("img").length,
+    formCount: document.querySelectorAll("form").length,
+    buttonCount: document.querySelectorAll("button").length,
+    inputCount: document.querySelectorAll("input, textarea, select").length,
+    scriptCount: document.querySelectorAll("script").length,
+    styleSheetCount: document.styleSheets.length,
+    viewportWidth: window.innerWidth,
+    viewportHeight: window.innerHeight,
+    scrollWidth: document.documentElement.scrollWidth,
+    scrollHeight: document.documentElement.scrollHeight
+  }));
+
+  return { accessibilityTree: snapshot, elementInfo, metadata, url };
 }
 
 // Fallback DOM fetch (no Playwright)
@@ -509,117 +570,107 @@ async function captureConsole(opts) {
  * @returns {{ success: boolean, screenshot?: string }}
  */
 async function interact(opts) {
-  const { owner, repo, slug, action, selector, value, x, y } = opts;
-  const url = resolvePreviewUrl(owner, repo, slug);
+  const { owner, repo, slug, action, selector, value, x, y, width, height } = opts;
 
   if (!hasPlaywright()) {
-    return { error: "No browser available — server is still setting one up, try again in a moment.", url };
+    return { error: "No browser available — server is still setting one up, try again in a moment." };
   }
 
   const browser = await getBrowser();
-  const page = await newPage(browser);
-  try {
-    await setViewport(page, 1280, 720);
-    await page.goto(url, { waitUntil: waitUntilIdle(), timeout: 30000 });
+  const { page, url } = await getSessionPage(browser, owner, repo, slug, width, height);
 
-    let result = { success: true, action, url };
+  let result = { success: true, action, url };
 
-    switch (action) {
-      case "click":
-        if (selector) {
-          await page.click(selector);
-        } else if (x !== undefined && y !== undefined) {
-          await page.mouse.click(x, y);
-        }
-        result.clicked = selector || (x + "," + y);
-        break;
-
-      case "type":
-        if (!selector) throw new Error("selector required for type action");
+  switch (action) {
+    case "click":
+      if (selector) {
         await page.click(selector);
-        if (typeof page.fill === "function") {
-          await page.fill(selector, value || "");
+      } else if (x !== undefined && y !== undefined) {
+        await page.mouse.click(x, y);
+      }
+      result.clicked = selector || (x + "," + y);
+      break;
+
+    case "type":
+      if (!selector) throw new Error("selector required for type action");
+      await page.click(selector);
+      if (typeof page.fill === "function") {
+        await page.fill(selector, value || "");
+      } else {
+        await page.evaluate(function(sel) { document.querySelector(sel).value = ""; }, selector);
+        await page.type(selector, value || "");
+      }
+      result.typed = value;
+      result.into = selector;
+      break;
+
+    case "select":
+      if (!selector) throw new Error("selector required for select action");
+      if (typeof page.selectOption === "function") {
+        await page.selectOption(selector, value || "");
+      } else {
+        await page.select(selector, value || "");
+      }
+      result.selected = value;
+      result.from = selector;
+      break;
+
+    case "scroll":
+      await page.evaluate((scrollY) => {
+        window.scrollBy(0, scrollY);
+      }, parseInt(value) || 500);
+      result.scrolledBy = parseInt(value) || 500;
+      break;
+
+    case "hover":
+      if (selector) {
+        await page.hover(selector);
+      } else if (x !== undefined && y !== undefined) {
+        await page.mouse.move(x, y);
+      }
+      result.hoveredOn = selector || (x + "," + y);
+      break;
+
+    case "navigate":
+      if (value) {
+        var navUrl;
+        if (value.startsWith("/") && !value.startsWith("//")) {
+          navUrl = url.replace(/\/preview\/.*$/, "") + value;
         } else {
-          // Puppeteer: clear then type
-          await page.evaluate(function(sel) { document.querySelector(sel).value = ""; }, selector);
-          await page.type(selector, value || "");
+          navUrl = url + value;
         }
-        result.typed = value;
-        result.into = selector;
-        break;
-
-      case "select":
-        if (!selector) throw new Error("selector required for select action");
-        if (typeof page.selectOption === "function") {
-          await page.selectOption(selector, value || "");
-        } else {
-          await page.select(selector, value || "");
-        }
-        result.selected = value;
-        result.from = selector;
-        break;
-
-      case "scroll":
-        await page.evaluate((scrollY) => {
-          window.scrollBy(0, scrollY);
-        }, parseInt(value) || 500);
-        result.scrolledBy = parseInt(value) || 500;
-        break;
-
-      case "hover":
-        if (selector) {
-          await page.hover(selector);
-        } else if (x !== undefined && y !== undefined) {
-          await page.mouse.move(x, y);
-        }
-        result.hoveredOn = selector || (x + "," + y);
-        break;
-
-      case "navigate":
-        if (value) {
-          // Only allow navigation within the local preview (prevent SSRF)
-          var navUrl;
-          if (value.startsWith("/") && !value.startsWith("//")) {
-            navUrl = url.replace(/\/preview\/.*$/, "") + value;
-          } else {
-            navUrl = url + value;
-          }
-          // Validate: only allow navigation to our own previews (local or tunnel)
-          try {
-            var parsed = new URL(navUrl);
-            var baseUrl = new URL(url);
-            if (parsed.origin !== baseUrl.origin) {
-              throw new Error("Navigation restricted to preview origin only");
-            }
-          } catch (parseErr) {
-            if (parseErr.message.includes("restricted")) throw parseErr;
+        try {
+          var parsed = new URL(navUrl);
+          var baseUrl = new URL(url);
+          if (parsed.origin !== baseUrl.origin) {
             throw new Error("Navigation restricted to preview origin only");
           }
-          await page.goto(navUrl, { waitUntil: waitUntilIdle(), timeout: 30000 });
+        } catch (parseErr) {
+          if (parseErr.message.includes("restricted")) throw parseErr;
+          throw new Error("Navigation restricted to preview origin only");
         }
-        result.navigatedTo = value;
-        break;
+        await page.goto(navUrl, { waitUntil: waitUntilIdle(), timeout: 30000 });
+      }
+      result.navigatedTo = value;
+      break;
 
-      default:
-        throw new Error("Unknown action: " + action + ". Supported: click, type, select, scroll, hover, navigate");
-    }
-
-    // Wait a moment for any animations/updates
-    await new Promise((r) => setTimeout(r, 500));
-
-    // Take a screenshot after the action
-    const screenshotBuf = await page.screenshot({ type: "png" });
-    result.screenshot = {
-      base64: screenshotBuf.toString("base64"),
-      mimeType: "image/png"
-    };
-    result.pageTitle = await page.title();
-    result.currentUrl = page.url();
-
-    return result;
-  } finally {
-    await page.close();
+    default:
+      throw new Error("Unknown action: " + action + ". Supported: click, type, select, scroll, hover, navigate");
   }
+
+  // Wait a moment for any animations/updates
+  await new Promise((r) => setTimeout(r, 500));
+
+  // Take a screenshot after the action
+  const screenshotBuf = await page.screenshot({ type: "png" });
+  result.screenshot = {
+    base64: screenshotBuf.toString("base64"),
+    mimeType: "image/png"
+  };
+  result.pageTitle = await page.title();
+  result.currentUrl = page.url();
+
+  return result;
 }
 
 // ── List deployed previews ───────────────────────────────────────────────────
@@ -656,5 +707,7 @@ module.exports = {
   interact,
   listPreviews,
   closeBrowser,
+  closeSession,
+  closeAllSessions,
   hasPlaywright
 };

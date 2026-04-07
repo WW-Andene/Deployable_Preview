@@ -98,7 +98,7 @@ const TOOLS = [
   },
   {
     name: "interact",
-    description: "Perform an action on a deployed preview — click buttons, type text, scroll, hover, or navigate. Returns a screenshot after the action.",
+    description: "Perform an action on a deployed preview — click buttons, type text, scroll, hover, or navigate. Returns a screenshot after the action. Sessions persist across calls (state like modals, localStorage is preserved).",
     inputSchema: {
       type: "object",
       properties: {
@@ -109,7 +109,9 @@ const TOOLS = [
         selector: { type: "string", description: "CSS selector of the target element" },
         value:    { type: "string", description: "Value for type/select/scroll/navigate actions" },
         x:        { type: "number", description: "X coordinate for click/hover (alternative to selector)" },
-        y:        { type: "number", description: "Y coordinate for click/hover (alternative to selector)" }
+        y:        { type: "number", description: "Y coordinate for click/hover (alternative to selector)" },
+        width:    { type: "number", description: "Viewport width in pixels (default: 1280)" },
+        height:   { type: "number", description: "Viewport height in pixels (default: 720)" }
       },
       required: ["owner", "repo", "slug", "action"]
     }
@@ -165,6 +167,18 @@ const TOOLS = [
         slug:  { type: "string", description: "Branch slug" }
       },
       required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "reset_session",
+    description: "Reset the persistent browser session for a preview. Use this to clear page state (localStorage, cookies, modals) and start fresh. If no owner/repo/slug given, resets all sessions.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string", description: "Repository owner" },
+        repo:  { type: "string", description: "Repository name" },
+        slug:  { type: "string", description: "Branch slug" }
+      }
     }
   },
   {
@@ -325,6 +339,20 @@ async function handleTool(name, args) {
           text: log || "No build log available for " + key
         }]
       };
+    }
+
+    case "reset_session": {
+      if (args.owner && args.repo && args.slug) {
+        const closed = browser.closeSession(args.owner, args.repo, args.slug);
+        return {
+          content: [{ type: "text", text: closed
+            ? "Session reset for " + args.owner + "/" + args.repo + "/" + args.slug
+            : "No active session for " + args.owner + "/" + args.repo + "/" + args.slug
+          }]
+        };
+      }
+      browser.closeAllSessions();
+      return { content: [{ type: "text", text: "All browser sessions reset." }] };
     }
 
     case "web_fetch": {
