@@ -75,6 +75,11 @@ function getViewport(page) {
   return { width: 1280, height: 720 };
 }
 
+// Playwright uses "networkidle", Puppeteer uses "networkidle0"
+function waitUntilIdle() {
+  return _lib && _lib.type === "puppeteer" ? "networkidle0" : "networkidle";
+}
+
 function hasPlaywright() {
   return !!loadLib();
 }
@@ -160,7 +165,7 @@ async function takeScreenshot(opts) {
   const page = await browser.newPage();
   try {
     await setViewport(page, width || 1280, height || 720);
-    await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+    await page.goto(url, { waitUntil: waitUntilIdle(), timeout: 30000 });
 
     let buf;
     if (selector) {
@@ -210,7 +215,7 @@ async function inspectDOM(opts) {
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
-    await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+    await page.goto(url, { waitUntil: waitUntilIdle(), timeout: 30000 });
 
     let snapshot = null;
     try {
@@ -328,7 +333,7 @@ async function captureConsole(opts) {
       errors.push({ type: "network", url: req.url(), failure: req.failure(), timestamp: Date.now() });
     });
 
-    await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+    await page.goto(url, { waitUntil: waitUntilIdle(), timeout: 30000 });
 
     // Wait for specified duration to collect console output
     const waitMs = Math.min((duration || 3) * 1000, 30000);
@@ -360,7 +365,7 @@ async function interact(opts) {
   const page = await browser.newPage();
   try {
     await setViewport(page, 1280, 720);
-    await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+    await page.goto(url, { waitUntil: waitUntilIdle(), timeout: 30000 });
 
     let result = { success: true, action, url };
 
@@ -433,7 +438,7 @@ async function interact(opts) {
           } catch (parseErr) {
             throw new Error("Navigation restricted to local previews only");
           }
-          await page.goto(navUrl, { waitUntil: "networkidle", timeout: 30000 });
+          await page.goto(navUrl, { waitUntil: waitUntilIdle(), timeout: 30000 });
         }
         result.navigatedTo = value;
         break;
