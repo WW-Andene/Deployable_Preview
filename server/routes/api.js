@@ -72,16 +72,18 @@ router.get("/token", (req, res) => {
 // ── Secrets / Keys management ────────────────────────────────────────────────
 // Suggested keys with hints (but any key is allowed)
 const SUGGESTED_KEYS = [
-  { key: "GITHUB_TOKEN",    label: "GitHub Token",         hint: "Personal Access Token with repo + workflow scope", link: "https://github.com/settings/tokens/new?scopes=repo,workflow&description=DeployView" },
-  { key: "NGROK_AUTHTOKEN", label: "ngrok Auth Token",     hint: "Free at ngrok.com \u2014 enables HTTPS tunnels", link: "https://dashboard.ngrok.com/get-started/your-authtoken" },
-  { key: "WEBHOOK_SECRET",  label: "Webhook Secret",       hint: "GitHub webhook HMAC verification (optional)" },
-  { key: "OPENAI_API_KEY",  label: "OpenAI API Key",       hint: "For AI-powered features in your apps", link: "https://platform.openai.com/api-keys" },
-  { key: "ANTHROPIC_API_KEY", label: "Anthropic API Key",  hint: "Claude API access for your apps", link: "https://console.anthropic.com/settings/keys" },
-  { key: "VERCEL_TOKEN",    label: "Vercel Token",         hint: "For Vercel API integrations" },
-  { key: "SUPABASE_KEY",    label: "Supabase Key",         hint: "Supabase project API key" },
-  { key: "DATABASE_URL",    label: "Database URL",         hint: "PostgreSQL / MySQL connection string" },
-  { key: "STRIPE_SECRET_KEY", label: "Stripe Secret Key",  hint: "For payment integrations", link: "https://dashboard.stripe.com/apikeys" },
-  { key: "RESEND_API_KEY",  label: "Resend API Key",       hint: "For email sending", link: "https://resend.com/api-keys" },
+  { key: "GITHUB_TOKEN",       label: "GitHub Token",         hint: "Personal Access Token with repo + workflow scope", link: "https://github.com/settings/tokens/new?scopes=repo,workflow&description=DeployView" },
+  { key: "NGROK_AUTHTOKEN",    label: "ngrok Auth Token",     hint: "Free at ngrok.com \u2014 enables HTTPS tunnels", link: "https://dashboard.ngrok.com/get-started/your-authtoken" },
+  { key: "BROWSERLESS_API_KEY",label: "Browserless API Key",  hint: "Remote browser for screenshots on mobile/Android \u2014 free 1k units", link: "https://www.browserless.io/pricing" },
+  { key: "BROWSER_WS_ENDPOINT",label: "Browser WS Endpoint",  hint: "Custom Chrome DevTools WebSocket URL (overrides Browserless)" },
+  { key: "WEBHOOK_SECRET",     label: "Webhook Secret",       hint: "GitHub webhook HMAC verification (optional)" },
+  { key: "OPENAI_API_KEY",     label: "OpenAI API Key",       hint: "For AI-powered features in your apps", link: "https://platform.openai.com/api-keys" },
+  { key: "ANTHROPIC_API_KEY",  label: "Anthropic API Key",    hint: "Claude API access for your apps", link: "https://console.anthropic.com/settings/keys" },
+  { key: "VERCEL_TOKEN",       label: "Vercel Token",         hint: "For Vercel API integrations" },
+  { key: "SUPABASE_KEY",       label: "Supabase Key",         hint: "Supabase project API key" },
+  { key: "DATABASE_URL",       label: "Database URL",         hint: "PostgreSQL / MySQL connection string" },
+  { key: "STRIPE_SECRET_KEY",  label: "Stripe Secret Key",    hint: "For payment integrations", link: "https://dashboard.stripe.com/apikeys" },
+  { key: "RESEND_API_KEY",     label: "Resend API Key",       hint: "For email sending", link: "https://resend.com/api-keys" },
 ];
 const SAFE_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 

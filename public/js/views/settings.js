@@ -203,23 +203,48 @@ DV.views.settings = function(app) {
   /* ══════════ Section: Browser Engine ══════════ */
   var browserBody = el("div", {});
   function refreshBrowser() {
-    fetch("/api/browser/status").then(function(r) { return r.json(); }).then(function(st) {
+    Promise.all([
+      fetch("/api/browser/status").then(function(r) { return r.json(); }),
+      fetch("/api/secrets").then(function(r) { return r.json(); })
+    ]).then(function(results) {
+      var st = results[0];
+      var secrets = results[1];
+      var hasBrowserlessKey = secrets.some(function(s) { return s.key === "BROWSERLESS_API_KEY" && s.hasValue; });
+      var hasWSEndpoint = secrets.some(function(s) { return s.key === "BROWSER_WS_ENDPOINT" && s.hasValue; });
+      var hasRemote = hasBrowserlessKey || hasWSEndpoint;
+
       browserBody.innerHTML = "";
-      browserBody.appendChild(el("div", { c: "settings-hint mb-8" }, "Browser engine for MCP screenshots & interaction tools."));
+      browserBody.appendChild(el("div", { c: "settings-hint mb-8" }, "Browser for MCP screenshots & interaction. On mobile, use Remote (Browserless)."));
 
       var options = [
-        { id: "off", label: "Off", desc: "No browser \u2014 screenshots disabled" },
-        { id: "playwright", label: "Playwright", desc: "Recommended \u2014 richer API, auto-downloads Chromium" },
-        { id: "puppeteer", label: "Puppeteer", desc: "Fallback \u2014 lighter, uses system Chrome" }
+        { id: "off", label: "Off" },
+        { id: "remote", label: "Remote" },
+        { id: "playwright", label: "Playwright" },
+        { id: "puppeteer", label: "Puppeteer" }
       ];
+      // Determine current mode
+      var currentMode = st.preferred || "off";
+      if (hasRemote && currentMode !== "off") currentMode = "remote";
+
       var chips = el("div", { c: "settings-chip-row" });
       options.forEach(function(opt) {
-        var isActive = st.preferred === opt.id;
+        var isActive = currentMode === opt.id;
         chips.appendChild(el("div", { c: "chip" + (isActive ? " on" : ""), on: { click: function() {
           if (opt.id === "off") {
             fetch("/api/browser/disable", { method: "POST" }).then(function() {
               DV.showToast("Browser disabled", "info"); refreshBrowser();
             });
+          } else if (opt.id === "remote") {
+            if (!hasRemote) {
+              DV.showToast("Add BROWSERLESS_API_KEY in Keys section first (free at browserless.io)", "error");
+              return;
+            }
+            // Just enable puppeteer-core (used for remote connect)
+            fetch("/api/browser/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ engine: "puppeteer" }) })
+              .then(function(r) { return r.json(); })
+              .then(function(r) {
+                DV.showToast("Remote browser active", "success"); refreshBrowser();
+              });
           } else {
             var chip = this; chip.textContent = "Setting up\u2026";
             fetch("/api/browser/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ engine: opt.id }) })
@@ -234,13 +259,20 @@ DV.views.settings = function(app) {
       });
       browserBody.appendChild(chips);
 
-      if (st.active && st.ready) {
+      // Status display
+      if (hasRemote && currentMode === "remote") {
+        var provider = hasBrowserlessKey ? "Browserless.io" : "Custom WebSocket";
+        browserBody.appendChild(el("div", { c: "flex-row gap-6 items-center mt-8" }, [
+          el("span", { c: "pill pill-ok" }, "remote"),
+          el("span", { c: "settings-hint" }, provider + " \u2014 screenshots work from anywhere, no local Chrome needed")
+        ]));
+      } else if (st.active && st.ready) {
         browserBody.appendChild(el("div", { c: "flex-row gap-6 items-center mt-8" }, [
           el("span", { c: "pill pill-ok" }, st.active),
-          el("span", { c: "settings-hint" }, "Ready \u2014 screenshots & interaction enabled")
+          el("span", { c: "settings-hint" }, "Ready \u2014 local browser")
         ]));
       } else if (st.preferred !== "off") {
-        browserBody.appendChild(el("div", { c: "settings-hint mt-8 color-tx3" }, "Not yet set up \u2014 click a provider above to install"));
+        browserBody.appendChild(el("div", { c: "settings-hint mt-8 color-tx3" }, "Not ready \u2014 select a mode above"));
       }
     }).catch(function() { browserBody.textContent = "Could not load."; });
   }

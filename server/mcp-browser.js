@@ -81,15 +81,72 @@ function waitUntilIdle() {
 }
 
 function hasPlaywright() {
-  return !!loadLib();
+  // Returns true if any browser method is available (local or remote)
+  return !!loadLib() || !!getRemoteWSEndpoint();
+}
+
+// ── Remote browser (Browserless.io / any CDP WebSocket) ─────────────────────
+function getRemoteWSEndpoint() {
+  // Check config secrets, then env vars
+  let token = "";
+  let url = "";
+  try {
+    const { getSecret } = require("./config");
+    token = getSecret("BROWSERLESS_API_KEY", "BROWSERLESS_API_KEY");
+    url = getSecret("BROWSER_WS_ENDPOINT", "BROWSER_WS_ENDPOINT");
+  } catch (_) {
+    token = process.env.BROWSERLESS_API_KEY || "";
+    url = process.env.BROWSER_WS_ENDPOINT || "";
+  }
+  // Custom WebSocket URL takes priority
+  if (url) return url;
+  // Browserless.io token → construct endpoint
+  if (token) return "wss://production-sfo.browserless.io?token=" + token;
+  return null;
 }
 
 async function getBrowser() {
   if (browserInstance && browserInstance.isConnected()) return browserInstance;
 
+  const remoteWS = getRemoteWSEndpoint();
+
+  // ── Mode 1: Remote browser via WebSocket (Browserless.io etc.) ──
+  if (remoteWS) {
+    // Prefer puppeteer-core for CDP connect (lighter, always works)
+    let pptr = null;
+    try { pptr = require("puppeteer-core"); } catch (_) {
+      try { pptr = require("puppeteer"); } catch (_2) {}
+    }
+    if (pptr) {
+      // Force puppeteer as the active lib for compat helpers
+      if (!_lib || _lib.type !== "puppeteer") {
+        _lib = { type: "puppeteer", launch: (opts) => pptr.launch(opts) };
+      }
+      browserInstance = await pptr.connect({ browserWSEndpoint: remoteWS });
+      return browserInstance;
+    }
+    // Fallback: Playwright connectOverCDP
+    let pw = null;
+    try { pw = require("playwright"); } catch (_) {
+      try { pw = require("playwright-core"); } catch (_2) {}
+    }
+    if (pw) {
+      if (!_lib || _lib.type !== "playwright") {
+        _lib = { type: "playwright", launch: (opts) => pw.chromium.launch(opts) };
+      }
+      browserInstance = await pw.chromium.connectOverCDP(remoteWS);
+      return browserInstance;
+    }
+    throw new Error("No browser library available for remote connection. Install puppeteer-core or playwright.");
+  }
+
+  // ── Mode 2: Local browser launch ──
   const lib = loadLib();
   if (!lib) throw new Error(
-    "No browser library available. Run: npm install playwright && npx playwright install chromium"
+    "No browser available. Options:\n" +
+    "  1. Add BROWSERLESS_API_KEY in Settings (free at browserless.io)\n" +
+    "  2. Add BROWSER_WS_ENDPOINT for any remote Chrome\n" +
+    "  3. Install Playwright or Puppeteer locally"
   );
 
   const opts = {
@@ -129,7 +186,15 @@ async function getBrowser() {
 }
 
 async function closeBrowser() {
-  if (browserInstance) { await browserInstance.close().catch(() => {}); browserInstance = null; }
+  if (browserInstance) {
+    // Remote connections use disconnect(), local use close()
+    if (typeof browserInstance.disconnect === "function" && getRemoteWSEndpoint()) {
+      try { browserInstance.disconnect(); } catch (_) {}
+    } else {
+      await browserInstance.close().catch(() => {});
+    }
+    browserInstance = null;
+  }
 }
 
 // ── Resolve preview URL from owner/repo/slug ─────────────────────────────────
