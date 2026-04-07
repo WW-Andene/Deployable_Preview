@@ -151,9 +151,9 @@ function getViewport(page) {
   return { width: 1280, height: 720 };
 }
 
-// Playwright uses "networkidle", Puppeteer uses "networkidle0"
+// Playwright uses "networkidle", Puppeteer uses "networkidle2" (allows 2 open connections — needed for Firebase/websocket apps)
 function waitUntilIdle() {
-  return _lib && _lib.type === "puppeteer" ? "networkidle0" : "networkidle";
+  return _lib && _lib.type === "puppeteer" ? "networkidle2" : "domcontentloaded";
 }
 
 function hasPlaywright() {
@@ -754,7 +754,7 @@ async function runTest(opts) {
   try {
     await setViewport(page, 1280, 900);
     console.log("[mcp-browser] Loading test harness: " + testUrl);
-    await page.goto(testUrl, { waitUntil: "networkidle0", timeout: 30000 });
+    await page.goto(testUrl, { waitUntil: "networkidle2", timeout: 30000 });
 
     // Click the appropriate test button
     const btnText = (mode === "quick") ? "Quick Test" : "Run Full Test";
