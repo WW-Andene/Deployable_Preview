@@ -687,6 +687,23 @@ router.post("/config/import", (req, res) => {
 });
 
 // ── Browser setup ─────────────────────────────────────────────────────────
+// Test remote browser connection
+router.get("/browser/test", async (req, res) => {
+  try {
+    const mcpBrowser = require("../mcp-browser");
+    // Force a fresh connection
+    await mcpBrowser.closeBrowser();
+    const browser = await mcpBrowser.takeScreenshot({ owner: "test", repo: "test", slug: "test", width: 320, height: 240 });
+    if (browser.error) {
+      res.json({ ok: false, error: browser.error });
+    } else {
+      res.json({ ok: true, title: browser.title, width: browser.width, height: browser.height, screenshotBytes: (browser.base64 || "").length });
+    }
+  } catch (e) {
+    res.json({ ok: false, error: e.message, stack: e.stack ? e.stack.split("\n").slice(0, 5) : [] });
+  }
+});
+
 router.get("/browser/status", (req, res) => {
   try {
     const { getActiveBrowser } = require("../browser-setup");

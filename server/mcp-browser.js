@@ -106,12 +106,19 @@ function getRemoteWSEndpoint() {
 }
 
 async function getBrowser() {
-  if (browserInstance && browserInstance.isConnected()) return browserInstance;
+  // Clear dead instances
+  if (browserInstance) {
+    try {
+      if (!browserInstance.isConnected()) { browserInstance = null; }
+    } catch (_) { browserInstance = null; }
+  }
+  if (browserInstance) return browserInstance;
 
   const remoteWS = getRemoteWSEndpoint();
 
   // ── Mode 1: Remote browser via WebSocket (Browserless.io etc.) ──
   if (remoteWS) {
+    console.log("[mcp-browser] Connecting to remote browser: " + remoteWS.replace(/token=[^&]+/, "token=***"));
     // Prefer puppeteer-core for CDP connect (lighter, always works)
     let pptr = null;
     try { pptr = require("puppeteer-core"); } catch (_) {
@@ -122,8 +129,14 @@ async function getBrowser() {
       if (!_lib || _lib.type !== "puppeteer") {
         _lib = { type: "puppeteer", launch: (opts) => pptr.launch(opts) };
       }
-      browserInstance = await pptr.connect({ browserWSEndpoint: remoteWS });
-      return browserInstance;
+      try {
+        browserInstance = await pptr.connect({ browserWSEndpoint: remoteWS });
+        console.log("[mcp-browser] Remote browser connected via Puppeteer");
+        return browserInstance;
+      } catch (e) {
+        console.error("[mcp-browser] Remote connect failed:", e.message);
+        throw new Error("Remote browser connection failed: " + e.message);
+      }
     }
     // Fallback: Playwright connectOverCDP
     let pw = null;
@@ -134,8 +147,14 @@ async function getBrowser() {
       if (!_lib || _lib.type !== "playwright") {
         _lib = { type: "playwright", launch: (opts) => pw.chromium.launch(opts) };
       }
-      browserInstance = await pw.chromium.connectOverCDP(remoteWS);
-      return browserInstance;
+      try {
+        browserInstance = await pw.chromium.connectOverCDP(remoteWS);
+        console.log("[mcp-browser] Remote browser connected via Playwright CDP");
+        return browserInstance;
+      } catch (e) {
+        console.error("[mcp-browser] Remote CDP connect failed:", e.message);
+        throw new Error("Remote browser connection failed: " + e.message);
+      }
     }
     throw new Error("No browser library available for remote connection. Install puppeteer-core or playwright.");
   }
