@@ -75,7 +75,11 @@ router.use("/preview/:owner/:repo/:branchSlug", (req, res, next) => {
   if (srv && srv.status === "running") { res.removeHeader("X-Frame-Options"); return proxyTo(srv.port, req, res, previewPrefix(req)); }
 
   const outDir = findOutputDir(req.params.owner, req.params.repo, slug);
-  if (!outDir || !fs.existsSync(outDir)) return res.status(404).send("Not built yet.");
+  if (!outDir || !fs.existsSync(outDir)) {
+    const st = buildStatus[key];
+    const statusText = st ? st.status : "idle";
+    return res.status(404).send('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Not Built Yet</title><style>body{background:#090a10;color:#e6e1d5;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}div{text-align:center}h1{color:#d4a030;font-size:18px}p{color:#9e9890;font-size:13px;margin:8px 0}.status{display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-family:monospace;background:rgba(212,160,48,.1);color:#d4a030;border:1px solid rgba(212,160,48,.2)}</style><meta http-equiv="refresh" content="5"></head><body><div><h1>Not Built Yet</h1><p>Status: <span class="status">' + statusText + '</span></p><p>This page auto-refreshes every 5 seconds.</p></div></body></html>');
+  }
   const reqPath = req.path;
   if (reqPath === "/" || reqPath === "" || (!path.extname(reqPath) && !reqPath.includes("."))) return serveIndex(outDir, res, previewPrefix(req));
   res.removeHeader("X-Frame-Options");
@@ -101,7 +105,11 @@ router.use("/preview/:owner/:repo/:branchSlug/*", (req, res) => {
   }
 
   const outDir = findOutputDir(req.params.owner, req.params.repo, slug);
-  if (!outDir) return res.status(404).send("Not built yet.");
+  if (!outDir) {
+    const st = buildStatus[key];
+    const statusText = st ? st.status : "idle";
+    return res.status(404).send('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Not Built Yet</title><style>body{background:#090a10;color:#e6e1d5;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}div{text-align:center}h1{color:#d4a030;font-size:18px}p{color:#9e9890;font-size:13px;margin:8px 0}.status{display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-family:monospace;background:rgba(212,160,48,.1);color:#d4a030;border:1px solid rgba(212,160,48,.2)}</style><meta http-equiv="refresh" content="5"></head><body><div><h1>Not Built Yet</h1><p>Status: <span class="status">' + statusText + '</span></p><p>This page auto-refreshes every 5 seconds.</p></div></body></html>');
+  }
   serveIndex(outDir, res, previewPrefix(req));
 });
 
