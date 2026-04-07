@@ -153,10 +153,53 @@ async function setupTermux() {
   warn("Neither Playwright nor Puppeteer could launch system Chromium. Browser tools unavailable.");
 }
 
+// ── Auto-detect Chrome binary from Playwright installs ──────────────────────
+function findPlaywrightChrome() {
+  const p = require("path");
+  const dirs = ["/opt/pw-browsers"];
+  for (const base of dirs) {
+    try {
+      const fs = require("fs");
+      if (!fs.existsSync(base)) continue;
+      const subs = fs.readdirSync(base).filter(d => d.startsWith("chromium-")).sort().reverse();
+      for (const d of subs) {
+        for (const rel of ["chrome-linux64/chrome", "chrome-linux/chrome"]) {
+          const full = p.join(base, d, rel);
+          if (fs.existsSync(full)) return full;
+        }
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
 // ── Desktop ───────────────────────────────────────────────────────────────────
 
 async function setupDesktop() {
-  log("Checking Playwright...");
+  // Check user preference
+  let preferred = null;
+  try { preferred = require("./config").getConfig().preferences.browser; } catch (_) {}
+
+  if (preferred === "puppeteer") {
+    log("Preferred engine: Puppeteer");
+    const chromePath = findSystemChromium() || findPlaywrightChrome();
+    if (chromePath) {
+      log("Using Chrome at: " + chromePath);
+      process.env.PUPPETEER_EXECUTABLE_PATH = chromePath;
+      if (await tryPuppeteer(chromePath)) {
+        log("\u2713 Puppeteer working."); activeBrowser = "puppeteer"; return;
+      }
+    }
+    // Try without explicit path (full puppeteer with bundled Chrome)
+    if (await tryPuppeteer()) {
+      log("\u2713 Puppeteer working."); activeBrowser = "puppeteer"; return;
+    }
+    warn("Puppeteer failed. Trying Playwright as fallback...");
+  }
+
+  if (preferred !== "puppeteer") {
+    log("Checking Playwright...");
+  }
   const hasPw = (() => { try { require.resolve("playwright"); return true; } catch (_) { return false; } })();
 
   if (!hasPw) { try { npmInstall("playwright"); } catch (_) {} }
@@ -168,12 +211,16 @@ async function setupDesktop() {
     log("\u2713 Playwright working after browser download."); activeBrowser = "playwright"; return;
   }
 
-  warn("Playwright unavailable. Falling back to Puppeteer...");
-  const hasPptr = (() => { try { require.resolve("puppeteer"); return true; } catch (_) { return false; } })();
-  if (!hasPptr) installPuppeteer();
+  if (preferred !== "puppeteer") {
+    warn("Playwright unavailable. Falling back to Puppeteer...");
+    const chromePath = findSystemChromium() || findPlaywrightChrome();
+    if (chromePath) process.env.PUPPETEER_EXECUTABLE_PATH = chromePath;
+    const hasPptr = (() => { try { require.resolve("puppeteer"); return true; } catch (_) { try { require.resolve("puppeteer-core"); return true; } catch (_2) { return false; } } })();
+    if (!hasPptr) installPuppeteer();
 
-  if (await tryPuppeteer()) {
-    log("\u2713 Puppeteer working."); activeBrowser = "puppeteer"; return;
+    if (await tryPuppeteer(chromePath)) {
+      log("\u2713 Puppeteer working."); activeBrowser = "puppeteer"; return;
+    }
   }
 
   warn("Neither Playwright nor Puppeteer could be set up. Browser tools unavailable.");
