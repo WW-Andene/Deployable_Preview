@@ -85,6 +85,24 @@ function hasPlaywright() {
   return !!loadLib() || !!getRemoteWSEndpoint();
 }
 
+// ── Page factory (sets headers needed for ngrok etc.) ───────────────────────
+async function newPage(browser) {
+  const page = await browser.newPage();
+  // Skip ngrok free-tier interstitial when using remote browser
+  if (getRemoteWSEndpoint()) {
+    if (typeof page.setExtraHTTPHeaders === "function") {
+      await page.setExtraHTTPHeaders({ "ngrok-skip-browser-warning": "true" });
+    } else if (typeof page.setExtraHTTPHeaders !== "function" && page.route) {
+      // Playwright: use route to add header
+      await page.route("**/*", (route) => {
+        const headers = { ...route.request().headers(), "ngrok-skip-browser-warning": "true" };
+        route.continue({ headers });
+      });
+    }
+  }
+  return page;
+}
+
 // ── Remote browser (Browserless.io / any CDP WebSocket) ─────────────────────
 function getRemoteWSEndpoint() {
   // Check config secrets, then env vars
@@ -273,7 +291,7 @@ async function takeScreenshot(opts) {
   }
 
   const browser = await getBrowser();
-  const page = await browser.newPage();
+  const page = await newPage(browser);
   try {
     await setViewport(page, width || 1280, height || 720);
     await page.goto(url, { waitUntil: waitUntilIdle(), timeout: 30000 });
@@ -324,7 +342,7 @@ async function inspectDOM(opts) {
   }
 
   const browser = await getBrowser();
-  const page = await browser.newPage();
+  const page = await newPage(browser);
   try {
     await page.goto(url, { waitUntil: waitUntilIdle(), timeout: 30000 });
 
@@ -429,7 +447,7 @@ async function captureConsole(opts) {
   }
 
   const browser = await getBrowser();
-  const page = await browser.newPage();
+  const page = await newPage(browser);
   const logs = [];
   const errors = [];
 
@@ -473,7 +491,7 @@ async function interact(opts) {
   }
 
   const browser = await getBrowser();
-  const page = await browser.newPage();
+  const page = await newPage(browser);
   try {
     await setViewport(page, 1280, 720);
     await page.goto(url, { waitUntil: waitUntilIdle(), timeout: 30000 });
