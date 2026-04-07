@@ -356,6 +356,7 @@ async function handleTool(name, args) {
     }
 
     case "reset_session": {
+      const browser = getBrowserModule();
       if (args.owner && args.repo && args.slug) {
         const closed = browser.closeSession(args.owner, args.repo, args.slug);
         return {
@@ -370,6 +371,7 @@ async function handleTool(name, args) {
     }
 
     case "run_test": {
+      const browser = getBrowserModule();
       const result = await browser.runTest(args);
       if (result.error) {
         return { content: [{ type: "text", text: "Test error: " + result.error }], isError: true };
