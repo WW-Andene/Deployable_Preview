@@ -4,7 +4,9 @@
  * Tries providers in order, falling back automatically on any failure:
  *   1. cloudflared  — preferred (no account needed, very reliable)
  *                     auto-downloads the binary if not on PATH
- *   2. localtunnel  — JS API via npm package (in dependencies, always present)
+ *   2. ngrok        — requires NGROK_AUTHTOKEN env var; auto-installs @ngrok/ngrok
+ *   3. localtunnel  — JS API via npm package (in dependencies, always present)
+ *                     sends Bypass-Tunnel-Reminder header to skip loca.lt splash
  *
  * Public API:
  *   tunnel.start(port)  → Promise<{ url: string }>
@@ -174,6 +176,67 @@ function tryCloudflared(cfBin, port, onUrl, onFail) {
   });
 }
 
+// ── ngrok ─────────────────────────────────────────────────────────────────────
+
+function installNgrok() {
+  log("Installing @ngrok/ngrok from npm...");
+  const r = spawnSync("npm", ["install", "@ngrok/ngrok", "--save-optional"], {
+    cwd: ROOT, stdio: "inherit", timeout: 90000,
+    shell: process.platform === "win32"
+  });
+  if (r.status !== 0) {
+    warn("npm install @ngrok/ngrok failed (exit " + r.status + ")");
+    return false;
+  }
+  log("@ngrok/ngrok installed.");
+  return true;
+}
+
+function loadNgrok() {
+  const candidates = [
+    path.join(ROOT, "node_modules", "@ngrok", "ngrok"),
+    path.join(ROOT, "..", "node_modules", "@ngrok", "ngrok"),
+    "@ngrok/ngrok",
+  ];
+  for (const c of candidates) {
+    try { return require(c); } catch (_) {}
+  }
+  return null;
+}
+
+function tryNgrok(port, onUrl, onFail) {
+  const token = process.env.NGROK_AUTHTOKEN;
+  if (!token) {
+    onFail(new Error("NGROK_AUTHTOKEN env var not set — skipping ngrok"));
+    return;
+  }
+
+  let ngrok = loadNgrok();
+  if (!ngrok) {
+    warn("@ngrok/ngrok not found — attempting automatic install...");
+    if (installNgrok()) ngrok = loadNgrok();
+  }
+  if (!ngrok) {
+    onFail(new Error("@ngrok/ngrok could not be loaded"));
+    return;
+  }
+
+  ngrok.connect({ addr: port, authtoken: token })
+    .then((url) => {
+      if (!url) { onFail(new Error("ngrok returned no URL")); return; }
+      // Register cleanup
+      const origCleanup = cleanup;
+      proc = {
+        kill: () => {
+          try { ngrok.disconnect(url); } catch (_) {}
+          try { ngrok.kill(); }          catch (_) {}
+        }
+      };
+      onUrl(url, "ngrok");
+    })
+    .catch((err) => onFail(err));
+}
+
 // ── localtunnel resolution ────────────────────────────────────────────────────
 
 function loadLocaltunnel() {
@@ -245,7 +308,7 @@ function tryLocaltunnelApi(port, onUrl, onFail) {
     return;
   }
 
-  lt({ port })
+  lt({ port, request_header: { 'Bypass-Tunnel-Reminder': 'true' } })
     .then((tunnel) => {
       if (!tunnel || !tunnel.url) {
         onFail(new Error("localtunnel connected but returned no URL"));
@@ -289,25 +352,34 @@ function start(port) {
       resolve({ url });
     }
 
-    function onCloudflaredFail(err) {
-      warn("cloudflared unavailable" + (err ? " (" + err.message + ")" : "") + " \u2014 falling back to localtunnel...");
-      tryLocaltunnelApi(port, onUrl, (ltErr) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        const msg = [
-          "All tunnel providers failed.",
-          "  cloudflared: " + (err ? err.message : "unavailable"),
-          "  localtunnel: " + (ltErr ? ltErr.message : "failed"),
-          "",
-          "  Manual fixes:",
-          "    brew install cloudflared   (macOS)",
-          "    pkg install cloudflared    (Termux)",
-          "    npm install localtunnel    (any platform)"
-        ].join("\n");
-        state.error = msg;
-        reject(new Error(msg));
-      });
+    function onLocaltunnelFail(cfErr, ngrokErr, ltErr) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      const msg = [
+        "All tunnel providers failed.",
+        "  cloudflared: " + (cfErr    ? cfErr.message    : "unavailable"),
+        "  ngrok:       " + (ngrokErr ? ngrokErr.message : "unavailable"),
+        "  localtunnel: " + (ltErr    ? ltErr.message    : "failed"),
+        "",
+        "  Manual fixes:",
+        "    brew install cloudflared           (macOS)",
+        "    pkg install cloudflared            (Termux)",
+        "    NGROK_AUTHTOKEN=<token> npm start  (ngrok — get token at ngrok.com)",
+        "    npm install localtunnel            (any platform)"
+      ].join("\n");
+      state.error = msg;
+      reject(new Error(msg));
+    }
+
+    function onNgrokFail(cfErr, ngrokErr) {
+      warn("ngrok unavailable" + (ngrokErr ? " (" + ngrokErr.message + ")" : "") + " \u2014 falling back to localtunnel...");
+      tryLocaltunnelApi(port, onUrl, (ltErr) => onLocaltunnelFail(cfErr, ngrokErr, ltErr));
+    }
+
+    function onCloudflaredFail(cfErr) {
+      warn("cloudflared unavailable" + (cfErr ? " (" + cfErr.message + ")" : "") + " \u2014 falling back to ngrok...");
+      tryNgrok(port, onUrl, (ngrokErr) => onNgrokFail(cfErr, ngrokErr));
     }
 
     log("Starting HTTPS tunnel on port " + port + "...");
