@@ -37,7 +37,8 @@
     "localtunnel": "^2.0.2"
   },
   "optionalDependencies": {
-    "playwright": "^1.40.0"
+    "playwright": "^1.40.0",
+    "puppeteer-core": "^24.0.0"
   },
   "overrides": {
     "path-to-regexp": "0.1.13"
