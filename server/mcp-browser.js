@@ -654,8 +654,22 @@ async function interact(opts) {
       result.navigatedTo = value;
       break;
 
+    case "evaluate":
+      if (!value) throw new Error("value required for evaluate action (JavaScript code to run)");
+      try {
+        // Wrap in async IIFE so user code can use await and statements
+        var wrappedCode = "(async () => { " + value + " })()";
+        var evalResult = await page.evaluate(wrappedCode);
+        result.evaluated = true;
+        result.returnValue = evalResult !== undefined ? JSON.stringify(evalResult) : undefined;
+      } catch (evalErr) {
+        result.evaluated = false;
+        result.evalError = evalErr.message;
+      }
+      break;
+
     default:
-      throw new Error("Unknown action: " + action + ". Supported: click, type, select, scroll, hover, navigate");
+      throw new Error("Unknown action: " + action + ". Supported: click, type, select, scroll, hover, navigate, evaluate");
   }
 
   // Wait a moment for any animations/updates

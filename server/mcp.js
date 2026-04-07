@@ -98,16 +98,16 @@ const TOOLS = [
   },
   {
     name: "interact",
-    description: "Perform an action on a deployed preview — click buttons, type text, scroll, hover, or navigate. Returns a screenshot after the action. Sessions persist across calls (state like modals, localStorage is preserved).",
+    description: "Perform an action on a deployed preview — click buttons, type text, scroll, hover, navigate, or evaluate JS. Returns a screenshot after the action. Sessions persist across calls (state like modals, localStorage is preserved).",
     inputSchema: {
       type: "object",
       properties: {
         owner:    { type: "string", description: "Repository owner" },
         repo:     { type: "string", description: "Repository name" },
         slug:     { type: "string", description: "Branch slug" },
-        action:   { type: "string", enum: ["click", "type", "select", "scroll", "hover", "navigate"], description: "Action to perform" },
+        action:   { type: "string", enum: ["click", "type", "select", "scroll", "hover", "navigate", "evaluate"], description: "Action to perform" },
         selector: { type: "string", description: "CSS selector of the target element" },
-        value:    { type: "string", description: "Value for type/select/scroll/navigate actions" },
+        value:    { type: "string", description: "Value for type/select/scroll/navigate/evaluate actions. For evaluate: JavaScript code to run in page context." },
         x:        { type: "number", description: "X coordinate for click/hover (alternative to selector)" },
         y:        { type: "number", description: "Y coordinate for click/hover (alternative to selector)" },
         width:    { type: "number", description: "Viewport width in pixels (default: 1280)" },
