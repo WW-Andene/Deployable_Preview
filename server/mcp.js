@@ -443,8 +443,10 @@ async function handleMessage(msg) {
 // ── stdio transport ──────────────────────────────────────────────────────────
 
 function startStdioServer() {
-  // Detect whether we are the main entry point (standalone) or embedded in the HTTP server
-  const isStandalone = require.main === module;
+  // Detect whether we should exit when stdin closes:
+  // - Direct execution: node server/mcp.js (require.main === module)
+  // - Via --mcp-only flag: node server/index.js --mcp-only
+  const isStandalone = require.main === module || process.argv.includes("--mcp-only");
 
   const rl = readline.createInterface({ input: process.stdin, terminal: false });
   let buffer = "";
