@@ -1,0 +1,157 @@
+#!/usr/bin/env node
+/**
+ * scripts/postinstall.js — DeployView unified post-install setup
+ *
+ * Runs automatically after every `npm install`.
+ * Never blocks or crashes the install — all failures are warnings only.
+ *
+ * What it does:
+ *   1. Verifies localtunnel loaded correctly (it's in dependencies, should always work)
+ *   2. Downloads Playwright Chromium browser binary (desktop only, skipped on Termux)
+ *   3. Checks git is available (required at runtime — warns now, not at startup)
+ *
+ * Environment flags:
+ *   DEPLOYVIEW_SKIP_POSTINSTALL=1   — skip everything
+ *   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 — skip Playwright binary download
+ */
+
+"use strict";
+
+const { execSync, spawnSync } = require("child_process");
+const path = require("path");
+const os = require("os");
+
+const ROOT = path.join(__dirname, "..");
+const TAG = "[postinstall]";
+
+function log(msg)  { console.log(TAG + " " + msg); }
+function warn(msg) { console.warn(TAG + " ⚠  " + msg); }
+function ok(msg)   { console.log(TAG + " ✓  " + msg); }
+
+// ── Early bail-out ────────────────────────────────────────────────────────────
+
+if (process.env.DEPLOYVIEW_SKIP_POSTINSTALL === "1") {
+  log("DEPLOYVIEW_SKIP_POSTINSTALL=1 — skipping all setup.");
+  process.exit(0);
+}
+
+// Detect Termux / Android
+const isTermux =
+  !!process.env.TERMUX_VERSION ||
+  (process.env.PREFIX || "").includes("com.termux") ||
+  os.platform() === "android";
+
+// ── Step 1: Verify localtunnel ────────────────────────────────────────────────
+
+log("Verifying localtunnel...");
+try {
+  // Clear any stale cache entries
+  Object.keys(require.cache)
+    .filter((k) => k.includes("localtunnel"))
+    .forEach((k) => { delete require.cache[k]; });
+
+  const ltPath = path.join(ROOT, "node_modules", "localtunnel");
+  const mod = require(ltPath);
+  const fn = typeof mod === "function" ? mod
+            : (mod && typeof mod.default === "function") ? mod.default
+            : null;
+
+  if (!fn) {
+    // Edge case: installed but export shape is wrong — reinstall
+    warn("localtunnel found but its export is not callable. Attempting reinstall...");
+    const r = spawnSync("npm", ["install", "localtunnel@latest", "--save"], {
+      cwd: ROOT, stdio: "inherit", timeout: 90000,
+      shell: process.platform === "win32"
+    });
+    if (r.status !== 0) {
+      warn("localtunnel reinstall failed. Tunnel will fall back to cloudflared.");
+    } else {
+      ok("localtunnel reinstalled successfully.");
+    }
+  } else {
+    ok("localtunnel loaded correctly.");
+  }
+} catch (e) {
+  // Shouldn't happen since it's in dependencies, but handle gracefully
+  warn("localtunnel failed to load: " + e.message);
+  warn("Attempting to install localtunnel manually...");
+  const r = spawnSync("npm", ["install", "localtunnel@latest", "--save"], {
+    cwd: ROOT, stdio: "inherit", timeout: 90000,
+    shell: process.platform === "win32"
+  });
+  if (r.status !== 0) {
+    warn("localtunnel install failed. Tunnel will fall back to cloudflared.");
+  } else {
+    ok("localtunnel installed successfully.");
+  }
+}
+
+// ── Step 2: Playwright browser binary ────────────────────────────────────────
+
+if (process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD === "1") {
+  log("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 — skipping Playwright setup.");
+} else if (isTermux) {
+  log("Termux/Android detected — skipping Playwright binary download.");
+  log("  For screenshots, run: pkg install chromium");
+} else {
+  log("Setting up Playwright Chromium browser...");
+
+  // Check whether the playwright package itself was actually installed
+  // (it's optional, so npm may have skipped it)
+  let pwInstalled = false;
+  try {
+    require.resolve("playwright/package.json");
+    pwInstalled = true;
+  } catch (_) {}
+
+  if (!pwInstalled) {
+    log("playwright package not installed (optional dep may have been skipped).");
+    log("  To enable screenshots: npm install playwright");
+  } else {
+    try {
+      execSync("npx playwright install chromium --with-deps", {
+        stdio: "inherit",
+        timeout: 5 * 60 * 1000,
+        cwd: ROOT
+      });
+      ok("Playwright Chromium installed successfully.");
+    } catch (err) {
+      warn("Playwright browser install failed (non-fatal).");
+      warn("  MCP screenshot tools will be unavailable until you run:");
+      warn("  npx playwright install chromium");
+    }
+  }
+}
+
+// ── Step 3: Runtime prerequisite checks ──────────────────────────────────────
+
+log("Checking runtime prerequisites...");
+
+// git
+try {
+  execSync("git --version", { stdio: "pipe", timeout: 5000 });
+  ok("git is available.");
+} catch (_) {
+  warn("git is not installed or not in PATH.");
+  warn("  git is required to clone and update repos.");
+  if (isTermux) {
+    warn("  Fix: pkg install git");
+  } else if (os.platform() === "linux") {
+    warn("  Fix: sudo apt install git  (or equivalent for your distro)");
+  } else if (os.platform() === "darwin") {
+    warn("  Fix: xcode-select --install  (or brew install git)");
+  } else if (os.platform() === "win32") {
+    warn("  Fix: https://git-scm.com/download/win");
+  }
+}
+
+// Node version check (postinstall runs in the same Node, so this is advisory)
+const nodeMajor = parseInt(process.versions.node.split(".")[0], 10);
+if (nodeMajor < 18) {
+  warn("Node.js v" + process.versions.node + " detected. DeployView requires Node 18+.");
+  warn("  Please upgrade: https://nodejs.org/");
+} else {
+  ok("Node.js v" + process.versions.node + " — OK.");
+}
+
+log("Setup complete.");
