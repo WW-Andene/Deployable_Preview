@@ -67,7 +67,7 @@ const TOOLS = [
   },
   {
     name: "screenshot",
-    description: "Take a screenshot of a deployed app preview. Returns a PNG image. Requires Puppeteer to be installed.",
+    description: "Take a screenshot of a deployed app preview. Returns a PNG image. Requires Playwright to be installed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -169,7 +169,7 @@ const TOOLS = [
   },
   {
     name: "web_fetch",
-    description: "Fetch a URL and extract its content. Supports HTML pages (extracts readable text, links, images, headings, meta tags), JSON APIs, and plain text. Use this to read web pages, scrape content, check API responses, or download text data from the internet. Works without Puppeteer. Supports gzip/deflate/brotli compression transparently.",
+    description: "Fetch a URL and extract its content. Supports HTML pages (extracts readable text, links, images, headings, meta tags), JSON APIs, and plain text. Use this to read web pages, scrape content, check API responses, or download text data from the internet. Works without Playwright. Supports gzip/deflate/brotli compression transparently.",
     inputSchema: {
       type: "object",
       properties: {
@@ -206,7 +206,7 @@ async function handleTool(name, args) {
           text: JSON.stringify({
             previews,
             totalRepos: config.repos.length,
-            puppeteerAvailable: browser.hasPuppeteer(),
+            playwrightAvailable: browser.hasPlaywright(),
             hint: previews.length === 0
               ? "No previews are deployed. Add a repo and build a branch first via the DeployView dashboard."
               : "Use the owner, repo, and slug from a preview to take screenshots, inspect, or interact."

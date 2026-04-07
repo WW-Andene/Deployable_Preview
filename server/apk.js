@@ -112,7 +112,6 @@ function makeWorkflow(appId, appName, buildCommand, outputDir) {
     "      - uses: actions/setup-node@v4",
     "        with:",
     "          node-version: '20'",
-    "          cache: 'npm'",
     "",
     "      - uses: actions/setup-java@v4",
     "        with:",

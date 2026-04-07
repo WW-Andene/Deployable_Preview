@@ -308,7 +308,7 @@ const mcpBrowser = require("../mcp-browser");
 router.get("/mcp/tools", (req, res) => {
   res.json({
     tools: mcpTools,
-    puppeteerAvailable: mcpBrowser.hasPuppeteer(),
+    playwrightAvailable: mcpBrowser.hasPlaywright(),
     hint: "POST /api/mcp/call with { tool, args } to invoke a tool"
   });
 });

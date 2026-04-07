@@ -3,7 +3,7 @@
  *
  * Provides screenshot capture, DOM inspection, element interaction,
  * and console log collection by controlling a headless Chromium instance
- * via Puppeteer (when available) or falling back to a fetch + DOM snapshot
+ * via Playwright (when available) or falling back to a fetch + DOM snapshot
  * approach for environments without a browser.
  *
  * All methods operate against deployed preview URLs served by DeployView.
@@ -16,22 +16,22 @@ const path = require("path");
 const { buildStatus, branchSlug, buildKey } = require("./build");
 const { runningServers } = require("./process");
 
-// ── Puppeteer lazy loader ────────────────────────────────────────────────────
-let puppeteer = null;
+// ── Playwright lazy loader ───────────────────────────────────────────────────
+let pw = null;
 let browserInstance = null;
 
-function hasPuppeteer() {
-  if (puppeteer) return true;
-  try { puppeteer = require("puppeteer"); return true; } catch (e) {
-    try { puppeteer = require("puppeteer-core"); return true; } catch (e2) { return false; }
+function hasPlaywright() {
+  if (pw) return true;
+  try { pw = require("playwright"); return true; } catch (e) {
+    try { pw = require("playwright-core"); return true; } catch (e2) { return false; }
   }
 }
 
 async function getBrowser() {
   if (browserInstance && browserInstance.isConnected()) return browserInstance;
-  if (!hasPuppeteer()) throw new Error("Puppeteer is not installed. Run: npm install puppeteer");
-  browserInstance = await puppeteer.launch({
-    headless: "new",
+  if (!hasPlaywright()) throw new Error("Playwright is not installed. Run: npm install playwright");
+  browserInstance = await pw.chromium.launch({
+    headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
   });
   return browserInstance;
@@ -66,25 +66,31 @@ async function takeScreenshot(opts) {
   const { owner, repo, slug, width, height, fullPage, selector } = opts;
   const url = resolvePreviewUrl(owner, repo, slug);
 
-  if (!hasPuppeteer()) {
-    return { error: "Puppeteer not installed. Run: npm install puppeteer", url };
+  if (!hasPlaywright()) {
+    return { error: "Playwright not installed. Run: npm install playwright", url };
   }
 
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
-    await page.setViewport({ width: width || 1280, height: height || 720 });
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
+    await page.setViewportSize({ width: width || 1280, height: height || 720 });
+    await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
 
-    let screenshotOpts = { encoding: "base64", type: "png", fullPage: !!fullPage };
+    let buf;
     if (selector) {
       const el = await page.$(selector);
-      if (el) screenshotOpts.clip = await el.boundingBox();
+      if (el) {
+        buf = await el.screenshot({ type: "png" });
+      } else {
+        buf = await page.screenshot({ type: "png", fullPage: !!fullPage });
+      }
+    } else {
+      buf = await page.screenshot({ type: "png", fullPage: !!fullPage });
     }
 
-    const base64 = await page.screenshot(screenshotOpts);
+    const base64 = buf.toString("base64");
     const title = await page.title();
-    const viewport = page.viewport();
+    const viewport = page.viewportSize();
 
     return {
       base64,
@@ -110,7 +116,7 @@ async function inspectDOM(opts) {
   const { owner, repo, slug, selector } = opts;
   const url = resolvePreviewUrl(owner, repo, slug);
 
-  if (!hasPuppeteer()) {
+  if (!hasPlaywright()) {
     // Fallback: fetch HTML and return raw structure
     return await fetchDOMFallback(url, selector);
   }
@@ -118,7 +124,7 @@ async function inspectDOM(opts) {
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
+    await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
 
     const snapshot = await page.accessibility.snapshot();
 
@@ -183,7 +189,7 @@ async function inspectDOM(opts) {
   }
 }
 
-// Fallback DOM fetch (no Puppeteer)
+// Fallback DOM fetch (no Playwright)
 async function fetchDOMFallback(url, selector) {
   return new Promise((resolve, reject) => {
     http.get(url, (res) => {
@@ -192,7 +198,7 @@ async function fetchDOMFallback(url, selector) {
       res.on("end", () => {
         resolve({
           html: body.slice(0, 10000),
-          note: "Puppeteer not available — returning raw HTML. Install puppeteer for full DOM inspection.",
+          note: "Playwright not available — returning raw HTML. Install playwright for full DOM inspection.",
           url
         });
       });
@@ -211,8 +217,8 @@ async function captureConsole(opts) {
   const { owner, repo, slug, duration } = opts;
   const url = resolvePreviewUrl(owner, repo, slug);
 
-  if (!hasPuppeteer()) {
-    return { error: "Puppeteer not installed. Run: npm install puppeteer", url };
+  if (!hasPlaywright()) {
+    return { error: "Playwright not installed. Run: npm install playwright", url };
   }
 
   const browser = await getBrowser();
@@ -228,10 +234,10 @@ async function captureConsole(opts) {
       errors.push({ message: err.message, stack: err.stack, timestamp: Date.now() });
     });
     page.on("requestfailed", (req) => {
-      errors.push({ type: "network", url: req.url(), failure: req.failure().errorText, timestamp: Date.now() });
+      errors.push({ type: "network", url: req.url(), failure: req.failure(), timestamp: Date.now() });
     });
 
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
+    await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
 
     // Wait for specified duration to collect console output
     const waitMs = Math.min((duration || 3) * 1000, 30000);
@@ -255,15 +261,15 @@ async function interact(opts) {
   const { owner, repo, slug, action, selector, value, x, y } = opts;
   const url = resolvePreviewUrl(owner, repo, slug);
 
-  if (!hasPuppeteer()) {
-    return { error: "Puppeteer not installed. Run: npm install puppeteer", url };
+  if (!hasPlaywright()) {
+    return { error: "Playwright not installed. Run: npm install playwright", url };
   }
 
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
-    await page.setViewport({ width: 1280, height: 720 });
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
 
     let result = { success: true, action, url };
 
@@ -280,14 +286,14 @@ async function interact(opts) {
       case "type":
         if (!selector) throw new Error("selector required for type action");
         await page.click(selector);
-        await page.type(selector, value || "");
+        await page.fill(selector, value || "");
         result.typed = value;
         result.into = selector;
         break;
 
       case "select":
         if (!selector) throw new Error("selector required for select action");
-        await page.select(selector, value || "");
+        await page.selectOption(selector, value || "");
         result.selected = value;
         result.from = selector;
         break;
@@ -315,7 +321,7 @@ async function interact(opts) {
           if (!navUrl.startsWith("http://127.0.0.1:")) {
             throw new Error("Navigation restricted to local previews only");
           }
-          await page.goto(navUrl, { waitUntil: "networkidle2", timeout: 30000 });
+          await page.goto(navUrl, { waitUntil: "networkidle", timeout: 30000 });
         }
         result.navigatedTo = value;
         break;
@@ -328,8 +334,9 @@ async function interact(opts) {
     await new Promise((r) => setTimeout(r, 500));
 
     // Take a screenshot after the action
+    const screenshotBuf = await page.screenshot({ type: "png" });
     result.screenshot = {
-      base64: await page.screenshot({ encoding: "base64", type: "png" }),
+      base64: screenshotBuf.toString("base64"),
       mimeType: "image/png"
     };
     result.pageTitle = await page.title();
@@ -375,5 +382,5 @@ module.exports = {
   interact,
   listPreviews,
   closeBrowser,
-  hasPuppeteer
+  hasPlaywright
 };
