@@ -130,7 +130,12 @@ async function getBrowser() {
         _lib = { type: "puppeteer", launch: (opts) => pptr.launch(opts) };
       }
       try {
-        browserInstance = await pptr.connect({ browserWSEndpoint: remoteWS });
+        // Add connection timeout to prevent hanging
+        const connectPromise = pptr.connect({ browserWSEndpoint: remoteWS });
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Remote browser connection timed out after 15s")), 15000)
+        );
+        browserInstance = await Promise.race([connectPromise, timeoutPromise]);
         console.log("[mcp-browser] Remote browser connected via Puppeteer");
         return browserInstance;
       } catch (e) {
@@ -148,7 +153,11 @@ async function getBrowser() {
         _lib = { type: "playwright", launch: (opts) => pw.chromium.launch(opts) };
       }
       try {
-        browserInstance = await pw.chromium.connectOverCDP(remoteWS);
+        const connectPromise = pw.chromium.connectOverCDP(remoteWS);
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Remote browser CDP connection timed out after 15s")), 15000)
+        );
+        browserInstance = await Promise.race([connectPromise, timeoutPromise]);
         console.log("[mcp-browser] Remote browser connected via Playwright CDP");
         return browserInstance;
       } catch (e) {
@@ -237,6 +246,11 @@ function resolvePreviewUrl(owner, repo, slug, serverPort) {
         return tunnelStatus.url + previewPath;
       }
     } catch (_) {}
+    // Remote browser needs a public URL — localhost won't work
+    throw new Error(
+      "Remote browser (Browserless) is configured but no tunnel URL is available. " +
+      "The remote Chrome cannot reach localhost. Ensure ngrok/localtunnel is running."
+    );
   }
 
   const port = serverPort || process.env.PORT || 3000;
