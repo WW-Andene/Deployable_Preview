@@ -30,13 +30,14 @@
     "start:http": "node server/index.js --no-mcp",
     "mcp": "node server/mcp.js",
     "start:mcp": "node server/index.js",
-    "postinstall": "node scripts/install-playwright.js"
+    "postinstall": "node scripts/postinstall.js"
   },
   "dependencies": {
-    "express": "4.22.1"
+    "express": "^4.18.2",
+    "localtunnel": "^2.0.2"
   },
   "optionalDependencies": {
-    "playwright": "1.59.1"
+    "playwright": "^1.40.0"
   },
   "overrides": {
     "path-to-regexp": "0.1.13"
