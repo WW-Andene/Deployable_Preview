@@ -69,6 +69,15 @@ DV.views.topbar = function(app) {
 
   var right = el("div", { c: "topbar-right" });
   if (S.view === "dashboard") {
+    right.appendChild(el("button", { c: "bg bs", attr: { title: "Clean orphaned workspace dirs" }, on: { click: function() {
+      fetch("/api/workspace/stats").then(function(r) { return r.json(); }).then(function(stats) {
+        if (stats.orphaned === 0) { DV.showToast("No orphaned directories to clean", "info"); return; }
+        if (!confirm("Remove " + stats.orphaned + " orphaned workspace dir(s)?")) return;
+        fetch("/api/workspace/cleanup", { method: "POST" }).then(function(r) { return r.json(); }).then(function(r) {
+          DV.showToast("Cleaned " + r.removed + " dir(s)", "success");
+        });
+      });
+    } } }, "Cleanup"));
     right.appendChild(el("button", { c: "bg bs", attr: { title: "Rebuild all branches" }, on: { click: function() {
       if (!confirm("Rebuild all branches?")) return;
       for (var ri = 0; ri < S.repos.length; ri++) {

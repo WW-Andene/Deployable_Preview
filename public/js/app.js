@@ -36,7 +36,8 @@ var S = {
   apkModal: null,
   mcpTools: [],
   mcpAction: null,
-  mcpResult: null
+  mcpResult: null,
+  dashboardFilter: ""
 };
 
 var _dropdownCloseHandler = null;

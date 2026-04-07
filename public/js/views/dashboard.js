@@ -44,6 +44,21 @@ DV.views.dashboard = function(app) {
         else if (bs[k].status === "error") errorCount++;
       }
     }
+    // Search/filter bar
+    if (S.repos.length > 2) {
+      var searchRow = el("div", { c: "flex-row gap-8 mb-12" });
+      var searchInput = document.createElement("input");
+      searchInput.className = "flex-1";
+      searchInput.placeholder = "Filter repos & branches...";
+      searchInput.value = S.dashboardFilter || "";
+      searchInput.addEventListener("input", function(e) {
+        S.dashboardFilter = e.target.value;
+        DV.render();
+      });
+      searchRow.appendChild(searchInput);
+      ct.appendChild(searchRow);
+    }
+
     var statsBar = el("div", { c: "stats-bar" });
     statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num" }, S.repos.length), el("span", { c: "stat-label" }, "Repos")]));
     statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num" }, totalBranches), el("span", { c: "stat-label" }, "Branches")]));
@@ -52,7 +67,18 @@ DV.views.dashboard = function(app) {
     if (errorCount) statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num color-err" }, errorCount), el("span", { c: "stat-label" }, "Failed")]));
     ct.appendChild(statsBar);
 
-    for (var i = 0; i < S.repos.length; i++) {
+    var filteredRepos = S.repos;
+    if (S.dashboardFilter) {
+      var q = S.dashboardFilter.toLowerCase();
+      filteredRepos = S.repos.filter(function(r) {
+        if ((r.owner + "/" + r.repo).toLowerCase().indexOf(q) !== -1) return true;
+        var bs = r.branchStatuses || {};
+        for (var k in bs) { if ((bs[k].branch || k).toLowerCase().indexOf(q) !== -1) return true; }
+        return false;
+      });
+    }
+
+    for (var i = 0; i < filteredRepos.length; i++) {
       (function(repo) {
         var card = el("div", { c: "card" });
 

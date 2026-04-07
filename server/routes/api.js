@@ -490,6 +490,51 @@ router.get("/fetch", async (req, res) => {
   }
 });
 
+// ── Workspace cleanup ─────────────────────────────────────────────────────
+router.get("/workspace/stats", (req, res) => {
+  const { WORKSPACE, buildStatus: bs, buildKey, branchSlug } = require("../build");
+  try {
+    const dirs = fs.readdirSync(WORKSPACE);
+    const config = getConfig();
+    // Determine which dirs are still active
+    const activeKeys = new Set();
+    for (const repo of config.repos) {
+      for (const bc of repo.activeBranches || []) {
+        activeKeys.add(repo.owner + "__" + repo.repo + "__" + branchSlug(bc));
+      }
+    }
+    const stats = dirs.map((d) => {
+      const fullPath = path.join(WORKSPACE, d);
+      const isActive = activeKeys.has(d);
+      return { name: d, active: isActive };
+    });
+    res.json({ total: dirs.length, active: stats.filter((s) => s.active).length, orphaned: stats.filter((s) => !s.active).length, dirs: stats });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post("/workspace/cleanup", (req, res) => {
+  const { WORKSPACE, branchSlug } = require("../build");
+  const config = getConfig();
+  const activeKeys = new Set();
+  for (const repo of config.repos) {
+    for (const bc of repo.activeBranches || []) {
+      activeKeys.add(repo.owner + "__" + repo.repo + "__" + branchSlug(bc));
+    }
+  }
+  try {
+    const dirs = fs.readdirSync(WORKSPACE);
+    let removed = 0;
+    for (const d of dirs) {
+      if (!activeKeys.has(d)) {
+        const fullPath = path.join(WORKSPACE, d);
+        exec("rm -rf " + JSON.stringify(fullPath), () => {});
+        removed++;
+      }
+    }
+    res.json({ ok: true, removed, remaining: dirs.length - removed });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Config export/import ──────────────────────────────────────────────────
 router.get("/config/export", (req, res) => {
   const config = getConfig();
