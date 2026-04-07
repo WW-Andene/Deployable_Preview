@@ -28,17 +28,11 @@ function extractCloudflaredUrl(text) {
   return m ? m[0] : null;
 }
 
-function extractLocaltunnelUrl(text) {
-  const m = text.match(/https:\/\/[a-zA-Z0-9-]+\.loca\.lt/);
-  return m ? m[0] : null;
-}
-
 function cleanup() {
   if (proc) { try { proc.kill("SIGKILL"); } catch (_) {} proc = null; }
 }
 
 function which(cmd) {
-  if (!/^[a-zA-Z0-9_-]+$/.test(cmd)) return null;
   try {
     return execSync("which " + cmd + " 2>/dev/null", {
       stdio: ["ignore", "pipe", "ignore"], timeout: 3000
@@ -131,8 +125,23 @@ async function ensureCloudflared() {
 
 // ── localtunnel JS API (fallback) ─────────────────────────────────────────────
 
+function requireLocaltunnel() {
+  // Try standard resolution first (works if already in node_modules)
+  try { return require("localtunnel"); } catch (_) {}
+
+  // Clear require cache entry in case a failed attempt is cached
+  const keys = Object.keys(require.cache).filter((k) => k.includes("localtunnel"));
+  keys.forEach((k) => { delete require.cache[k]; });
+
+  // Explicit path relative to project root (covers Termux and other non-standard envs)
+  const explicit = path.join(ROOT, "node_modules", "localtunnel");
+  try { return require(explicit); } catch (_) {}
+
+  return null;
+}
+
 function ensureLocaltunnelPackage() {
-  try { require.resolve("localtunnel"); return true; } catch (_) {}
+  if (requireLocaltunnel()) return true;
 
   console.log("  [tunnel] Installing localtunnel npm package...");
   const r = spawnSync("npm", ["install", "localtunnel", "--no-save"], {
@@ -155,8 +164,13 @@ function tryLocaltunnelApi(port, onUrl, onFail) {
     return;
   }
 
+  const localtunnel = requireLocaltunnel();
+  if (!localtunnel) {
+    onFail(new Error("localtunnel installed but still cannot be required — check npm logs"));
+    return;
+  }
+
   try {
-    const localtunnel = require(path.join(ROOT, "node_modules", "localtunnel"));
     localtunnel({ port })
       .then((tunnel) => {
         // Shim so cleanup() can close it
