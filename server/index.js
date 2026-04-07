@@ -1,3 +1,11 @@
+// ── MCP stdio mode (checked first to avoid loading HTTP modules / timers) ──
+if (process.argv.includes("--mcp-only")) {
+  // Run as pure MCP stdio server (no HTTP)
+  const { startStdioServer } = require("./mcp");
+  startStdioServer();
+  return;
+}
+
 const express = require("express");
 const path = require("path");
 const { execSync } = require("child_process");
@@ -8,14 +16,6 @@ const { deployBranch } = require("./build");
 const apiRoutes = require("./routes/api");
 const previewRoutes = require("./routes/preview");
 const { setupStreamableHTTP } = require("./mcp-streamable-http");
-
-// ── MCP stdio mode ──
-if (process.argv.includes("--mcp-only")) {
-  // Run as pure MCP stdio server (no HTTP)
-  const { startStdioServer } = require("./mcp");
-  startStdioServer();
-  return;
-}
 
 // ── Startup validation ──
 (function checkPrerequisites() {
