@@ -107,5 +107,8 @@ DV.views.addRepo = function(app) {
     ]));
   }
   app.appendChild(w);
+
+  // Auto-focus the repo input on mount
+  setTimeout(function() { ri.focus(); }, 50);
 };
 })();

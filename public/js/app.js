@@ -36,7 +36,8 @@ var S = {
   apkModal: null,
   mcpTools: [],
   mcpAction: null,
-  mcpResult: null
+  mcpResult: null,
+  dashboardFilter: ""
 };
 
 var _dropdownCloseHandler = null;
@@ -92,7 +93,18 @@ function startStatusPoll() {
           var bs = repos[i].branchStatuses;
           for (var b in bs) {
             var oldS = old.branchStatuses && old.branchStatuses[b];
-            if (oldS && oldS.status === "building" && bs[b].status !== "building") changed = true;
+            if (!oldS) continue;
+            if (oldS.status === "building" && bs[b].status === "ready") {
+              changed = true;
+              var dur = bs[b].duration ? " in " + bs[b].duration + "s" : "";
+              showToast((oldS.branch || b) + " build succeeded" + dur, "success");
+            } else if (oldS.status === "building" && bs[b].status === "running") {
+              changed = true;
+              showToast((oldS.branch || b) + " server started", "success");
+            } else if (oldS.status === "building" && bs[b].status === "error") {
+              changed = true;
+              showToast((oldS.branch || b) + " build failed", "error");
+            }
           }
         }
       }
@@ -102,7 +114,7 @@ function startStatusPoll() {
         if (updated) S.activeRepo = updated;
       }
       if (changed) { S.refreshKey++; render(); }
-    });
+    }).catch(function() { /* ignore poll errors */ });
   }, 5000);
 }
 
@@ -182,12 +194,26 @@ function loadMcpTools() {
   }).catch(function() {});
 }
 
+// ── Toast notification system ──
+var _toastContainer = null;
+function showToast(message, type) {
+  if (!_toastContainer) {
+    _toastContainer = document.createElement("div");
+    _toastContainer.className = "toast-container";
+    document.body.appendChild(_toastContainer);
+  }
+  var toast = el("div", { c: "toast toast-" + (type || "info") }, message);
+  _toastContainer.appendChild(toast);
+  setTimeout(function() { toast.classList.add("toast-exit"); }, 3500);
+  setTimeout(function() { if (toast.parentNode) toast.remove(); }, 4000);
+}
+
 // Expose globals for view modules
 window.DV = {
   S: S, el: el, api: api, statusClass: statusClass, render: render,
   loadRepos: loadRepos, startStatusPoll: startStatusPoll,
   fetchAvailableBranches: fetchAvailableBranches, addBranchToRepo: addBranchToRepo,
-  loadMcpTools: loadMcpTools,
+  loadMcpTools: loadMcpTools, showToast: showToast,
   views: views, VIEW_PRESETS: VIEW_PRESETS,
   getDropdownHandler: function() { return _dropdownCloseHandler; },
   setDropdownHandler: function(h) { _dropdownCloseHandler = h; }

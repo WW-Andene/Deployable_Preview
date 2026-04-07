@@ -122,10 +122,13 @@ DV.views.modals = function(app) {
       logDiv.textContent = t || "No log yet.";
       if (autoScroll) logDiv.scrollTop = logDiv.scrollHeight;
     });
-    if (S._logSSE) S._logSSE.close();
+    if (S._logSSE) { S._logSSE.close(); S._logSSE = null; }
     S._logSSE = new EventSource("/api/logs/stream?key=" + encodeURIComponent(lm.key));
     S._logSSE.onmessage = function(e) {
       try { var data = JSON.parse(e.data); if (data.msg) { logDiv.textContent += data.msg + "\n"; if (autoScroll) logDiv.scrollTop = logDiv.scrollHeight; } } catch (err) {}
+    };
+    S._logSSE.onerror = function() {
+      if (S._logSSE) { S._logSSE.close(); S._logSSE = null; }
     };
   }
 
@@ -243,7 +246,8 @@ DV.views.modals = function(app) {
                   if (S._apkSSE) { S._apkSSE.close(); S._apkSSE = null; }
                   refreshApkStatus();
                 }
-              });
+              })
+              .catch(function() { /* ignore transient poll errors */ });
           }, 3000);
         })
         .catch(function(err) { apkLogDiv.textContent = "Failed to start: " + err.message; e.target.disabled = false; e.target.textContent = "Build APK"; });

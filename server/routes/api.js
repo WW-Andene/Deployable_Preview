@@ -1,15 +1,45 @@
 const express = require("express");
 const { exec } = require("child_process");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const router = express.Router();
 
 const { getConfig, saveConfig, parseEnvVars } = require("../config");
 const { ghApi } = require("../github");
-const { buildStatus, branchSlug, buildKey, getBranchDir, deployBranch } = require("../build");
+const { buildStatus, branchSlug, buildKey, getBranchDir, deployBranch, cancelBuild } = require("../build");
 const { runningServers, killServer } = require("../process");
 const { loadLog, logStreams } = require("../logs");
 const { apkStatus, buildApk, APK_DIR } = require("../apk");
+
+// ── Simple rate limiting ─────────────────────────────────────────────────────
+const _rateLimits = {};
+function rateLimit(windowMs, maxRequests) {
+  return function(req, res, next) {
+    const ip = req.ip || req.connection.remoteAddress || "unknown";
+    const now = Date.now();
+    if (!_rateLimits[ip] || _rateLimits[ip].reset < now) {
+      _rateLimits[ip] = { count: 1, reset: now + windowMs };
+    } else {
+      _rateLimits[ip].count++;
+    }
+    if (_rateLimits[ip].count > maxRequests) {
+      return res.status(429).json({ error: "Too many requests, try again later" });
+    }
+    next();
+  };
+}
+// Clean up stale entries every 5 minutes
+setInterval(function() {
+  var now = Date.now();
+  for (var ip in _rateLimits) { if (_rateLimits[ip].reset < now) delete _rateLimits[ip]; }
+}, 5 * 60 * 1000);
+
+// Apply rate limiting to mutation endpoints
+router.post("/token", rateLimit(60000, 10));
+router.post("/repos", rateLimit(60000, 20));
+router.post("/build/:owner/:repo", rateLimit(30000, 5));
+router.post("/webhook", rateLimit(5000, 30));
 
 // ── Input validation helper ──────────────────────────────────────────────────
 // Reject owner/repo names with characters that could break shell commands or paths
@@ -182,6 +212,16 @@ router.put("/repos/:owner/:repo/branch", (req, res) => {
 // Webhook
 router.post("/webhook", (req, res) => {
   const config = getConfig();
+  // Verify webhook signature if WEBHOOK_SECRET is set
+  const secret = process.env.WEBHOOK_SECRET;
+  if (secret) {
+    const sig = req.headers["x-hub-signature-256"] || "";
+    const body = JSON.stringify(req.body);
+    const expected = "sha256=" + crypto.createHmac("sha256", secret).update(body).digest("hex");
+    if (!sig || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+      return res.status(401).json({ error: "Invalid webhook signature" });
+    }
+  }
   if (req.headers["x-github-event"] !== "push") return res.json({ ok: true, skipped: true });
   const ref = (req.body.ref || "").replace("refs/heads/", "");
   const fullName = req.body.repository && req.body.repository.full_name;
@@ -190,7 +230,14 @@ router.post("/webhook", (req, res) => {
   const repoConfig = config.repos.find((r) => r.owner === owner && r.repo === repo);
   if (!repoConfig) return res.json({ ok: true, skipped: true });
   let triggered = 0;
-  for (const bc of repoConfig.activeBranches) { if (bc.branch === ref) { deployBranch(repoConfig, bc); triggered++; } }
+  for (const bc of repoConfig.activeBranches) {
+    if (bc.branch === ref) {
+      Promise.resolve(deployBranch(repoConfig, bc)).catch((e) => {
+        console.error("[WEBHOOK] Build failed for " + fullName + ":" + ref + " — " + e.message);
+      });
+      triggered++;
+    }
+  }
   console.log("[WEBHOOK] " + fullName + ":" + ref + " — " + triggered + " build(s)");
   res.json({ ok: true, triggered });
 });
@@ -216,6 +263,19 @@ router.post("/build/:owner/:repo", (req, res) => {
   if (!bc) return res.status(404).json({ error: "Branch config not found" });
   deployBranch(repoConfig, bc);
   res.json({ ok: true, message: (bc.mode === "server" ? "Server restart" : "Build") + " started" });
+});
+
+// Cancel build
+router.post("/cancel/:owner/:repo", (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: "slug query param required" });
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  const cancelled = cancelBuild(key);
+  if (cancelled) {
+    res.json({ ok: true, message: "Build cancelled" });
+  } else {
+    res.json({ ok: false, message: "No active build to cancel" });
+  }
 });
 
 // Status & log
@@ -441,6 +501,80 @@ router.get("/fetch", async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── Workspace cleanup ─────────────────────────────────────────────────────
+router.get("/workspace/stats", (req, res) => {
+  const { WORKSPACE, buildStatus: bs, buildKey, branchSlug } = require("../build");
+  try {
+    const dirs = fs.readdirSync(WORKSPACE);
+    const config = getConfig();
+    // Determine which dirs are still active
+    const activeKeys = new Set();
+    for (const repo of config.repos) {
+      for (const bc of repo.activeBranches || []) {
+        activeKeys.add(repo.owner + "__" + repo.repo + "__" + branchSlug(bc));
+      }
+    }
+    const stats = dirs.map((d) => {
+      const fullPath = path.join(WORKSPACE, d);
+      const isActive = activeKeys.has(d);
+      return { name: d, active: isActive };
+    });
+    res.json({ total: dirs.length, active: stats.filter((s) => s.active).length, orphaned: stats.filter((s) => !s.active).length, dirs: stats });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post("/workspace/cleanup", (req, res) => {
+  const { WORKSPACE, branchSlug } = require("../build");
+  const config = getConfig();
+  const activeKeys = new Set();
+  for (const repo of config.repos) {
+    for (const bc of repo.activeBranches || []) {
+      activeKeys.add(repo.owner + "__" + repo.repo + "__" + branchSlug(bc));
+    }
+  }
+  try {
+    const dirs = fs.readdirSync(WORKSPACE);
+    let removed = 0;
+    for (const d of dirs) {
+      if (!activeKeys.has(d)) {
+        const fullPath = path.join(WORKSPACE, d);
+        exec("rm -rf " + JSON.stringify(fullPath), () => {});
+        removed++;
+      }
+    }
+    res.json({ ok: true, removed, remaining: dirs.length - removed });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Config export/import ──────────────────────────────────────────────────
+router.get("/config/export", (req, res) => {
+  const config = getConfig();
+  // Strip the token for safety
+  const safe = { ...config, token: config.token ? "[redacted]" : "" };
+  res.setHeader("Content-Disposition", 'attachment; filename="deployview-config.json"');
+  res.json(safe);
+});
+
+router.post("/config/import", (req, res) => {
+  const config = getConfig();
+  const imported = req.body;
+  if (!imported || !Array.isArray(imported.repos)) {
+    return res.status(400).json({ error: "Invalid config: repos array required" });
+  }
+  // Merge: add repos that don't already exist
+  let added = 0;
+  for (const repo of imported.repos) {
+    if (!repo.owner || !repo.repo) continue;
+    if (!SAFE_NAME_RE.test(repo.owner) || !SAFE_NAME_RE.test(repo.repo)) continue;
+    const id = repo.owner + "/" + repo.repo;
+    if (config.repos.some((r) => r.id === id)) continue;
+    config.repos.push({ ...repo, id });
+    added++;
+  }
+  if (added > 0) saveConfig();
+  res.json({ ok: true, added, total: config.repos.length });
 });
 
 // ── Tunnel routes (HTTPS exposure for Claude.ai MCP) ─────────────────────────

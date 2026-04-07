@@ -23,7 +23,12 @@ DV.views.setup = function(app) {
     el("p", { c: "setup-subtitle" }, "Personal Access Token with repo scope.\nStored on this server only."),
     el("div", { c: "token-row" }, [inp, btn]),
     err,
-    el("p", { c: "label-hint" }, "Required: repo scope")
+    el("p", { c: "label-hint" }, [
+      "Required: ",
+      el("span", { c: "color-accent" }, "repo"),
+      " scope. ",
+      el("a", { attr: { href: "https://github.com/settings/tokens/new?scopes=repo,workflow&description=DeployView", target: "_blank", rel: "noopener" }, c: "color-accent" }, "Create token \u2197")
+    ])
   ]));
 };
 })();

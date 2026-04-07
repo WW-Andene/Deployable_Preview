@@ -146,8 +146,18 @@ DV.views.preview = function(app) {
   ]));
   app.appendChild(ctrls);
 
-  // URL bar
-  app.appendChild(el("div", { c: "preview-url-bar" }, url));
+  // URL bar with copy and open-in-tab
+  var urlBar = el("div", { c: "preview-url-bar flex-row gap-6 items-center" });
+  urlBar.appendChild(el("span", { c: "flex-1 truncate" }, url));
+  urlBar.appendChild(el("button", { c: "bg bs", attr: { title: "Copy URL" }, on: { click: function() {
+    var fullUrl = window.location.origin + url;
+    navigator.clipboard && navigator.clipboard.writeText(fullUrl);
+    DV.showToast("URL copied", "info");
+  } } }, "Copy"));
+  urlBar.appendChild(el("button", { c: "bg bs", attr: { title: "Open in new tab" }, on: { click: function() {
+    window.open(url, "_blank");
+  } } }, "\u2197"));
+  app.appendChild(urlBar);
 
   // View toggles
   var ratioBar = el("div", { c: "preview-branch-bar" });

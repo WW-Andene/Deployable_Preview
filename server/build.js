@@ -15,6 +15,14 @@ const MAX_RESTARTS = 3;
 if (!fs.existsSync(WORKSPACE)) fs.mkdirSync(WORKSPACE, { recursive: true });
 
 const buildStatus = {};
+const buildLocks = {};   // prevents concurrent builds for the same key
+const MAX_CONCURRENT_BUILDS = parseInt(process.env.MAX_CONCURRENT_BUILDS, 10) || 4;
+
+function countActiveBuilds() {
+  let count = 0;
+  for (const k in buildLocks) { if (buildLocks[k]) count++; }
+  return count;
+}
 
 // ── Slug & path helpers ──
 function branchSlug(bc) {
@@ -49,7 +57,16 @@ async function updateRepo(owner, repo, branch, branchDir, addLog) {
     await runCmd("git fetch origin " + JSON.stringify(branch), branchDir);
     await runCmd("git reset --hard origin/" + JSON.stringify(branch), branchDir);
   }
-  const sha = execSync("git rev-parse HEAD", { cwd: branchDir }).toString().trim();
+  let sha = "unknown";
+  try {
+    sha = execSync("git rev-parse HEAD", { cwd: branchDir }).toString().trim();
+  } catch (e) {
+    addLog("WARNING: Could not read commit SHA: " + e.message);
+  }
+  // Remove token from git remote to avoid credential leakage in workspace
+  try {
+    execSync("git remote set-url origin https://github.com/" + owner + "/" + repo + ".git", { cwd: branchDir, stdio: "ignore" });
+  } catch (_) {}
   addLog("Commit: " + sha.slice(0, 7));
   return sha;
 }
@@ -94,9 +111,25 @@ function createLogger(key) {
 async function buildBranch(repoConfig, branchConfig) {
   const { owner, repo } = repoConfig;
   const key = buildKey(owner, repo, branchConfig);
+
+  // Prevent concurrent builds for the same key
+  if (buildLocks[key]) {
+    console.log("[" + key + "] Build already in progress, skipping");
+    return;
+  }
+  // Enforce max concurrent builds
+  if (countActiveBuilds() >= MAX_CONCURRENT_BUILDS) {
+    console.log("[" + key + "] Max concurrent builds (" + MAX_CONCURRENT_BUILDS + ") reached, queuing...");
+    buildStatus[key] = { status: "queued", log: "Waiting for build slot...\n", lastBuild: null, commitSha: "", mode: "static" };
+    // Retry after 5 seconds
+    setTimeout(() => buildBranch(repoConfig, branchConfig), 5000);
+    return;
+  }
+  buildLocks[key] = true;
+
   const branchDir = getBranchDir(owner, repo, branchConfig);
 
-  buildStatus[key] = { status: "building", log: "", lastBuild: null, commitSha: "", mode: "static" };
+  buildStatus[key] = { status: "building", log: "", lastBuild: null, commitSha: "", mode: "static", startedAt: Date.now() };
   const addLog = createLogger(key);
 
   try {
@@ -127,9 +160,11 @@ async function buildBranch(repoConfig, branchConfig) {
     const apiRoutes = scanApiRoutes(workDir, addLog);
     const userEnvForRuntime = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
 
-    addLog("Build complete! Output: " + path.relative(WORKSPACE, finalOut));
+    var duration = ((Date.now() - buildStatus[key].startedAt) / 1000).toFixed(1);
+    addLog("Build complete in " + duration + "s! Output: " + path.relative(WORKSPACE, finalOut));
     buildStatus[key].status = "ready";
     buildStatus[key].lastBuild = Date.now();
+    buildStatus[key].duration = parseFloat(duration);
     buildStatus[key].outputPath = finalOut;
     buildStatus[key].apiRoutes = apiRoutes;
     buildStatus[key].workDir = workDir;
@@ -142,6 +177,8 @@ async function buildBranch(repoConfig, branchConfig) {
     buildStatus[key].status = "error";
     buildStatus[key].lastBuild = Date.now();
     saveLog(key, addLog.getLog());
+  } finally {
+    delete buildLocks[key];
   }
 }
 
@@ -149,12 +186,27 @@ async function buildBranch(repoConfig, branchConfig) {
 async function startServer(repoConfig, branchConfig, isRestart) {
   const { owner, repo } = repoConfig;
   const key = buildKey(owner, repo, branchConfig);
+
+  // Prevent concurrent starts for the same key (allow restarts to proceed)
+  if (buildLocks[key] && !isRestart) {
+    console.log("[" + key + "] Server start already in progress, skipping");
+    return;
+  }
+  // Enforce max concurrent builds (restarts skip the queue)
+  if (!isRestart && countActiveBuilds() >= MAX_CONCURRENT_BUILDS) {
+    console.log("[" + key + "] Max concurrent builds (" + MAX_CONCURRENT_BUILDS + ") reached, queuing...");
+    buildStatus[key] = { status: "queued", log: "Waiting for build slot...\n", lastBuild: null, commitSha: "", mode: "server" };
+    setTimeout(() => startServer(repoConfig, branchConfig, false), 5000);
+    return;
+  }
+  buildLocks[key] = true;
+
   const branchDir = getBranchDir(owner, repo, branchConfig);
 
   killServer(key);
 
   const restarts = isRestart ? ((buildStatus[key] && buildStatus[key].restarts) || 0) : 0;
-  buildStatus[key] = { status: "building", log: isRestart ? (buildStatus[key].log || "") : "", lastBuild: null, commitSha: "", mode: "server", restarts };
+  buildStatus[key] = { status: "building", log: isRestart ? (buildStatus[key].log || "") : "", lastBuild: null, commitSha: "", mode: "server", restarts, startedAt: Date.now() };
   const addLog = createLogger(key);
   if (isRestart) addLog.setLog(buildStatus[key].log);
 
@@ -199,10 +251,12 @@ async function startServer(repoConfig, branchConfig, isRestart) {
     addLog("Waiting for port " + port + "...");
     await waitForPort(port, 60000);
 
-    addLog("Server running on port " + port);
+    var duration = ((Date.now() - buildStatus[key].startedAt) / 1000).toFixed(1);
+    addLog("Server running on port " + port + " (started in " + duration + "s)");
     runningServers[key].status = "running";
     buildStatus[key].status = "running";
     buildStatus[key].lastBuild = Date.now();
+    buildStatus[key].duration = parseFloat(duration);
     buildStatus[key].serverPort = port;
     buildStatus[key].restarts = 0;
     saveLog(key, addLog.getLog());
@@ -212,6 +266,8 @@ async function startServer(repoConfig, branchConfig, isRestart) {
     buildStatus[key].status = "error";
     buildStatus[key].lastBuild = Date.now();
     saveLog(key, addLog.getLog());
+  } finally {
+    delete buildLocks[key];
   }
 }
 
@@ -220,4 +276,17 @@ function deployBranch(repoConfig, branchConfig) {
   else buildBranch(repoConfig, branchConfig);
 }
 
-module.exports = { buildStatus, branchSlug, getBranchDir, buildKey, buildBranch, startServer, deployBranch, WORKSPACE };
+function cancelBuild(key) {
+  if (buildLocks[key]) {
+    delete buildLocks[key];
+    if (buildStatus[key]) {
+      buildStatus[key].status = "cancelled";
+      buildStatus[key].lastBuild = Date.now();
+    }
+    killServer(key);
+    return true;
+  }
+  return false;
+}
+
+module.exports = { buildStatus, branchSlug, getBranchDir, buildKey, buildBranch, startServer, deployBranch, cancelBuild, WORKSPACE };

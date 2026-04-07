@@ -24,4 +24,11 @@ function broadcastLog(key, msg) {
   }
 }
 
+// Auto-cleanup stale SSE connections every 60 seconds
+setInterval(function() {
+  for (let i = logStreams.length - 1; i >= 0; i--) {
+    if (logStreams[i].closed) logStreams.splice(i, 1);
+  }
+}, 60000);
+
 module.exports = { saveLog, loadLog, broadcastLog, logStreams };

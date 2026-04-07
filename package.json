@@ -1,6 +1,6 @@
 {
   "name": "deployview",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Build, serve, and preview your app from GitHub — replaces Vercel/Netlify/Screenfly",
   "main": "server/index.js",
   "license": "MIT",
