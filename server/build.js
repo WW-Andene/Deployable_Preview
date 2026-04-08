@@ -129,12 +129,13 @@ async function installDeps(workDir, addLog, language) {
   }
   if (language === "python") {
     addLog("Installing Python dependencies...");
+    var pipFlags = "--break-system-packages";
     if (fs.existsSync(path.join(workDir, "Pipfile"))) {
-      await runCmd("pip install pipenv && pipenv install --deploy --system", workDir);
+      await runCmd("pip install " + pipFlags + " pipenv && pipenv install --deploy --system", workDir);
     } else if (fs.existsSync(path.join(workDir, "pyproject.toml"))) {
-      await runCmd("pip install .", workDir);
+      await runCmd("pip install " + pipFlags + " .", workDir);
     } else if (fs.existsSync(path.join(workDir, "requirements.txt"))) {
-      await runCmd("pip install -r requirements.txt", workDir);
+      await runCmd("pip install " + pipFlags + " -r requirements.txt", workDir);
     } else {
       addLog("No Python dependency file found — skipping install");
     }
@@ -142,7 +143,7 @@ async function installDeps(workDir, addLog, language) {
     var pygameFile = detectPygame(workDir);
     if (pygameFile) {
       addLog("Pygame detected in " + pygameFile + " — installing pygame + pygbag for web build...");
-      await runCmd("pip install pygame-ce pygbag", workDir);
+      await runCmd("pip install " + pipFlags + " pygame-ce pygbag", workDir);
     }
     return;
   }
@@ -389,8 +390,21 @@ async function startServer(repoConfig, branchConfig, isRestart) {
 }
 
 function deployBranch(repoConfig, branchConfig) {
-  if (branchConfig.mode === "server") startServer(repoConfig, branchConfig);
-  else buildBranch(repoConfig, branchConfig);
+  // Pygame projects always use static build (pygbag produces HTML/WASM)
+  if (branchConfig.mode === "server") {
+    // Quick-check: if language is python, peek for pygame and reroute to static
+    var baseDir = branchConfig.baseDir || repoConfig.baseDir || "";
+    var branchDir = getBranchDir(repoConfig.owner, repoConfig.repo, branchConfig);
+    var checkDir = baseDir ? path.join(branchDir, baseDir) : branchDir;
+    if ((branchConfig.language === "python" || branchConfig.language === "auto") && fs.existsSync(checkDir) && detectPygame(checkDir)) {
+      console.log("[" + repoConfig.owner + "/" + repoConfig.repo + "] Pygame detected — using static build with pygbag instead of server mode");
+      buildBranch(repoConfig, branchConfig);
+      return;
+    }
+    startServer(repoConfig, branchConfig);
+  } else {
+    buildBranch(repoConfig, branchConfig);
+  }
 }
 
 function cancelBuild(key) {
