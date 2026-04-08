@@ -244,22 +244,20 @@ async function buildBranch(repoConfig, branchConfig) {
     // Pygame auto-build: use pygbag to compile to WebAssembly
     var pygameFile = (language === "python") ? detectPygame(workDir) : null;
     var cmd, outName;
+    var userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
 
-    if (pygameFile && !branchConfig.buildCommand) {
+    if (pygameFile) {
       var mainFile = findMainPyFile(workDir);
-      // pygbag expects main.py — rename if needed
+      // pygbag expects main.py — copy if needed
       if (mainFile !== "main.py") {
-        addLog("Renaming " + mainFile + " -> main.py for pygbag...");
+        addLog("Copying " + mainFile + " -> main.py for pygbag...");
         fs.copyFileSync(path.join(workDir, mainFile), path.join(workDir, "main.py"));
       }
-      cmd = "pygbag --build " + JSON.stringify(workDir);
       addLog("Building Pygame for web with pygbag...");
-      var userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
-      await runCmd(cmd, workDir, userEnv);
+      await runCmd("pygbag --build .", workDir, userEnv);
       outName = "build/web";
     } else {
       cmd = branchConfig.buildCommand || (language === "nodejs" ? repoConfig.buildCommand : "") || defaultBuildCommand(language);
-      var userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
       addLog("Building: " + cmd);
       await runCmd(cmd, workDir, userEnv);
       outName = branchConfig.outputDir || (language === "nodejs" ? repoConfig.outputDir : "") || defaultOutputDir(language);
