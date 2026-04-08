@@ -106,6 +106,48 @@ function detectPygame(workDir) {
   return null;
 }
 
+// ── Patch pygame game for async (required by pygbag/browser) ──
+function patchPygameForAsync(filePath, addLog) {
+  var code = fs.readFileSync(filePath, "utf8");
+  // Already uses async — no patching needed
+  if (/async\s+def/.test(code) && /await\s+asyncio/.test(code)) {
+    addLog("Game already uses async — no patching needed");
+    return;
+  }
+
+  var lines = code.split("\n");
+  var newLines = [];
+  var hasAsyncioImport = /^\s*import\s+asyncio/m.test(code);
+
+  if (!hasAsyncioImport) newLines.push("import asyncio");
+  newLines.push("");
+  newLines.push("async def main():");
+
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    // Skip existing import asyncio (we added it above)
+    if (line.trim() === "import asyncio") continue;
+    // Indent everything inside async def main()
+    if (line.trim() === "") {
+      newLines.push("");
+    } else {
+      newLines.push("    " + line);
+    }
+    // Add await asyncio.sleep(0) after display flip/update or clock.tick
+    if (/pygame\.display\.(flip|update)\s*\(/.test(line) || /\.tick\s*\(/.test(line)) {
+      var indent = line.match(/^(\s*)/)[1];
+      newLines.push("    " + indent + "await asyncio.sleep(0)");
+    }
+  }
+
+  newLines.push("");
+  newLines.push("asyncio.run(main())");
+  newLines.push("");
+
+  fs.writeFileSync(filePath, newLines.join("\n"));
+  addLog("Patched game for async (pygbag web compatibility)");
+}
+
 // ── Find main Python file ──
 function findMainPyFile(workDir) {
   if (fs.existsSync(path.join(workDir, "main.py"))) return "main.py";
@@ -253,6 +295,8 @@ async function buildBranch(repoConfig, branchConfig) {
         addLog("Copying " + mainFile + " -> main.py for pygbag...");
         fs.copyFileSync(path.join(workDir, mainFile), path.join(workDir, "main.py"));
       }
+      // Patch game for async (pygbag requires async main loop to run in browser)
+      patchPygameForAsync(path.join(workDir, "main.py"), addLog);
       addLog("Building Pygame for web with pygbag...");
       await runCmd("pygbag --build .", workDir, userEnv);
       outName = "build/web";
