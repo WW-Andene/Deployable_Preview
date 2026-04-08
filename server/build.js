@@ -205,12 +205,12 @@ async function buildBranch(repoConfig, branchConfig) {
 
     await installDeps(workDir, addLog, language);
 
-    const cmd = branchConfig.buildCommand || repoConfig.buildCommand || defaultBuildCommand(language);
+    const cmd = branchConfig.buildCommand || (language === "nodejs" ? repoConfig.buildCommand : "") || defaultBuildCommand(language);
     const userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
     addLog("Building: " + cmd);
     await runCmd(cmd, workDir, userEnv);
 
-    const outName = branchConfig.outputDir || repoConfig.outputDir || defaultOutputDir(language);
+    const outName = branchConfig.outputDir || (language === "nodejs" ? repoConfig.outputDir : "") || defaultOutputDir(language);
     const outPath = path.join(workDir, outName);
     const altPaths = outputSearchPaths(language);
     let finalOut = null;
@@ -284,7 +284,7 @@ async function startServer(repoConfig, branchConfig, isRestart) {
     if (!isRestart) await installDeps(workDir, addLog, language);
 
     const port = await findFreePort();
-    const startCmd = branchConfig.startCommand || repoConfig.startCommand || defaultStartCommand(language);
+    const startCmd = branchConfig.startCommand || (language === "nodejs" ? repoConfig.startCommand : "") || defaultStartCommand(language);
     const userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
     addLog((isRestart ? "Restarting" : "Starting") + " server: " + startCmd + " (port " + port + ")");
 
