@@ -27,12 +27,21 @@ DV.views.modals = function(app) {
     var box = el("div", { c: "modal" });
     box.appendChild(el("h3", { c: "modal-title" }, "Edit: " + m.branch + (m.baseDir ? " \u2192 " + m.baseDir : "")));
 
+    var langPlaceholders = {
+      auto: { build: "auto-detected", output: "auto-detected", start: "auto-detected" },
+      nodejs: { build: "npm run build", output: "dist", start: "npm start" },
+      java: { build: "mvn package -DskipTests", output: "target", start: "java -jar target/*.jar" },
+      python: { build: "python -m py_compile *.py || true", output: ".", start: "python app.py" }
+    };
+    var lp = langPlaceholders[m.language || "auto"] || langPlaceholders.auto;
+
     var fields = [
+      { label: "Language", key: "language", type: "chips", options: ["auto", "nodejs", "java", "python"] },
       { label: "Mode", key: "mode", type: "chips", options: ["static", "server"] },
       { label: "Base directory", key: "baseDir", placeholder: "repo root" },
-      { label: "Build command", key: "buildCommand", placeholder: "npm run build", show: function() { return m.mode !== "server"; } },
-      { label: "Output directory", key: "outputDir", placeholder: "dist", show: function() { return m.mode !== "server"; } },
-      { label: "Start command", key: "startCommand", placeholder: "npm start", show: function() { return m.mode === "server"; } },
+      { label: "Build command", key: "buildCommand", placeholder: lp.build, show: function() { return m.mode !== "server"; } },
+      { label: "Output directory", key: "outputDir", placeholder: lp.output, show: function() { return m.mode !== "server"; } },
+      { label: "Start command", key: "startCommand", placeholder: lp.start, show: function() { return m.mode === "server"; } },
       { label: "Environment variables", key: "envVars", type: "textarea", placeholder: "KEY=value" }
     ];
 
@@ -65,13 +74,9 @@ DV.views.modals = function(app) {
     box.appendChild(el("div", { c: "btn-row" }, [
       el("button", { c: "bg", on: { click: function() { S.editModal = null; DV.render(); } } }, "Cancel"),
       el("button", { c: "bp flex-1", on: { click: function() {
-        if (m.mode !== "server" && !((m.buildCommand || "").trim())) {
-          alert("Build command is required for static mode.");
-          return;
-        }
         api("PUT", "/api/repos/" + m.owner + "/" + m.repo + "/branch", {
           slug: m.slug, baseDir: m.baseDir, buildCommand: m.buildCommand, outputDir: m.outputDir,
-          mode: m.mode, startCommand: m.startCommand, envVars: m.envVars
+          mode: m.mode, startCommand: m.startCommand, envVars: m.envVars, language: m.language
         }).then(function() { S.editModal = null; DV.loadRepos(); });
       } } }, "Save")
     ]));

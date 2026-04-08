@@ -55,32 +55,48 @@ DV.views.addRepo = function(app) {
     }
     w.appendChild(el("div", { c: "form-section" }, [el("div", { c: "label mb-6" }, "2. Branches to monitor"), bd]));
 
+    var langRow = el("div", { c: "chip-row" });
+    var langs = ["auto", "nodejs", "java", "python"];
+    for (var li = 0; li < langs.length; li++) {
+      (function(lang) {
+        langRow.appendChild(el("div", { c: "chip" + (S.language === lang ? " on" : ""), on: { click: function() { S.language = lang; DV.render(); } } }, lang));
+      })(langs[li]);
+    }
+    w.appendChild(el("div", { c: "form-section-sm" }, [
+      el("div", { c: "label mb-6" }, "3. Language"),
+      langRow,
+      el("p", { c: "label-hint" }, "Auto-detects from project files (pom.xml, requirements.txt, package.json)")
+    ]));
+
     var modeRow = el("div", { c: "chip-row" });
     modeRow.appendChild(el("div", { c: "chip" + (S.mode === "static" ? " on" : ""), on: { click: function() { S.mode = "static"; DV.render(); } } }, "Static Build"));
     modeRow.appendChild(el("div", { c: "chip" + (S.mode === "server" ? " on" : ""), on: { click: function() { S.mode = "server"; DV.render(); } } }, "Running Server"));
-    w.appendChild(el("div", { c: "form-section-sm" }, [el("div", { c: "label mb-6" }, "3. Mode"), modeRow]));
+    w.appendChild(el("div", { c: "form-section-sm" }, [el("div", { c: "label mb-6" }, "4. Mode"), modeRow]));
 
-    var bdi = document.createElement("input"); bdi.value = S.baseDir; bdi.placeholder = "Leave empty if package.json is at root";
+    var bdi = document.createElement("input"); bdi.value = S.baseDir; bdi.placeholder = "Leave empty if project root is at repo root";
     bdi.addEventListener("input", function(e) { S.baseDir = e.target.value; });
     w.appendChild(el("div", { c: "form-section-sm" }, [
-      el("div", { c: "label mb-6" }, "4. App subdirectory"), bdi,
+      el("div", { c: "label mb-6" }, "5. App subdirectory"), bdi,
       el("p", { c: "label-hint" }, "If your app is inside a subfolder")
     ]));
 
-    if (S.mode === "static") {
-      var bci = document.createElement("input"); bci.value = S.buildCommand; bci.placeholder = "npm run build";
-      bci.addEventListener("input", function(e) { S.buildCommand = e.target.value; });
-      w.appendChild(el("div", { c: "form-section-sm" }, [el("div", { c: "label mb-6" }, "5. Build command"), bci]));
+    var langPh = { auto: { build: "auto-detected", output: "auto-detected", start: "auto-detected" }, nodejs: { build: "npm run build", output: "dist", start: "npm start" }, java: { build: "mvn package -DskipTests", output: "target", start: "java -jar target/*.jar" }, python: { build: "python -m py_compile *.py || true", output: ".", start: "python app.py" } };
+    var ph = langPh[S.language || "auto"] || langPh.auto;
 
-      var odi = document.createElement("input"); odi.value = S.outputDir; odi.placeholder = "dist";
+    if (S.mode === "static") {
+      var bci = document.createElement("input"); bci.value = S.buildCommand; bci.placeholder = ph.build;
+      bci.addEventListener("input", function(e) { S.buildCommand = e.target.value; });
+      w.appendChild(el("div", { c: "form-section-sm" }, [el("div", { c: "label mb-6" }, "6. Build command"), bci]));
+
+      var odi = document.createElement("input"); odi.value = S.outputDir; odi.placeholder = ph.output;
       odi.addEventListener("input", function(e) { S.outputDir = e.target.value; });
-      w.appendChild(el("div", { c: "form-section-sm" }, [el("div", { c: "label mb-6" }, "6. Output directory"), odi,
-        el("p", { c: "label-hint" }, "Common: dist, build, out, web-build")
+      w.appendChild(el("div", { c: "form-section-sm" }, [el("div", { c: "label mb-6" }, "7. Output directory"), odi,
+        el("p", { c: "label-hint" }, "Common: dist, build, out, target, web-build")
       ]));
     } else {
-      var sci = document.createElement("input"); sci.value = S.startCommand; sci.placeholder = "npm start";
+      var sci = document.createElement("input"); sci.value = S.startCommand; sci.placeholder = ph.start;
       sci.addEventListener("input", function(e) { S.startCommand = e.target.value; });
-      w.appendChild(el("div", { c: "form-section-sm" }, [el("div", { c: "label mb-6" }, "5. Start command"), sci,
+      w.appendChild(el("div", { c: "form-section-sm" }, [el("div", { c: "label mb-6" }, "6. Start command"), sci,
         el("p", { c: "label-hint" }, "DeployView sets PORT env var automatically")
       ]));
     }
@@ -88,7 +104,7 @@ DV.views.addRepo = function(app) {
     var evi = document.createElement("textarea"); evi.value = S.envVars; evi.placeholder = "KEY=value\nANOTHER=value"; evi.rows = 3;
     evi.addEventListener("input", function(e) { S.envVars = e.target.value; });
     w.appendChild(el("div", { c: "form-section-lg" }, [
-      el("div", { c: "label mb-6" }, (S.mode === "static" ? "7" : "6") + ". Environment variables"), evi,
+      el("div", { c: "label mb-6" }, (S.mode === "static" ? "8" : "7") + ". Environment variables"), evi,
       el("p", { c: "label-hint" }, "One per line: KEY=value")
     ]));
 
@@ -101,7 +117,7 @@ DV.views.addRepo = function(app) {
         api("POST", "/api/repos", {
           owner: S.repoInfo.owner, repo: S.repoInfo.repo, activeBranches: S.selectedBranches,
           buildCommand: S.buildCommand, outputDir: S.outputDir, baseDir: S.baseDir,
-          description: S.repoInfo.description, mode: S.mode, startCommand: S.startCommand, envVars: S.envVars
+          description: S.repoInfo.description, mode: S.mode, startCommand: S.startCommand, envVars: S.envVars, language: S.language
         }).then(function() { S.view = "dashboard"; DV.loadRepos(); });
       } } }, S.mode === "server" ? "Add & Start" : "Add & Build")
     ]));

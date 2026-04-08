@@ -1,9 +1,15 @@
 FROM node:20-slim
 
-# Install git and basic deps
+# Install git, Java JDK, Python, Maven, and basic deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ca-certificates \
+    default-jdk-headless \
+    maven \
+    python3 \
+    python3-pip \
+    python3-venv \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

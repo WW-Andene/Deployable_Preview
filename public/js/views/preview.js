@@ -110,7 +110,7 @@ DV.views.preview = function(app) {
           var isDuplicate = activeSet[b + ":" + pendingBaseDir];
           dd.appendChild(el("div", { c: "dd-item" + (isDuplicate ? " already" : ""), on: { click: function(e) {
             e.stopPropagation();
-            if (!isDuplicate) DV.addBranchToRepo(b, S.addBranchBaseDir || "", S.addBranchMode || "static", S.addBranchStartCmd || "");
+            if (!isDuplicate) DV.addBranchToRepo(b, S.addBranchBaseDir || "", S.addBranchMode || "static", S.addBranchStartCmd || "", S.language || "auto");
           } } }, [
             el("span", { c: isDuplicate ? "frame-label-dup" : "frame-label-accent" }, isDuplicate ? "ok" : "+"),
             document.createTextNode(b),

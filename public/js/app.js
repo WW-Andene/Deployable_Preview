@@ -21,7 +21,7 @@ var S = {
   hasToken: false,
   repoUrl: "", repoError: "", repoLoading: false,
   fetchedBranches: [], selectedBranches: [], repoInfo: null,
-  buildCommand: "npm run build", outputDir: "dist", baseDir: "", mode: "static", startCommand: "npm start", envVars: "",
+  buildCommand: "", outputDir: "", baseDir: "", mode: "static", startCommand: "", envVars: "", language: "auto",
   activeRepo: null, activeBranch: "", compareBranch: "", compareMode: false,
   activeViews: ["13t"],
   refreshKey: 0,
@@ -128,9 +128,9 @@ function fetchAvailableBranches() {
   }).catch(function() {});
 }
 
-function addBranchToRepo(branch, baseDir, mode, startCommand) {
+function addBranchToRepo(branch, baseDir, mode, startCommand, language) {
   if (!S.activeRepo) return;
-  var body = { branch: branch, baseDir: baseDir || "", mode: mode || "static", startCommand: startCommand || "" };
+  var body = { branch: branch, baseDir: baseDir || "", mode: mode || "static", startCommand: startCommand || "", language: language || "auto" };
   fetch("/api/repos/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/branch", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

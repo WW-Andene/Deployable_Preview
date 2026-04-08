@@ -221,7 +221,7 @@ router.get("/repos", (req, res) => {
     for (const bc of r.activeBranches || []) {
       const slug = branchSlug(bc);
       const srv = runningServers[buildKey(r.owner, r.repo, bc)];
-      branchStatuses[slug] = { ...(buildStatus[buildKey(r.owner, r.repo, bc)] || { status: "idle" }), branch: bc.branch, baseDir: bc.baseDir || "", buildCommand: bc.buildCommand || "", outputDir: bc.outputDir || "", mode: bc.mode || "static", startCommand: bc.startCommand || "", envVars: bc.envVars || "", serverPort: srv ? srv.port : null };
+      branchStatuses[slug] = { ...(buildStatus[buildKey(r.owner, r.repo, bc)] || { status: "idle" }), branch: bc.branch, baseDir: bc.baseDir || "", buildCommand: bc.buildCommand || "", outputDir: bc.outputDir || "", mode: bc.mode || "static", startCommand: bc.startCommand || "", envVars: bc.envVars || "", language: bc.language || "auto", serverPort: srv ? srv.port : null };
     }
     return { ...r, branchStatuses };
   });
@@ -230,14 +230,14 @@ router.get("/repos", (req, res) => {
 
 router.post("/repos", (req, res) => {
   const config = getConfig();
-  const { owner, repo, activeBranches, buildCommand, outputDir, baseDir, description, mode, startCommand, envVars } = req.body;
+  const { owner, repo, activeBranches, buildCommand, outputDir, baseDir, description, mode, startCommand, envVars, language } = req.body;
   const id = owner + "/" + repo;
   if (config.repos.some((r) => r.id === id)) return res.status(400).json({ error: "Already exists" });
   const branchConfigs = (activeBranches || []).map((b) => {
     if (typeof b === "object") return b;
-    return { branch: b, baseDir: baseDir || "", buildCommand: "", outputDir: "", mode: mode || "static", startCommand: startCommand || "", envVars: envVars || "" };
+    return { branch: b, baseDir: baseDir || "", buildCommand: "", outputDir: "", mode: mode || "static", startCommand: startCommand || "", envVars: envVars || "", language: language || "auto" };
   });
-  const newRepo = { id, owner, repo, activeBranches: branchConfigs, buildCommand: buildCommand || "npm run build", outputDir: outputDir || "dist", baseDir: baseDir || "", description: description || "", startCommand: startCommand || "" };
+  const newRepo = { id, owner, repo, activeBranches: branchConfigs, buildCommand: buildCommand || "", outputDir: outputDir || "", baseDir: baseDir || "", description: description || "", startCommand: startCommand || "" };
   config.repos.push(newRepo);
   saveConfig();
   for (const bc of branchConfigs) deployBranch(newRepo, bc);
@@ -246,14 +246,14 @@ router.post("/repos", (req, res) => {
 
 router.post("/repos/:owner/:repo/branch", (req, res) => {
   const config = getConfig();
-  const { branch, baseDir, buildCommand, outputDir, mode, startCommand, envVars } = req.body;
+  const { branch, baseDir, buildCommand, outputDir, mode, startCommand, envVars, language } = req.body;
   if (!branch) return res.status(400).json({ error: "branch required" });
   const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
   if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
   const bd = baseDir || "";
   if (repoConfig.activeBranches.some((bc) => bc.branch === branch && (bc.baseDir || "") === bd))
     return res.status(400).json({ error: "Branch with this root directory already active" });
-  const bc = { branch, baseDir: bd, buildCommand: buildCommand || "", outputDir: outputDir || "", mode: mode || "static", startCommand: startCommand || "", envVars: envVars || "" };
+  const bc = { branch, baseDir: bd, buildCommand: buildCommand || "", outputDir: outputDir || "", mode: mode || "static", startCommand: startCommand || "", envVars: envVars || "", language: language || "auto" };
   repoConfig.activeBranches.push(bc);
   saveConfig();
   deployBranch(repoConfig, bc);
@@ -299,7 +299,7 @@ router.post("/stop/:owner/:repo", (req, res) => {
 // Edit branch config
 router.put("/repos/:owner/:repo/branch", (req, res) => {
   const config = getConfig();
-  const { slug, baseDir, buildCommand, outputDir, mode, startCommand, envVars } = req.body;
+  const { slug, baseDir, buildCommand, outputDir, mode, startCommand, envVars, language } = req.body;
   if (!slug) return res.status(400).json({ error: "slug required" });
   const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
   if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
@@ -311,6 +311,7 @@ router.put("/repos/:owner/:repo/branch", (req, res) => {
   if (mode !== undefined) bc.mode = mode;
   if (startCommand !== undefined) bc.startCommand = startCommand;
   if (envVars !== undefined) bc.envVars = envVars;
+  if (language !== undefined) bc.language = language;
   saveConfig();
   res.json({ ok: true, branch: bc });
 });

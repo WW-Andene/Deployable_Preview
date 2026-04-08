@@ -82,8 +82,36 @@ function resolveWorkDir(branchDir, branchConfig, repoConfig, addLog) {
   return workDir;
 }
 
+// ── Language detection ──
+function detectLanguage(workDir, branchConfig) {
+  // Explicit config takes priority
+  if (branchConfig && branchConfig.language && branchConfig.language !== "auto") return branchConfig.language;
+  // Auto-detect from project files
+  if (fs.existsSync(path.join(workDir, "pom.xml")) || fs.existsSync(path.join(workDir, "build.gradle")) || fs.existsSync(path.join(workDir, "build.gradle.kts"))) return "java";
+  if (fs.existsSync(path.join(workDir, "requirements.txt")) || fs.existsSync(path.join(workDir, "pyproject.toml")) || fs.existsSync(path.join(workDir, "setup.py")) || fs.existsSync(path.join(workDir, "Pipfile"))) return "python";
+  return "nodejs";
+}
+
 // ── Shared: install dependencies ──
-async function installDeps(workDir, addLog) {
+async function installDeps(workDir, addLog, language) {
+  if (language === "java") {
+    addLog("Java project detected — skipping npm install");
+    return;
+  }
+  if (language === "python") {
+    addLog("Installing Python dependencies...");
+    if (fs.existsSync(path.join(workDir, "Pipfile"))) {
+      await runCmd("pip install pipenv && pipenv install --deploy --system", workDir);
+    } else if (fs.existsSync(path.join(workDir, "pyproject.toml"))) {
+      await runCmd("pip install .", workDir);
+    } else if (fs.existsSync(path.join(workDir, "requirements.txt"))) {
+      await runCmd("pip install -r requirements.txt", workDir);
+    } else {
+      addLog("No Python dependency file found — skipping install");
+    }
+    return;
+  }
+  // Node.js (default)
   const hasNodeModules = fs.existsSync(path.join(workDir, "node_modules"));
   addLog(hasNodeModules ? "Checking dependencies..." : "Installing dependencies...");
   const hasPnpmLock = fs.existsSync(path.join(workDir, "pnpm-lock.yaml"));
@@ -91,6 +119,38 @@ async function installDeps(workDir, addLog) {
   if (hasPnpmLock) await runCmd("pnpm install", workDir);
   else if (hasYarnLock) await runCmd("yarn install", workDir);
   else await runCmd("npm install", workDir);
+}
+
+// ── Default build commands per language ──
+function defaultBuildCommand(language) {
+  if (language === "java") {
+    return "mvn package -DskipTests";
+  }
+  if (language === "python") {
+    return "python -m py_compile *.py || true";
+  }
+  return "npm run build";
+}
+
+// ── Default start commands per language ──
+function defaultStartCommand(language) {
+  if (language === "java") return "java -jar target/*.jar";
+  if (language === "python") return "python app.py";
+  return "npm start";
+}
+
+// ── Default output dirs per language ──
+function defaultOutputDir(language) {
+  if (language === "java") return "target";
+  if (language === "python") return ".";
+  return "dist";
+}
+
+// ── Output dir search paths per language ──
+function outputSearchPaths(language) {
+  if (language === "java") return ["target", "build/libs", "build", "dist"];
+  if (language === "python") return ["dist", "build", "static", "public", "."];
+  return ["dist", "build", "out", "web-build", ".next/static", "public"];
 }
 
 // ── Shared: create addLog function ──
@@ -137,20 +197,22 @@ async function buildBranch(repoConfig, branchConfig) {
     buildStatus[key].commitSha = sha;
 
     const workDir = resolveWorkDir(branchDir, branchConfig, repoConfig, addLog);
+    const language = detectLanguage(workDir, branchConfig);
+    addLog("Language: " + language);
 
     addLog("Cleaning...");
     await runCmd("rm -rf dist build out web-build", workDir).catch(() => {});
 
-    await installDeps(workDir, addLog);
+    await installDeps(workDir, addLog, language);
 
-    const cmd = branchConfig.buildCommand || repoConfig.buildCommand || "npm run build";
+    const cmd = branchConfig.buildCommand || repoConfig.buildCommand || defaultBuildCommand(language);
     const userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
     addLog("Building: " + cmd);
     await runCmd(cmd, workDir, userEnv);
 
-    const outName = branchConfig.outputDir || repoConfig.outputDir || "dist";
+    const outName = branchConfig.outputDir || repoConfig.outputDir || defaultOutputDir(language);
     const outPath = path.join(workDir, outName);
-    const altPaths = ["dist", "build", "out", "web-build", ".next/static", "public"];
+    const altPaths = outputSearchPaths(language);
     let finalOut = null;
     if (fs.existsSync(outPath)) finalOut = outPath;
     else { for (const alt of altPaths) { const p = path.join(workDir, alt); if (fs.existsSync(p)) { finalOut = p; break; } } }
@@ -217,10 +279,12 @@ async function startServer(repoConfig, branchConfig, isRestart) {
     }
 
     const workDir = resolveWorkDir(branchDir, branchConfig, repoConfig, addLog);
-    if (!isRestart) await installDeps(workDir, addLog);
+    const language = detectLanguage(workDir, branchConfig);
+    addLog("Language: " + language);
+    if (!isRestart) await installDeps(workDir, addLog, language);
 
     const port = await findFreePort();
-    const startCmd = branchConfig.startCommand || repoConfig.startCommand || "npm start";
+    const startCmd = branchConfig.startCommand || repoConfig.startCommand || defaultStartCommand(language);
     const userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
     addLog((isRestart ? "Restarting" : "Starting") + " server: " + startCmd + " (port " + port + ")");
 
@@ -289,4 +353,4 @@ function cancelBuild(key) {
   return false;
 }
 
-module.exports = { buildStatus, branchSlug, getBranchDir, buildKey, buildBranch, startServer, deployBranch, cancelBuild, WORKSPACE };
+module.exports = { buildStatus, branchSlug, getBranchDir, buildKey, buildBranch, startServer, deployBranch, cancelBuild, WORKSPACE, detectLanguage, defaultBuildCommand, defaultStartCommand, defaultOutputDir };

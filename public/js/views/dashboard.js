@@ -176,7 +176,7 @@ DV.views.dashboard = function(app) {
               S.logModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: repo.owner + "/" + repo.repo + ":" + slug }; DV.render();
             } } }, "\u2261"));
             actions.appendChild(el("button", { c: "bg bs", attr: { title: "Edit" }, on: { click: function() {
-              S.editModal = { owner: repo.owner, repo: repo.repo, slug: slug, branch: bs.branch, baseDir: bs.baseDir || "", buildCommand: bs.buildCommand || "", outputDir: bs.outputDir || "", mode: bs.mode || "static", startCommand: bs.startCommand || "", envVars: bs.envVars || "" }; DV.render();
+              S.editModal = { owner: repo.owner, repo: repo.repo, slug: slug, branch: bs.branch, baseDir: bs.baseDir || "", buildCommand: bs.buildCommand || "", outputDir: bs.outputDir || "", mode: bs.mode || "static", startCommand: bs.startCommand || "", envVars: bs.envVars || "", language: bs.language || "auto" }; DV.render();
             } } }, "\u270E"));
             actions.appendChild(el("button", { c: "bg bs btn-accent-highlight", attr: { title: "APK" }, on: { click: function() {
               S.apkModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: repo.owner + "/" + repo.repo + ":" + slug }; DV.render();
