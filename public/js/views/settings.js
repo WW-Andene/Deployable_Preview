@@ -356,6 +356,36 @@ DV.views.settings = function(app) {
   }).catch(function() { wsBody.textContent = "Could not load."; });
   page.appendChild(section("Workspace", [wsBody]));
 
+  /* ══════════ Section: Refresh Rate ══════════ */
+  var pollBody = el("div", {});
+  pollBody.appendChild(el("div", { c: "settings-hint mb-8" }, "How often the dashboard polls for build status and GitHub polls for new commits. Lower values = faster updates but more API calls."));
+  var pollOptions = [
+    { label: "2s", value: 2000 },
+    { label: "5s", value: 5000 },
+    { label: "10s", value: 10000 },
+    { label: "30s", value: 30000 },
+    { label: "60s", value: 60000 }
+  ];
+  var currentPoll = (S.preferences && S.preferences.pollInterval) || 5000;
+  var pollChips = el("div", { c: "mode-chip-row" });
+  for (var pi = 0; pi < pollOptions.length; pi++) {
+    (function(opt) {
+      pollChips.appendChild(el("div", {
+        c: "chip" + (currentPoll === opt.value ? " on" : ""),
+        on: { click: function() {
+          api("POST", "/api/preferences", { pollInterval: opt.value }).then(function() {
+            S.preferences.pollInterval = opt.value;
+            DV.startStatusPoll();
+            DV.showToast("Refresh rate: " + opt.label, "info");
+            DV.render();
+          });
+        } }
+      }, opt.label));
+    })(pollOptions[pi]);
+  }
+  pollBody.appendChild(pollChips);
+  page.appendChild(section("Refresh Rate", [pollBody]));
+
   /* ══════════ Section: Actions ══════════ */
   page.appendChild(section("Actions", [
     el("div", { c: "settings-actions-grid" }, [

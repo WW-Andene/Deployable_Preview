@@ -116,7 +116,12 @@ app.use((err, req, res, _next) => {
 });
 
 // ── Polling ──
-const POLL_INTERVAL = 5000;
+function getPollInterval() {
+  var config = getConfig();
+  var val = config.preferences && config.preferences.pollInterval;
+  if (val && parseInt(val) >= 1000) return parseInt(val);
+  return parseInt(process.env.POLL_INTERVAL) || 5000;
+}
 let pollIntervalId = null;
 
 async function pollForChanges() {
@@ -152,7 +157,7 @@ async function pollForChanges() {
   }
 }
 
-pollIntervalId = setInterval(pollForChanges, POLL_INTERVAL);
+pollIntervalId = setInterval(pollForChanges, getPollInterval());
 
 // ── Graceful shutdown ──
 let httpServer = null;

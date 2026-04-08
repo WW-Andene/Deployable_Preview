@@ -38,7 +38,8 @@ var S = {
   mcpTools: [],
   mcpAction: null,
   mcpResult: null,
-  dashboardFilter: ""
+  dashboardFilter: "",
+  preferences: {}
 };
 
 var _dropdownCloseHandler = null;
@@ -85,6 +86,7 @@ function loadRepos() {
 
 function startStatusPoll() {
   if (S.pollTimer) clearInterval(S.pollTimer);
+  var interval = (S.preferences && S.preferences.pollInterval) || 5000;
   S.pollTimer = setInterval(function() {
     api("GET", "/api/repos").then(function(repos) {
       var changed = false;
@@ -116,7 +118,7 @@ function startStatusPoll() {
       }
       if (changed) { S.refreshKey++; render(); }
     }).catch(function() { /* ignore poll errors */ });
-  }, 5000);
+  }, interval);
 }
 
 function fetchAvailableBranches() {
@@ -183,6 +185,7 @@ function render() {
 }
 
 // Init
+api("GET", "/api/preferences").then(function(p) { S.preferences = p || {}; }).catch(function() {});
 api("GET", "/api/token").then(function(r) {
   S.hasToken = r.hasToken;
   S.view = r.hasToken ? "dashboard" : "setup";
