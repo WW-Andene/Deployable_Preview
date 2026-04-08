@@ -89,7 +89,36 @@ function detectLanguage(workDir, branchConfig) {
   // Auto-detect from project files
   if (fs.existsSync(path.join(workDir, "pom.xml")) || fs.existsSync(path.join(workDir, "build.gradle")) || fs.existsSync(path.join(workDir, "build.gradle.kts"))) return "java";
   if (fs.existsSync(path.join(workDir, "requirements.txt")) || fs.existsSync(path.join(workDir, "pyproject.toml")) || fs.existsSync(path.join(workDir, "setup.py")) || fs.existsSync(path.join(workDir, "Pipfile"))) return "python";
+  // Check for .py files (no manifest but still a Python project)
+  try { var entries = fs.readdirSync(workDir); if (entries.some(function(f) { return f.endsWith(".py"); })) return "python"; } catch (e) {}
   return "nodejs";
+}
+
+// ── Detect pygame in Python files ──
+function detectPygame(workDir) {
+  try {
+    var files = fs.readdirSync(workDir).filter(function(f) { return f.endsWith(".py"); });
+    for (var i = 0; i < files.length; i++) {
+      var content = fs.readFileSync(path.join(workDir, files[i]), "utf8");
+      if (/^\s*(import\s+pygame|from\s+pygame)/m.test(content)) return files[i];
+    }
+  } catch (e) {}
+  return null;
+}
+
+// ── Find main Python file ──
+function findMainPyFile(workDir) {
+  if (fs.existsSync(path.join(workDir, "main.py"))) return "main.py";
+  try {
+    var pyFiles = fs.readdirSync(workDir).filter(function(f) { return f.endsWith(".py") && f !== "__init__.py" && f !== "setup.py"; });
+    if (pyFiles.length === 1) return pyFiles[0];
+    // Look for if __name__ == "__main__" pattern
+    for (var i = 0; i < pyFiles.length; i++) {
+      var content = fs.readFileSync(path.join(workDir, pyFiles[i]), "utf8");
+      if (/__name__\s*==\s*['"]__main__['"]/.test(content)) return pyFiles[i];
+    }
+    return pyFiles[0] || "main.py";
+  } catch (e) { return "main.py"; }
 }
 
 // ── Shared: install dependencies ──
@@ -108,6 +137,12 @@ async function installDeps(workDir, addLog, language) {
       await runCmd("pip install -r requirements.txt", workDir);
     } else {
       addLog("No Python dependency file found — skipping install");
+    }
+    // Auto-detect pygame and install pygbag for web builds
+    var pygameFile = detectPygame(workDir);
+    if (pygameFile) {
+      addLog("Pygame detected in " + pygameFile + " — installing pygame + pygbag for web build...");
+      await runCmd("pip install pygame-ce pygbag", workDir);
     }
     return;
   }
@@ -149,7 +184,7 @@ function defaultOutputDir(language) {
 // ── Output dir search paths per language ──
 function outputSearchPaths(language) {
   if (language === "java") return ["target", "build/libs", "build", "dist"];
-  if (language === "python") return ["dist", "build", "static", "public", "."];
+  if (language === "python") return ["build/web", "dist", "build", "static", "public", "."];
   return ["dist", "build", "out", "web-build", ".next/static", "public"];
 }
 
@@ -205,12 +240,30 @@ async function buildBranch(repoConfig, branchConfig) {
 
     await installDeps(workDir, addLog, language);
 
-    const cmd = branchConfig.buildCommand || (language === "nodejs" ? repoConfig.buildCommand : "") || defaultBuildCommand(language);
-    const userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
-    addLog("Building: " + cmd);
-    await runCmd(cmd, workDir, userEnv);
+    // Pygame auto-build: use pygbag to compile to WebAssembly
+    var pygameFile = (language === "python") ? detectPygame(workDir) : null;
+    var cmd, outName;
 
-    const outName = branchConfig.outputDir || (language === "nodejs" ? repoConfig.outputDir : "") || defaultOutputDir(language);
+    if (pygameFile && !branchConfig.buildCommand) {
+      var mainFile = findMainPyFile(workDir);
+      // pygbag expects main.py — rename if needed
+      if (mainFile !== "main.py") {
+        addLog("Renaming " + mainFile + " -> main.py for pygbag...");
+        fs.copyFileSync(path.join(workDir, mainFile), path.join(workDir, "main.py"));
+      }
+      cmd = "pygbag --build " + JSON.stringify(workDir);
+      addLog("Building Pygame for web with pygbag...");
+      var userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
+      await runCmd(cmd, workDir, userEnv);
+      outName = "build/web";
+    } else {
+      cmd = branchConfig.buildCommand || (language === "nodejs" ? repoConfig.buildCommand : "") || defaultBuildCommand(language);
+      var userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
+      addLog("Building: " + cmd);
+      await runCmd(cmd, workDir, userEnv);
+      outName = branchConfig.outputDir || (language === "nodejs" ? repoConfig.outputDir : "") || defaultOutputDir(language);
+    }
+
     const outPath = path.join(workDir, outName);
     const altPaths = outputSearchPaths(language);
     let finalOut = null;
