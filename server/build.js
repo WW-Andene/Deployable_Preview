@@ -116,36 +116,68 @@ function patchPygameForAsync(filePath, addLog) {
   }
 
   var lines = code.split("\n");
-  var newLines = [];
-  var hasAsyncioImport = /^\s*import\s+asyncio/m.test(code);
 
-  if (!hasAsyncioImport) newLines.push("import asyncio");
-  newLines.push("");
-  newLines.push("async def main():");
-
+  // Find the main game loop: top-level "while" or "if __name__" containing a while
+  var loopStart = -1;
   for (var i = 0; i < lines.length; i++) {
-    var line = lines[i];
-    // Skip existing import asyncio (we added it above)
-    if (line.trim() === "import asyncio") continue;
-    // Indent everything inside async def main()
+    if (/^while\s/.test(lines[i])) { loopStart = i; break; }
+    if (/^if\s+__name__\s*==/.test(lines[i])) { loopStart = i; break; }
+  }
+
+  if (loopStart < 0) {
+    addLog("WARNING: No main game loop found — cannot auto-patch for async");
+    return;
+  }
+
+  // Collect all top-level variable names assigned before the loop
+  var globals = [];
+  var seen = {};
+  for (var i = 0; i < loopStart; i++) {
+    var m = lines[i].match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=[^=]/);
+    if (m && !seen[m[1]]) { globals.push(m[1]); seen[m[1]] = true; }
+  }
+
+  var moduleLines = lines.slice(0, loopStart);
+  var gameLines = lines.slice(loopStart);
+
+  var hasAsyncio = /^\s*import\s+asyncio/m.test(code);
+
+  var newLines = [];
+  if (!hasAsyncio) newLines.push("import asyncio");
+  // Keep all module-level code (imports, defs, setup) as-is
+  newLines = newLines.concat(moduleLines);
+  newLines.push("");
+  newLines.push("async def _game_loop():");
+
+  // Add global declarations so the loop can modify module-level vars
+  if (globals.length > 0) {
+    newLines.push("    global " + globals.join(", "));
+  }
+
+  // Indent game loop code and inject await asyncio.sleep(0)
+  var hasContent = false;
+  for (var i = 0; i < gameLines.length; i++) {
+    var line = gameLines[i];
     if (line.trim() === "") {
       newLines.push("");
     } else {
+      hasContent = true;
       newLines.push("    " + line);
     }
-    // Add await asyncio.sleep(0) after display flip/update or clock.tick
+    // Yield to browser after display update or clock tick
     if (/pygame\.display\.(flip|update)\s*\(/.test(line) || /\.tick\s*\(/.test(line)) {
       var indent = line.match(/^(\s*)/)[1];
       newLines.push("    " + indent + "await asyncio.sleep(0)");
     }
   }
+  if (!hasContent) newLines.push("    pass");
 
   newLines.push("");
-  newLines.push("asyncio.run(main())");
+  newLines.push("asyncio.run(_game_loop())");
   newLines.push("");
 
   fs.writeFileSync(filePath, newLines.join("\n"));
-  addLog("Patched game for async (pygbag web compatibility)");
+  addLog("Patched game for async: kept " + loopStart + " lines at module level, " + globals.length + " global vars");
 }
 
 // ── Find main Python file ──
