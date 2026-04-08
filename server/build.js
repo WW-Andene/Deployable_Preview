@@ -129,21 +129,21 @@ async function installDeps(workDir, addLog, language) {
   }
   if (language === "python") {
     addLog("Installing Python dependencies...");
-    var pipFlags = "--break-system-packages";
+    var pip = "python -m pip install --break-system-packages";
     if (fs.existsSync(path.join(workDir, "Pipfile"))) {
-      await runCmd("pip install " + pipFlags + " pipenv && pipenv install --deploy --system", workDir);
+      await runCmd(pip + " pipenv && pipenv install --deploy --system", workDir);
     } else if (fs.existsSync(path.join(workDir, "pyproject.toml"))) {
-      await runCmd("pip install " + pipFlags + " .", workDir);
+      await runCmd(pip + " .", workDir);
     } else if (fs.existsSync(path.join(workDir, "requirements.txt"))) {
-      await runCmd("pip install " + pipFlags + " -r requirements.txt", workDir);
+      await runCmd(pip + " -r requirements.txt", workDir);
     } else {
       addLog("No Python dependency file found — skipping install");
     }
     // Auto-detect pygame and install pygbag for web builds
     var pygameFile = detectPygame(workDir);
     if (pygameFile) {
-      addLog("Pygame detected in " + pygameFile + " — installing pygame + pygbag for web build...");
-      await runCmd("pip install " + pipFlags + " pygame-ce pygbag", workDir);
+      addLog("Pygame detected in " + pygameFile + " — installing pygbag for web build...");
+      await runCmd(pip + " pygbag", workDir);
     }
     return;
   }
