@@ -44,13 +44,39 @@ function proxyTo(port, req, res, stripPrefix) {
   req.pipe(proxyReq);
 }
 
+function serveFileBrowser(outDir, res, previewBase) {
+  var files = [];
+  try { files = fs.readdirSync(outDir); } catch (e) { files = []; }
+  // Separate dirs and files, get sizes
+  var items = files.filter(function(f) { return f !== ".git"; }).map(function(f) {
+    try {
+      var st = fs.statSync(path.join(outDir, f));
+      return { name: f, isDir: st.isDirectory(), size: st.size, mtime: st.mtimeMs };
+    } catch (e) { return { name: f, isDir: false, size: 0, mtime: 0 }; }
+  });
+  items.sort(function(a, b) { if (a.isDir !== b.isDir) return a.isDir ? -1 : 1; return a.name.localeCompare(b.name); });
+
+  function fmtSize(n) { if (n < 1024) return n + " B"; if (n < 1048576) return (n / 1024).toFixed(1) + " KB"; return (n / 1048576).toFixed(1) + " MB"; }
+
+  var rows = items.map(function(it) {
+    var icon = it.isDir ? "\uD83D\uDCC1" : "\uD83D\uDCC4";
+    var href = (previewBase || "") + "/" + it.name + (it.isDir ? "/" : "");
+    return '<tr><td>' + icon + '</td><td><a href="' + href + '" style="color:#d4a030;text-decoration:none">' + it.name + '</a></td><td style="color:#6a665e;text-align:right">' + (it.isDir ? "-" : fmtSize(it.size)) + '</td></tr>';
+  }).join("");
+
+  res.removeHeader("X-Frame-Options");
+  res.setHeader("Content-Type", "text/html");
+  res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Project Files</title>'
+    + '<style>body{background:#090a10;color:#e6e1d5;font-family:system-ui;margin:0;padding:24px}h1{color:#d4a030;font-size:18px;margin-bottom:4px}.sub{color:#9e9890;font-size:13px;margin-bottom:16px}table{width:100%;border-collapse:collapse;font-size:13px}tr{border-bottom:1px solid #1a1e28}td{padding:6px 8px;vertical-align:middle}td:first-child{width:24px}a:hover{text-decoration:underline}.badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;font-family:monospace;background:rgba(74,222,128,.1);color:#4ade80;border:1px solid rgba(74,222,128,.2);margin-left:8px}</style>'
+    + '</head><body><h1>Build Complete <span class="badge">ready</span></h1>'
+    + '<p class="sub">No index.html found — showing project files. ' + items.length + ' items</p>'
+    + '<table>' + rows + '</table></body></html>');
+}
+
 function serveIndex(outDir, res, previewBase) {
   const indexPath = path.join(outDir, "index.html");
   if (!fs.existsSync(indexPath)) {
-    try {
-      const files = fs.readdirSync(outDir);
-      return res.status(404).send("index.html not found. Files: " + files.join(", "));
-    } catch (e) { return res.status(404).send("Output error: " + e.message); }
+    return serveFileBrowser(outDir, res, previewBase);
   }
   let html = fs.readFileSync(indexPath, "utf8");
   html = html.replace(/(src|href|content)="\/(?!\/)/g, '$1="./');
