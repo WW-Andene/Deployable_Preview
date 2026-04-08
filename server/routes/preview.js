@@ -14,6 +14,24 @@ function findOutputDir(owner, repo, slug) {
   return null;
 }
 
+// "Not Built Yet" placeholder with configurable refresh
+// ?refresh=N (seconds), ?refresh=0 or ?refresh=off to disable
+function notBuiltPage(statusText, req) {
+  var raw = (req.query.refresh || "").toLowerCase();
+  var disabled = raw === "0" || raw === "off" || raw === "false" || raw === "no";
+  var rate = disabled ? 0 : (parseInt(raw) > 0 ? parseInt(raw) : 5);
+  var metaTag = rate > 0 ? '<meta http-equiv="refresh" content="' + rate + '">' : '';
+  var refreshMsg = rate > 0
+    ? '<p>Auto-refreshes every ' + rate + 's. <a href="?refresh=off" style="color:#d4a030">Disable</a></p>'
+    : '<p>Auto-refresh disabled. <a href="?" style="color:#d4a030">Enable (5s)</a> · <button onclick="location.reload()" style="background:none;border:none;color:#d4a030;cursor:pointer;font-size:13px;text-decoration:underline;padding:0">Refresh now</button></p>';
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Not Built Yet</title>'
+    + '<style>body{background:#090a10;color:#e6e1d5;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}div{text-align:center}h1{color:#d4a030;font-size:18px}p{color:#9e9890;font-size:13px;margin:8px 0}a{text-decoration:underline}.status{display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-family:monospace;background:rgba(212,160,48,.1);color:#d4a030;border:1px solid rgba(212,160,48,.2)}</style>'
+    + metaTag
+    + '</head><body><div><h1>Not Built Yet</h1><p>Status: <span class="status">' + statusText + '</span></p>'
+    + refreshMsg
+    + '</div></body></html>';
+}
+
 // Match a request path against serverless API routes
 function matchApiRoute(apiRoutes, reqPath) {
   if (!apiRoutes) return null;
@@ -78,7 +96,7 @@ router.use("/preview/:owner/:repo/:branchSlug", (req, res, next) => {
   if (!outDir || !fs.existsSync(outDir)) {
     const st = buildStatus[key];
     const statusText = st ? st.status : "idle";
-    return res.status(404).send('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Not Built Yet</title><style>body{background:#090a10;color:#e6e1d5;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}div{text-align:center}h1{color:#d4a030;font-size:18px}p{color:#9e9890;font-size:13px;margin:8px 0}.status{display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-family:monospace;background:rgba(212,160,48,.1);color:#d4a030;border:1px solid rgba(212,160,48,.2)}</style><meta http-equiv="refresh" content="5"></head><body><div><h1>Not Built Yet</h1><p>Status: <span class="status">' + statusText + '</span></p><p>This page auto-refreshes every 5 seconds.</p></div></body></html>');
+    return res.status(404).send(notBuiltPage(statusText, req));
   }
   const reqPath = req.path;
   if (reqPath === "/" || reqPath === "" || (!path.extname(reqPath) && !reqPath.includes("."))) return serveIndex(outDir, res, previewPrefix(req));
@@ -108,7 +126,7 @@ router.use("/preview/:owner/:repo/:branchSlug/*", (req, res) => {
   if (!outDir) {
     const st = buildStatus[key];
     const statusText = st ? st.status : "idle";
-    return res.status(404).send('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Not Built Yet</title><style>body{background:#090a10;color:#e6e1d5;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}div{text-align:center}h1{color:#d4a030;font-size:18px}p{color:#9e9890;font-size:13px;margin:8px 0}.status{display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-family:monospace;background:rgba(212,160,48,.1);color:#d4a030;border:1px solid rgba(212,160,48,.2)}</style><meta http-equiv="refresh" content="5"></head><body><div><h1>Not Built Yet</h1><p>Status: <span class="status">' + statusText + '</span></p><p>This page auto-refreshes every 5 seconds.</p></div></body></html>');
+    return res.status(404).send(notBuiltPage(statusText, req));
   }
   serveIndex(outDir, res, previewPrefix(req));
 });
