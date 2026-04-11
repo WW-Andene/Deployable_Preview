@@ -687,6 +687,236 @@ async function interact(opts) {
   return result;
 }
 
+// ── Arbitrary URL browsing with network request capture ─────────────────────
+
+const { isBlockedHost, extractFromHtml } = require("./web-fetch");
+
+// Map of Playwright/Puppeteer resourceType → short category used for grouping
+const ASSET_CATEGORIES = {
+  document:    "documents",
+  stylesheet:  "stylesheets",
+  script:      "scripts",
+  image:       "images",
+  media:       "media",
+  font:        "fonts",
+  xhr:         "xhr",
+  fetch:       "xhr",
+  websocket:   "websockets",
+  manifest:    "other",
+  texttrack:   "media",
+  eventsource: "other",
+  other:       "other"
+};
+
+function categorizeResourceType(t) {
+  return ASSET_CATEGORIES[t] || "other";
+}
+
+/**
+ * Navigate to an arbitrary URL, wait for JS to execute, and capture all
+ * network requests the page makes. Useful for finding dynamically-loaded
+ * assets (Spine skeletons, video, lazy-loaded images, XHR/fetch calls)
+ * that a plain HTTP fetch cannot see.
+ *
+ * @param {object} opts
+ * @param {string}  opts.url             - URL to load (http/https, public hosts only)
+ * @param {number}  [opts.waitMs]        - Extra wait after navigation completes (default: 2000, max: 30000)
+ * @param {string}  [opts.waitUntil]     - Navigation completion signal ("load", "domcontentloaded", "networkidle", "networkidle2")
+ * @param {number}  [opts.width]         - Viewport width (default: 1280)
+ * @param {number}  [opts.height]        - Viewport height (default: 720)
+ * @param {object}  [opts.filter]        - { resourceTypes?: [...], urlPattern?: "regex", extensions?: [...] }
+ * @param {boolean} [opts.returnHtml]    - Include rendered HTML content in response
+ * @param {boolean} [opts.captureConsole]- Capture console logs + page errors (default: true)
+ * @param {number}  [opts.maxRequests]   - Cap on stored requests (default: 500, max: 2000)
+ * @param {string}  [opts.userAgent]     - Override User-Agent header
+ * @param {object}  [opts.headers]       - Extra HTTP headers to send with every request
+ * @returns {Promise<object>} { url, finalUrl, title, requestCount, requestsByType, requests, consoleLogs, errors, duration, truncated, html? }
+ */
+async function browseUrl(opts) {
+  if (!opts || !opts.url) return { error: "url parameter is required" };
+
+  let parsed;
+  try {
+    parsed = new URL(opts.url);
+  } catch (e) {
+    return { error: "Invalid URL: " + e.message };
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return { error: "Only http and https URLs are supported" };
+  }
+  if (isBlockedHost(parsed.hostname)) {
+    return { error: "Requests to private/internal network addresses are not allowed" };
+  }
+
+  if (!hasPlaywright()) {
+    return { error: "No browser available — server is still setting one up, try again in a moment." };
+  }
+
+  const width  = Math.min(Math.max(parseInt(opts.width, 10)  || 1280, 200), 3840);
+  const height = Math.min(Math.max(parseInt(opts.height, 10) || 720,  200), 2160);
+  const waitMs = Math.min(Math.max(parseInt(opts.waitMs, 10) || 2000, 0), 30000);
+  const maxReq = Math.min(Math.max(parseInt(opts.maxRequests, 10) || 500, 1), 2000);
+
+  // Parse filter options
+  const resourceTypesFilter = (opts.filter && Array.isArray(opts.filter.resourceTypes) && opts.filter.resourceTypes.length)
+    ? new Set(opts.filter.resourceTypes.map((t) => String(t).toLowerCase()))
+    : null;
+  const extensionsFilter = (opts.filter && Array.isArray(opts.filter.extensions) && opts.filter.extensions.length)
+    ? new Set(opts.filter.extensions.map((e) => String(e).toLowerCase().replace(/^\./, "")))
+    : null;
+  let urlPatternRe = null;
+  if (opts.filter && opts.filter.urlPattern) {
+    try { urlPatternRe = new RegExp(opts.filter.urlPattern); }
+    catch (e) { return { error: "Invalid urlPattern regex: " + e.message }; }
+  }
+
+  const browser = await getBrowser();
+  const page = await newPage(browser);
+
+  const requests = [];
+  const seenUrls = new Set();
+  const consoleLogs = [];
+  const errors = [];
+  let truncated = false;
+
+  try {
+    await setViewport(page, width, height);
+
+    // Set custom user-agent if provided
+    if (opts.userAgent) {
+      if (typeof page.setUserAgent === "function") {
+        await page.setUserAgent(opts.userAgent);
+      } else if (typeof page.setExtraHTTPHeaders === "function") {
+        await page.setExtraHTTPHeaders({ "User-Agent": opts.userAgent });
+      }
+    }
+    // Set extra headers if provided
+    if (opts.headers && typeof opts.headers === "object" && typeof page.setExtraHTTPHeaders === "function") {
+      // Strip any unsafe header names
+      const safeHeaders = {};
+      for (const k in opts.headers) {
+        if (/^[a-zA-Z0-9_-]+$/.test(k) && typeof opts.headers[k] === "string") {
+          safeHeaders[k] = opts.headers[k];
+        }
+      }
+      if (Object.keys(safeHeaders).length) await page.setExtraHTTPHeaders(safeHeaders);
+    }
+
+    // Response listener — capture every network response
+    page.on("response", (resp) => {
+      try {
+        if (requests.length >= maxReq) { truncated = true; return; }
+        const req = resp.request ? resp.request() : null;
+        const rurl = typeof resp.url === "function" ? resp.url() : "";
+        if (!rurl || seenUrls.has(rurl)) return;
+
+        const rtype = (req && typeof req.resourceType === "function") ? req.resourceType() : "other";
+        if (resourceTypesFilter && !resourceTypesFilter.has(rtype)) return;
+        if (urlPatternRe && !urlPatternRe.test(rurl)) return;
+        if (extensionsFilter) {
+          // Match against the URL path extension
+          let pathname = "";
+          try { pathname = new URL(rurl).pathname; } catch (_) { pathname = rurl; }
+          const dot = pathname.lastIndexOf(".");
+          const ext = dot >= 0 ? pathname.slice(dot + 1).toLowerCase() : "";
+          if (!extensionsFilter.has(ext)) return;
+        }
+
+        const headers = typeof resp.headers === "function" ? (resp.headers() || {}) : {};
+        const clHeader = headers["content-length"];
+        const size = clHeader ? parseInt(clHeader, 10) : null;
+
+        seenUrls.add(rurl);
+        requests.push({
+          url: rurl,
+          method: (req && typeof req.method === "function") ? req.method() : "GET",
+          resourceType: rtype,
+          category: categorizeResourceType(rtype),
+          status: typeof resp.status === "function" ? resp.status() : 0,
+          contentType: (headers["content-type"] || "").split(";")[0].trim(),
+          size: Number.isFinite(size) ? size : null,
+          fromCache: typeof resp.fromCache === "function" ? !!resp.fromCache() : false
+        });
+      } catch (_) { /* ignore individual response errors */ }
+    });
+
+    if (opts.captureConsole !== false) {
+      page.on("console", (msg) => {
+        if (consoleLogs.length >= 200) return;
+        try { consoleLogs.push({ type: msg.type(), text: msg.text() }); } catch (_) {}
+      });
+      page.on("pageerror", (err) => {
+        if (errors.length >= 100) return;
+        errors.push({ type: "pageerror", message: err.message });
+      });
+      page.on("requestfailed", (req) => {
+        if (errors.length >= 100) return;
+        try {
+          const failure = typeof req.failure === "function" ? req.failure() : null;
+          errors.push({
+            type: "requestfailed",
+            url: req.url(),
+            failure: failure ? (failure.errorText || String(failure)) : null
+          });
+        } catch (_) {}
+      });
+    }
+
+    // Navigate
+    const navWaitUntil = opts.waitUntil || (_lib && _lib.type === "puppeteer" ? "networkidle2" : "networkidle");
+    const navStart = Date.now();
+    try {
+      await page.goto(parsed.href, { waitUntil: navWaitUntil, timeout: 45000 });
+    } catch (navErr) {
+      // Navigation errors (timeouts) are common on heavy pages — keep whatever we captured
+      errors.push({ type: "navigation", message: navErr.message });
+    }
+
+    // Extra wait for delayed loads (animations, lazy-loaded media, Spine init, etc.)
+    if (waitMs > 0) {
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+
+    const duration = Date.now() - navStart;
+    const finalUrl = typeof page.url === "function" ? page.url() : parsed.href;
+    let title = "";
+    try { title = await page.title(); } catch (_) {}
+
+    // Group requests by category for quick overview
+    const requestsByType = {};
+    for (const r of requests) {
+      const cat = r.category;
+      requestsByType[cat] = (requestsByType[cat] || 0) + 1;
+    }
+
+    const result = {
+      url: parsed.href,
+      finalUrl,
+      title,
+      duration,
+      requestCount: requests.length,
+      requestsByType,
+      requests,
+      consoleLogs,
+      errors,
+      truncated
+    };
+
+    if (opts.returnHtml) {
+      try {
+        result.html = await page.content();
+      } catch (e) {
+        result.html = "";
+        result.htmlError = e.message;
+      }
+    }
+
+    return result;
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
 // ── List deployed previews ───────────────────────────────────────────────────
 
 function listPreviews() {
@@ -828,5 +1058,6 @@ module.exports = {
   closeBrowser,
   closeSession,
   closeAllSessions,
-  hasPlaywright
+  hasPlaywright,
+  browseUrl
 };

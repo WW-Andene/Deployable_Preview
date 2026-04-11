@@ -611,6 +611,55 @@ router.get("/fetch", async (req, res) => {
   }
 });
 
+// ── Browse URL (network request capture via headless browser) ─────────────
+
+// POST /api/browse — load any URL in a headless browser and return all network requests
+router.post("/browse", async (req, res) => {
+  const {
+    url, waitMs, waitUntil, width, height,
+    filter, returnHtml, captureConsole, maxRequests, userAgent, headers
+  } = req.body || {};
+  if (!url) return res.status(400).json({ error: "url parameter is required" });
+  try {
+    const result = await mcpBrowser.browseUrl({
+      url, waitMs, waitUntil, width, height,
+      filter, returnHtml, captureConsole, maxRequests, userAgent, headers
+    });
+    if (result.error) return res.status(400).json(result);
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/browse?url=... — quick shortcut for read-only browsing
+router.get("/browse", async (req, res) => {
+  const url = req.query.url;
+  if (!url) return res.status(400).json({ error: "url query parameter is required" });
+  const filter = {};
+  if (req.query.resourceTypes) filter.resourceTypes = String(req.query.resourceTypes).split(",").map((s) => s.trim()).filter(Boolean);
+  if (req.query.extensions)    filter.extensions    = String(req.query.extensions).split(",").map((s) => s.trim()).filter(Boolean);
+  if (req.query.urlPattern)    filter.urlPattern    = req.query.urlPattern;
+  try {
+    const result = await mcpBrowser.browseUrl({
+      url,
+      waitMs:     req.query.waitMs ? parseInt(req.query.waitMs, 10) : undefined,
+      waitUntil:  req.query.waitUntil,
+      width:      req.query.width  ? parseInt(req.query.width, 10)  : undefined,
+      height:     req.query.height ? parseInt(req.query.height, 10) : undefined,
+      filter:     Object.keys(filter).length ? filter : undefined,
+      returnHtml: req.query.returnHtml === "true",
+      captureConsole: req.query.captureConsole !== "false",
+      maxRequests: req.query.maxRequests ? parseInt(req.query.maxRequests, 10) : undefined,
+      userAgent:  req.query.userAgent
+    });
+    if (result.error) return res.status(400).json(result);
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Workspace cleanup ─────────────────────────────────────────────────────
 router.get("/workspace/stats", (req, res) => {
   const { WORKSPACE, buildStatus: bs, buildKey, branchSlug } = require("../build");

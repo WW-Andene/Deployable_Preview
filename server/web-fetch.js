@@ -235,36 +235,55 @@ function processResponse(rawBody, res, parsedUrl, totalSize, truncated, opts, re
 
   // HTML responses — optionally extract useful content
   if (isHtml) {
-    // Optionally strip boilerplate before extraction
-    const html = opts.readability ? stripBoilerplate(rawBody) : rawBody;
-
-    if (opts.extractText || opts.selector) {
-      result.text = extractText(html, opts.selector, maxTextLen);
-    }
-    if (opts.extractLinks) {
-      result.links = extractLinks(html, parsedUrl.href);
-    }
-    if (opts.extractMeta) {
-      result.meta = extractMeta(html);
-    }
-    if (opts.extractImages) {
-      result.images = extractImages(html, parsedUrl.href);
-    }
-    if (opts.extractHeadings) {
-      result.headings = extractHeadings(html);
-    }
-    // If no extract options, provide readable text by default for HTML
-    if (!opts.extractText && !opts.extractLinks && !opts.extractMeta && !opts.selector && !opts.extractImages && !opts.extractHeadings) {
-      result.title = extractTitle(rawBody);
-      result.text = extractText(opts.readability ? html : rawBody, null, maxTextLen);
-    }
-    result.rawHtmlLength = rawBody.length;
+    Object.assign(result, extractFromHtml(rawBody, opts, parsedUrl.href));
     return resolve(result);
   }
 
   // Plain text / other
   result.body = rawBody.slice(0, MAX_BODY_CHARS);
   return resolve(result);
+}
+
+/**
+ * Run the HTML extractors (text, links, meta, images, headings, selector, readability)
+ * against a pre-fetched HTML string. Shared between the plain-fetch path and the
+ * JS-rendered (browser) path.
+ *
+ * @param {string} rawHtml - Full HTML source to extract from
+ * @param {object} opts    - Extraction options (same shape as webFetch opts)
+ * @param {string} baseUrl - Base URL used to resolve relative links/images
+ * @returns {object} — subset of webFetch result: { text?, title?, links?, meta?, images?, headings?, rawHtmlLength }
+ */
+function extractFromHtml(rawHtml, opts, baseUrl) {
+  opts = opts || {};
+  const maxTextLen = resolveMaxTextLength(opts.maxTextLength);
+  const out = {};
+
+  // Optionally strip boilerplate before extraction
+  const html = opts.readability ? stripBoilerplate(rawHtml) : rawHtml;
+
+  if (opts.extractText || opts.selector) {
+    out.text = extractText(html, opts.selector, maxTextLen);
+  }
+  if (opts.extractLinks) {
+    out.links = extractLinks(html, baseUrl);
+  }
+  if (opts.extractMeta) {
+    out.meta = extractMeta(html);
+  }
+  if (opts.extractImages) {
+    out.images = extractImages(html, baseUrl);
+  }
+  if (opts.extractHeadings) {
+    out.headings = extractHeadings(html);
+  }
+  // If no extract options, provide readable text by default for HTML
+  if (!opts.extractText && !opts.extractLinks && !opts.extractMeta && !opts.selector && !opts.extractImages && !opts.extractHeadings) {
+    out.title = extractTitle(rawHtml);
+    out.text = extractText(opts.readability ? html : rawHtml, null, maxTextLen);
+  }
+  out.rawHtmlLength = rawHtml.length;
+  return out;
 }
 
 /**
@@ -653,4 +672,4 @@ function sanitizeHeaders(headers) {
   return safe;
 }
 
-module.exports = { webFetch };
+module.exports = { webFetch, extractFromHtml, isBlockedHost };
