@@ -197,59 +197,254 @@ const TOOLS = [
   },
   {
     name: "web_fetch",
-    description: "Fetch a URL and extract its content. Supports HTML pages (extracts readable text, links, images, headings, meta tags), JSON APIs, and plain text. Use this to read web pages, scrape content, check API responses, or download text data from the internet. Works without Playwright. Supports gzip/deflate/brotli compression transparently. Set jsRender:true to render JavaScript first (uses a headless browser, slower but sees client-rendered content).",
+    description: [
+      "Universal URL fetcher and scraper. Handles:",
+      "  • HTML pages — extract readable text, links, images, headings, meta tags, or convert to Markdown",
+      "  • JSON APIs — parse with optional jsonPath lookup",
+      "  • RSS/Atom feeds and XML sitemaps — parsed into structured items",
+      "  • Plain text / CSS / JS / YAML / CSV — returned as-is",
+      "  • Binary content (images, PDFs, etc.) — base64 when allowBinary:true",
+      "Supports gzip/deflate/brotli/zstd, automatic character-encoding detection (UTF-8, Latin-1, Shift-JIS, GBK, …), cookies, custom headers, retries on 429/503 with Retry-After.",
+      "Uses a modern Chrome User-Agent by default to avoid 403s.",
+      "Set jsRender:true to render JavaScript in a headless browser (for SPAs / client-rendered sites).",
+      "Set captureRequests:true to also return every network request the page makes (images, media, XHR, Spine skeletons, etc.) — implies jsRender."
+    ].join("\n"),
     inputSchema: {
       type: "object",
       properties: {
+        // ── Request ──
         url:             { type: "string", description: "URL to fetch (http or https)" },
         method:          { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"], description: "HTTP method (default: GET)" },
-        headers:         { type: "object", description: "Custom request headers as key-value pairs" },
-        body:            { type: "string", description: "Request body for POST/PUT/PATCH requests" },
-        timeout:         { type: "number", description: "Request timeout in milliseconds (default: 15000, max: 30000)" },
-        extractText:     { type: "boolean", description: "For HTML: strip tags and return readable text (default: true for HTML)" },
-        extractLinks:    { type: "boolean", description: "For HTML: extract all links with their text" },
-        extractMeta:     { type: "boolean", description: "For HTML: extract meta tags (title, description, Open Graph, etc.)" },
-        extractImages:   { type: "boolean", description: "For HTML: extract image URLs with alt text, width, and height" },
-        extractHeadings: { type: "boolean", description: "For HTML: extract heading structure (h1-h6) as an outline" },
-        selector:        { type: "string", description: "For HTML: CSS-like selector to extract specific content. Supports: tag name ('article'), class ('.content'), id ('#main'), or combined ('div.post')" },
-        readability:     { type: "boolean", description: "For HTML: strip nav/footer/sidebar/header boilerplate for cleaner text extraction" },
-        maxTextLength:   { type: "number", description: "Max text extraction length in characters (default: 50000, max: 200000)" },
-        jsRender:        { type: "boolean", description: "Render JavaScript using a headless browser before extraction. Required to scrape client-rendered SPAs or lazy-loaded content. Slower than plain fetch." },
-        waitMs:          { type: "number", description: "With jsRender: extra wait after page load in ms (default: 2000, max: 30000)" }
-      },
-      required: ["url"]
-    }
-  },
-  {
-    name: "browse_url",
-    description: "Open any public URL in a headless browser and capture every network request the page makes (images, scripts, stylesheets, media, XHR/fetch, fonts, websockets). Use this to discover dynamically-loaded assets like Spine skeletons (.skel/.atlas), videos (.webm/.mp4), lazy-loaded images, or API calls that a plain HTTP fetch cannot see. Returns a categorized list of requested URLs, console logs, and errors. Requires a browser (Playwright/Puppeteer/Browserless).",
-    inputSchema: {
-      type: "object",
-      properties: {
-        url:        { type: "string", description: "URL to load (http or https). Must be a public host — private/internal addresses are blocked." },
-        waitMs:     { type: "number", description: "Extra wait after navigation completes, in ms, so delayed/animated assets have time to load (default: 2000, max: 30000)" },
-        waitUntil:  { type: "string", enum: ["load", "domcontentloaded", "networkidle", "networkidle2"], description: "Navigation completion signal. Default: networkidle (Playwright) / networkidle2 (Puppeteer)." },
-        width:      { type: "number", description: "Viewport width in pixels (default: 1280)" },
-        height:     { type: "number", description: "Viewport height in pixels (default: 720)" },
-        filter: {
+        headers:         { type: "object", description: "Custom request headers (merged over defaults)" },
+        body:            { description: "Request body for POST/PUT/PATCH. String, or object (auto-serialized per bodyType)." },
+        bodyType:        { type: "string", enum: ["json", "form", "text"], description: "How to encode the body (default: auto-detect — objects → json)" },
+        timeout:         { type: "number", description: "Request timeout in milliseconds (default: 20000, max: 60000)" },
+        retries:         { type: "number", description: "Retries on 429/503/network errors (default: 2, max: 3)" },
+        maxRedirects:    { type: "number", description: "Max redirects to follow (default: 8, max: 15)" },
+        maxSize:         { type: "number", description: "Max response bytes (default: 5MB, hard cap: 20MB)" },
+        userAgent:       { type: "string", description: "Override User-Agent header (default: modern Chrome)" },
+        acceptLanguage:  { type: "string", description: "Accept-Language header (default: en-US,en;q=0.9)" },
+        referer:         { type: "string", description: "Referer header" },
+        cookies:         { description: "Cookie header — either a raw string 'k=v; k2=v2' or an object {k: v, k2: v2}" },
+        // ── Output format ──
+        format:          { type: "string", enum: ["auto", "text", "markdown", "html", "json", "xml", "base64", "raw"], description: "Output format. 'auto' picks based on Content-Type. 'markdown' converts HTML to Markdown preserving headings/links/lists/code. 'raw' returns the untouched decoded body." },
+        allowBinary:     { type: "boolean", description: "Allow non-text content (images, PDFs, etc.) to be returned as base64 instead of erroring" },
+        parseXml:        { type: "boolean", description: "Parse RSS/Atom/sitemap XML into structured items (auto-detected for XML content-types)" },
+        jsonPath:        { type: "string", description: "For JSON responses: dot-path to extract a subtree, e.g. 'data.items.0.title'" },
+        // ── HTML extractors ──
+        extractText:     { type: "boolean", description: "HTML: strip tags and return readable plain text (default when no other extractor set)" },
+        extractLinks:    { type: "boolean", description: "HTML: extract all <a> links" },
+        extractMeta:     { type: "boolean", description: "HTML: extract meta tags (title, description, Open Graph, etc.)" },
+        extractImages:   { type: "boolean", description: "HTML: extract <img> URLs with alt/width/height" },
+        extractHeadings: { type: "boolean", description: "HTML: extract h1-h6 outline" },
+        selector:        { type: "string", description: "HTML: CSS-like selector to scope extraction — 'tag', '.class', '#id', or 'tag.class'" },
+        readability:     { type: "boolean", description: "HTML: strip nav/footer/sidebar/header boilerplate before extraction" },
+        maxTextLength:   { type: "number", description: "Max text/markdown length in characters (default: 50000, max: 400000)" },
+        // ── JavaScript rendering / network capture (headless browser path) ──
+        jsRender:        { type: "boolean", description: "Render JavaScript in a headless browser before extraction. Required for SPAs or client-rendered content. Slower than plain fetch." },
+        captureRequests: { type: "boolean", description: "Also capture every network request the page makes (URLs, content-types, sizes, XHR/fetch, media, fonts, …). Implies jsRender." },
+        waitMs:          { type: "number", description: "With jsRender/captureRequests: extra wait after page load in ms (default: 2000, max: 30000)" },
+        waitUntil:       { type: "string", enum: ["load", "domcontentloaded", "networkidle", "networkidle2"], description: "With jsRender/captureRequests: navigation completion signal" },
+        requestFilter: {
           type: "object",
-          description: "Filter captured requests. All filters are AND-combined.",
+          description: "With captureRequests: filter the captured requests. All filters AND-combined.",
           properties: {
-            resourceTypes: { type: "array", items: { type: "string" }, description: "Only include these resource types. Examples: image, media, font, script, stylesheet, xhr, fetch, document, websocket" },
-            extensions:    { type: "array", items: { type: "string" }, description: "Only include URLs whose path ends in one of these extensions. E.g. ['skel','atlas','webm','mp4','png','json']" },
-            urlPattern:    { type: "string", description: "Only include request URLs matching this JavaScript regex" }
+            resourceTypes: { type: "array", items: { type: "string" }, description: "Include only these resource types: image, media, font, script, stylesheet, xhr, fetch, document, websocket" },
+            extensions:    { type: "array", items: { type: "string" }, description: "Include only URLs ending in these extensions, e.g. ['skel','atlas','webm','mp4','png','json']" },
+            urlPattern:    { type: "string", description: "Include only URLs matching this JavaScript regex" }
           }
         },
-        returnHtml:     { type: "boolean", description: "Include the rendered HTML in the response (after JS execution)" },
-        captureConsole: { type: "boolean", description: "Capture console logs and page errors (default: true)" },
-        maxRequests:    { type: "number", description: "Max requests to store (default: 500, max: 2000). Once hit, additional requests are dropped and truncated=true." },
-        userAgent:      { type: "string", description: "Override the User-Agent header" },
-        headers:        { type: "object", description: "Extra HTTP headers to send with every request made by the page" }
+        maxRequests:     { type: "number", description: "With captureRequests: max requests to store (default: 500, max: 2000)" },
+        width:           { type: "number", description: "With jsRender: browser viewport width (default: 1280)" },
+        height:          { type: "number", description: "With jsRender: browser viewport height (default: 720)" }
       },
       required: ["url"]
     }
   }
 ];
+
+// ── Unified web_fetch dispatcher ────────────────────────────────────────────
+//
+// Three paths:
+//   1. Plain HTTP (default) — fast Node fetch via webFetch()
+//   2. jsRender: true       — headless browser, run HTML extractors on rendered DOM
+//   3. captureRequests: true — headless browser + network request capture (implies jsRender)
+
+async function runWebFetch(args) {
+  args = args || {};
+
+  const useBrowser = !!(args.jsRender || args.captureRequests);
+  if (!useBrowser) {
+    return webFetch(args);
+  }
+
+  // Browser path
+  const browser = getBrowserModule();
+  const browseResult = await browser.browseUrl({
+    url: args.url,
+    waitMs: args.waitMs,
+    waitUntil: args.waitUntil,
+    width: args.width,
+    height: args.height,
+    filter: args.requestFilter,
+    headers: args.headers,
+    userAgent: args.userAgent || (args.headers && (args.headers["User-Agent"] || args.headers["user-agent"])),
+    returnHtml: true,
+    captureConsole: true,
+    maxRequests: args.captureRequests ? (args.maxRequests || 500) : 1
+  });
+
+  if (browseResult.error) return browseResult;
+
+  // Run the HTML extractors on the post-JS DOM
+  const extracted = extractFromHtml(browseResult.html || "", args, browseResult.finalUrl || args.url);
+
+  const result = {
+    url: browseResult.url,
+    finalUrl: browseResult.finalUrl,
+    statusCode: 200,
+    contentType: "text/html",
+    jsRendered: true,
+    title: extracted.title || browseResult.title,
+    duration: browseResult.duration,
+    ...extracted
+  };
+
+  if (args.captureRequests) {
+    result.capturedRequests = true;
+    result.requestCount = browseResult.requestCount;
+    result.requestsByType = browseResult.requestsByType;
+    result.requests = browseResult.requests;
+    result.requestsTruncated = browseResult.truncated;
+    result.consoleLogs = browseResult.consoleLogs;
+    result.browseErrors = browseResult.errors;
+  }
+
+  return result;
+}
+
+// ── web_fetch result → text summary ─────────────────────────────────────────
+
+function formatWebFetchResult(result) {
+  const parts = [];
+  parts.push("URL: " + result.url);
+  if (result.finalUrl && result.finalUrl !== result.url) parts.push("Final URL: " + result.finalUrl);
+  if (result.statusCode != null) parts.push("Status: " + result.statusCode);
+  if (result.contentType) parts.push("Content-Type: " + result.contentType);
+  if (result.charset && result.charset !== "utf-8") parts.push("Charset: " + result.charset);
+  if (result.jsRendered) parts.push("Mode: JS-rendered (headless browser)");
+  if (result.duration != null && result.jsRendered) parts.push("Load duration: " + result.duration + "ms");
+  if (result.truncated) parts.push("⚠ Response was truncated (exceeded size limit)");
+  if (result.title) parts.push("Title: " + result.title);
+
+  // Primary content
+  if (result.json !== undefined) {
+    const json = JSON.stringify(result.json, null, 2);
+    parts.push("\n" + (json.length > 100000 ? json.slice(0, 100000) + "\n[... JSON truncated]" : json));
+  } else if (result.feed) {
+    parts.push("\n--- Feed: " + result.feed.type + (result.feed.title ? " — " + result.feed.title : "") + " ---");
+    if (result.feed.description) parts.push(result.feed.description);
+    parts.push("(" + result.feed.itemCount + " items)");
+    const showCount = Math.min(result.feed.items.length, 50);
+    for (let i = 0; i < showCount; i++) {
+      const it = result.feed.items[i];
+      const line = [];
+      if (it.title)   line.push(it.title);
+      if (it.loc)     line.push(it.loc);
+      if (it.link)    line.push("→ " + it.link);
+      if (it.pubDate) line.push("(" + it.pubDate + ")");
+      if (it.published) line.push("(" + it.published + ")");
+      if (it.updated) line.push("[updated " + it.updated + "]");
+      parts.push("- " + line.join(" "));
+      const desc = it.summary || it.description || it.content;
+      if (desc) parts.push("  " + String(desc).slice(0, 300).replace(/\s+/g, " "));
+    }
+    if (result.feed.items.length > showCount) {
+      parts.push("... and " + (result.feed.items.length - showCount) + " more items");
+    }
+  } else if (result.markdown) {
+    parts.push("\n" + result.markdown);
+  } else if (result.html) {
+    parts.push("\n" + result.html);
+  } else if (result.text) {
+    parts.push("\n" + result.text);
+  } else if (result.body) {
+    parts.push("\n" + result.body);
+  } else if (result.base64) {
+    parts.push("\n[Binary content, " + result.byteLength + " bytes, base64 length: " + result.base64.length + "]");
+    parts.push(result.base64.slice(0, 2000) + (result.base64.length > 2000 ? "..." : ""));
+  }
+
+  if (result.headings && result.headings.length) {
+    parts.push("\n--- Page Outline (" + result.headings.length + " headings) ---");
+    for (const h of result.headings) {
+      parts.push("  ".repeat(h.level - 1) + "H" + h.level + ": " + h.text);
+    }
+  }
+  if (result.links && result.links.length) {
+    parts.push("\n--- Links (" + result.links.length + ") ---");
+    for (const link of result.links.slice(0, 100)) {
+      parts.push((link.text ? link.text + " → " : "") + link.href);
+    }
+    if (result.links.length > 100) parts.push("... and " + (result.links.length - 100) + " more links");
+  }
+  if (result.images && result.images.length) {
+    parts.push("\n--- Images (" + result.images.length + ") ---");
+    for (const img of result.images.slice(0, 50)) {
+      let desc = img.src;
+      if (img.alt) desc += " [" + img.alt + "]";
+      if (img.width && img.height) desc += " (" + img.width + "x" + img.height + ")";
+      parts.push(desc);
+    }
+    if (result.images.length > 50) parts.push("... and " + (result.images.length - 50) + " more images");
+  }
+  if (result.meta && Object.keys(result.meta).length) {
+    parts.push("\n--- Meta Tags ---");
+    for (const k in result.meta) parts.push(k + ": " + result.meta[k]);
+  }
+
+  // Captured network requests (captureRequests mode)
+  if (result.capturedRequests && result.requests) {
+    parts.push("\n--- Network Requests (" + result.requestCount +
+               (result.requestsTruncated ? ", truncated — raise maxRequests for more" : "") + ") ---");
+    if (result.requestsByType && Object.keys(result.requestsByType).length) {
+      const breakdown = Object.keys(result.requestsByType).sort()
+        .map((k) => k + "=" + result.requestsByType[k]).join(", ");
+      parts.push("By category: " + breakdown);
+    }
+    const byCategory = {};
+    for (const r of result.requests) {
+      const cat = r.category || "other";
+      (byCategory[cat] = byCategory[cat] || []).push(r);
+    }
+    for (const cat of Object.keys(byCategory).sort()) {
+      parts.push("\n  [" + cat + " × " + byCategory[cat].length + "]");
+      for (const r of byCategory[cat]) {
+        let line = "  [" + r.status + "] " + r.url;
+        const extras = [];
+        if (r.contentType) extras.push(r.contentType);
+        if (r.size != null) extras.push(r.size + "B");
+        if (r.fromCache) extras.push("cached");
+        if (extras.length) line += "  (" + extras.join(", ") + ")";
+        parts.push(line);
+      }
+    }
+    if (result.browseErrors && result.browseErrors.length) {
+      parts.push("\n--- Browser errors (" + result.browseErrors.length + ") ---");
+      for (const err of result.browseErrors.slice(0, 50)) {
+        parts.push((err.type || "error") + ": " + (err.url ? err.url + " — " : "") + (err.message || err.failure || ""));
+      }
+    }
+    if (result.consoleLogs && result.consoleLogs.length) {
+      parts.push("\n--- Console (" + result.consoleLogs.length + ") ---");
+      for (const log of result.consoleLogs.slice(0, 30)) {
+        parts.push("[" + log.type + "] " + log.text);
+      }
+    }
+  }
+
+  return parts.join("\n");
+}
 
 // ── Tool handlers ────────────────────────────────────────────────────────────
 
@@ -429,163 +624,14 @@ async function handleTool(name, args) {
     }
 
     case "web_fetch": {
-      let result;
-      if (args && args.jsRender) {
-        // JS-rendered path: drive a headless browser and run extractors on the rendered HTML
-        const browser = getBrowserModule();
-        const browseResult = await browser.browseUrl({
-          url: args.url,
-          waitMs: args.waitMs,
-          headers: args.headers,
-          userAgent: args.headers && args.headers["User-Agent"],
-          returnHtml: true,
-          captureConsole: false,
-          maxRequests: 1 // we only care about the rendered HTML here
-        });
-        if (browseResult.error) {
-          return { content: [{ type: "text", text: "Fetch error: " + browseResult.error }], isError: true };
-        }
-        const extracted = extractFromHtml(browseResult.html || "", args, browseResult.finalUrl || args.url);
-        result = {
-          url: browseResult.url,
-          finalUrl: browseResult.finalUrl,
-          statusCode: 200,
-          contentType: "text/html",
-          jsRendered: true,
-          title: extracted.title || browseResult.title,
-          ...extracted
-        };
-      } else {
-        result = await webFetch(args);
-      }
-      if (result.error) {
-        return { content: [{ type: "text", text: "Fetch error: " + result.error }], isError: true };
-      }
-      // Build a clean text summary for the AI
-      const parts = [];
-      parts.push("URL: " + result.url);
-      parts.push("Status: " + result.statusCode);
-      parts.push("Content-Type: " + result.contentType);
-      if (result.truncated) parts.push("⚠ Response was truncated (exceeded size limit)");
-      if (result.title) parts.push("Title: " + result.title);
-      if (result.json !== undefined) {
-        parts.push("\n" + JSON.stringify(result.json, null, 2));
-      } else if (result.text) {
-        parts.push("\n" + result.text);
-      } else if (result.body) {
-        parts.push("\n" + result.body);
-      }
-      if (result.headings && result.headings.length) {
-        parts.push("\n--- Page Outline (" + result.headings.length + " headings) ---");
-        for (const h of result.headings) {
-          parts.push("  ".repeat(h.level - 1) + "H" + h.level + ": " + h.text);
-        }
-      }
-      if (result.links && result.links.length) {
-        parts.push("\n--- Links (" + result.links.length + ") ---");
-        // Show first 100 links in MCP response to keep it manageable
-        for (const link of result.links.slice(0, 100)) {
-          parts.push((link.text ? link.text + " → " : "") + link.href);
-        }
-        if (result.links.length > 100) {
-          parts.push("... and " + (result.links.length - 100) + " more links");
-        }
-      }
-      if (result.images && result.images.length) {
-        parts.push("\n--- Images (" + result.images.length + ") ---");
-        for (const img of result.images.slice(0, 50)) {
-          let desc = img.src;
-          if (img.alt) desc += " [" + img.alt + "]";
-          if (img.width && img.height) desc += " (" + img.width + "x" + img.height + ")";
-          parts.push(desc);
-        }
-        if (result.images.length > 50) {
-          parts.push("... and " + (result.images.length - 50) + " more images");
-        }
-      }
-      if (result.meta && Object.keys(result.meta).length) {
-        parts.push("\n--- Meta Tags ---");
-        for (const k in result.meta) {
-          parts.push(k + ": " + result.meta[k]);
-        }
-      }
-      return {
-        content: [{
-          type: "text",
-          text: parts.join("\n")
-        }]
-      };
-    }
-
-    case "browse_url": {
       try {
-        const browser = getBrowserModule();
-        const result = await browser.browseUrl(args);
+        const result = await runWebFetch(args);
         if (result.error) {
-          return { content: [{ type: "text", text: "Browse error: " + result.error }], isError: true };
+          return { content: [{ type: "text", text: "Fetch error: " + result.error }], isError: true };
         }
-
-        // Build a readable summary for the model
-        const parts = [];
-        parts.push("URL: " + result.url);
-        if (result.finalUrl && result.finalUrl !== result.url) parts.push("Final URL: " + result.finalUrl);
-        if (result.title) parts.push("Title: " + result.title);
-        parts.push("Load duration: " + result.duration + "ms");
-        parts.push("Captured " + result.requestCount + " request(s)" + (result.truncated ? " (truncated — raise maxRequests to see more)" : ""));
-
-        if (result.requestsByType && Object.keys(result.requestsByType).length) {
-          const breakdown = Object.keys(result.requestsByType)
-            .sort()
-            .map((k) => k + "=" + result.requestsByType[k])
-            .join(", ");
-          parts.push("By type: " + breakdown);
-        }
-
-        if (result.requests && result.requests.length) {
-          // Group by category, print each URL
-          const byCategory = {};
-          for (const r of result.requests) {
-            const cat = r.category || "other";
-            if (!byCategory[cat]) byCategory[cat] = [];
-            byCategory[cat].push(r);
-          }
-          for (const cat of Object.keys(byCategory).sort()) {
-            parts.push("\n--- " + cat + " (" + byCategory[cat].length + ") ---");
-            for (const r of byCategory[cat]) {
-              let line = "[" + r.status + "] " + r.url;
-              const extras = [];
-              if (r.contentType) extras.push(r.contentType);
-              if (r.size != null) extras.push(r.size + "B");
-              if (r.fromCache) extras.push("cached");
-              if (extras.length) line += "  (" + extras.join(", ") + ")";
-              parts.push(line);
-            }
-          }
-        }
-
-        if (result.errors && result.errors.length) {
-          parts.push("\n--- Errors (" + result.errors.length + ") ---");
-          for (const err of result.errors.slice(0, 50)) {
-            parts.push((err.type || "error") + ": " + (err.url ? err.url + " — " : "") + (err.message || err.failure || ""));
-          }
-        }
-
-        if (result.consoleLogs && result.consoleLogs.length) {
-          parts.push("\n--- Console (" + result.consoleLogs.length + ") ---");
-          for (const log of result.consoleLogs.slice(0, 50)) {
-            parts.push("[" + log.type + "] " + log.text);
-          }
-        }
-
-        if (result.html) {
-          parts.push("\n--- Rendered HTML (" + result.html.length + " chars) ---");
-          parts.push(result.html.slice(0, 100000));
-          if (result.html.length > 100000) parts.push("[... HTML truncated]");
-        }
-
-        return { content: [{ type: "text", text: parts.join("\n") }] };
+        return { content: [{ type: "text", text: formatWebFetchResult(result) }] };
       } catch (e) {
-        return { content: [{ type: "text", text: "Browse failed: " + e.message }], isError: true };
+        return { content: [{ type: "text", text: "Fetch failed: " + e.message }], isError: true };
       }
     }
 

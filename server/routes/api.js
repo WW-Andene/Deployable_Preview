@@ -576,84 +576,97 @@ router.get("/mcp/previews", (req, res) => {
 // ── Web Fetch tool (HTTP API) ──────────────────────────────────────────────
 
 const { webFetch } = require("../web-fetch");
+const { extractFromHtml } = require("../web-fetch");
 
-// Fetch a URL and return extracted content
+// Unified dispatcher: plain fetch, JS-rendered, or JS-rendered + network capture
+async function dispatchWebFetch(opts) {
+  const useBrowser = !!(opts.jsRender || opts.captureRequests);
+  if (!useBrowser) return webFetch(opts);
+
+  const browseResult = await mcpBrowser.browseUrl({
+    url: opts.url,
+    waitMs: opts.waitMs,
+    waitUntil: opts.waitUntil,
+    width: opts.width,
+    height: opts.height,
+    filter: opts.requestFilter,
+    headers: opts.headers,
+    userAgent: opts.userAgent || (opts.headers && (opts.headers["User-Agent"] || opts.headers["user-agent"])),
+    returnHtml: true,
+    captureConsole: true,
+    maxRequests: opts.captureRequests ? (opts.maxRequests || 500) : 1
+  });
+  if (browseResult.error) return browseResult;
+  const extracted = extractFromHtml(browseResult.html || "", opts, browseResult.finalUrl || opts.url);
+  const out = {
+    url: browseResult.url,
+    finalUrl: browseResult.finalUrl,
+    statusCode: 200,
+    contentType: "text/html",
+    jsRendered: true,
+    title: extracted.title || browseResult.title,
+    duration: browseResult.duration,
+    ...extracted
+  };
+  if (opts.captureRequests) {
+    out.capturedRequests = true;
+    out.requestCount = browseResult.requestCount;
+    out.requestsByType = browseResult.requestsByType;
+    out.requests = browseResult.requests;
+    out.requestsTruncated = browseResult.truncated;
+    out.consoleLogs = browseResult.consoleLogs;
+    out.browseErrors = browseResult.errors;
+  }
+  return out;
+}
+
+// POST /api/fetch — full-featured fetch (accepts every webFetch option)
 router.post("/fetch", async (req, res) => {
-  const { url, method, headers, body, timeout, extractText, extractLinks, extractMeta, extractImages, extractHeadings, selector, readability, maxTextLength } = req.body;
-  if (!url) return res.status(400).json({ error: "url parameter is required" });
+  const opts = req.body || {};
+  if (!opts.url) return res.status(400).json({ error: "url parameter is required" });
   try {
-    const result = await webFetch({ url, method, headers, body, timeout, extractText, extractLinks, extractMeta, extractImages, extractHeadings, selector, readability, maxTextLength });
+    const result = await dispatchWebFetch(opts);
+    if (result.error && !result.statusCode) return res.status(400).json(result);
     res.json(result);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// GET shortcut for quick fetches
+// GET /api/fetch?url=... — quick shortcut
 router.get("/fetch", async (req, res) => {
   const url = req.query.url;
   if (!url) return res.status(400).json({ error: "url query parameter is required" });
-  try {
-    const result = await webFetch({
-      url,
-      extractText: req.query.text !== "false",
-      extractLinks: req.query.links === "true",
-      extractMeta: req.query.meta === "true",
-      extractImages: req.query.images === "true",
-      extractHeadings: req.query.headings === "true",
-      readability: req.query.readability === "true",
-      selector: req.query.selector,
-      maxTextLength: req.query.maxTextLength ? parseInt(req.query.maxTextLength, 10) : undefined
-    });
-    res.json(result);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
+  const opts = {
+    url,
+    format:       req.query.format,
+    extractText:  req.query.text !== "false",
+    extractLinks: req.query.links === "true",
+    extractMeta:  req.query.meta === "true",
+    extractImages: req.query.images === "true",
+    extractHeadings: req.query.headings === "true",
+    readability:  req.query.readability === "true",
+    selector:     req.query.selector,
+    jsonPath:     req.query.jsonPath,
+    parseXml:     req.query.parseXml === "true",
+    allowBinary:  req.query.allowBinary === "true",
+    userAgent:    req.query.userAgent,
+    referer:      req.query.referer,
+    acceptLanguage: req.query.acceptLanguage,
+    jsRender:     req.query.jsRender === "true",
+    captureRequests: req.query.captureRequests === "true",
+    waitMs:       req.query.waitMs ? parseInt(req.query.waitMs, 10) : undefined,
+    maxTextLength: req.query.maxTextLength ? parseInt(req.query.maxTextLength, 10) : undefined
+  };
+  if (req.query.resourceTypes || req.query.extensions || req.query.urlPattern) {
+    opts.requestFilter = {};
+    if (req.query.resourceTypes) opts.requestFilter.resourceTypes = String(req.query.resourceTypes).split(",").map((s) => s.trim()).filter(Boolean);
+    if (req.query.extensions)    opts.requestFilter.extensions    = String(req.query.extensions).split(",").map((s) => s.trim()).filter(Boolean);
+    if (req.query.urlPattern)    opts.requestFilter.urlPattern    = req.query.urlPattern;
   }
-});
-
-// ── Browse URL (network request capture via headless browser) ─────────────
-
-// POST /api/browse — load any URL in a headless browser and return all network requests
-router.post("/browse", async (req, res) => {
-  const {
-    url, waitMs, waitUntil, width, height,
-    filter, returnHtml, captureConsole, maxRequests, userAgent, headers
-  } = req.body || {};
-  if (!url) return res.status(400).json({ error: "url parameter is required" });
   try {
-    const result = await mcpBrowser.browseUrl({
-      url, waitMs, waitUntil, width, height,
-      filter, returnHtml, captureConsole, maxRequests, userAgent, headers
-    });
-    if (result.error) return res.status(400).json(result);
-    res.json(result);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// GET /api/browse?url=... — quick shortcut for read-only browsing
-router.get("/browse", async (req, res) => {
-  const url = req.query.url;
-  if (!url) return res.status(400).json({ error: "url query parameter is required" });
-  const filter = {};
-  if (req.query.resourceTypes) filter.resourceTypes = String(req.query.resourceTypes).split(",").map((s) => s.trim()).filter(Boolean);
-  if (req.query.extensions)    filter.extensions    = String(req.query.extensions).split(",").map((s) => s.trim()).filter(Boolean);
-  if (req.query.urlPattern)    filter.urlPattern    = req.query.urlPattern;
-  try {
-    const result = await mcpBrowser.browseUrl({
-      url,
-      waitMs:     req.query.waitMs ? parseInt(req.query.waitMs, 10) : undefined,
-      waitUntil:  req.query.waitUntil,
-      width:      req.query.width  ? parseInt(req.query.width, 10)  : undefined,
-      height:     req.query.height ? parseInt(req.query.height, 10) : undefined,
-      filter:     Object.keys(filter).length ? filter : undefined,
-      returnHtml: req.query.returnHtml === "true",
-      captureConsole: req.query.captureConsole !== "false",
-      maxRequests: req.query.maxRequests ? parseInt(req.query.maxRequests, 10) : undefined,
-      userAgent:  req.query.userAgent
-    });
-    if (result.error) return res.status(400).json(result);
+    const result = await dispatchWebFetch(opts);
+    if (result.error && !result.statusCode) return res.status(400).json(result);
     res.json(result);
   } catch (e) {
     res.status(500).json({ error: e.message });
