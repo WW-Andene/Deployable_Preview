@@ -357,7 +357,8 @@ async function buildBranch(repoConfig, branchConfig) {
         if (!fs.existsSync(muslSwcDir)) {
           addLog("ARM Android: installing @next/swc-linux-arm64-musl (static binary)");
           try {
-            await runCmd("npm install @next/swc-linux-arm64-musl --no-save --no-audit", workDir);
+            // --force bypasses npm's os/cpu platform check (rejects "android" for "linux" packages)
+            await runCmd("npm install @next/swc-linux-arm64-musl --no-save --no-audit --force", workDir);
           } catch (e) {
             addLog("WARNING: musl SWC install failed: " + (e.message || "").split("\n")[0]);
           }
