@@ -345,7 +345,10 @@ async function buildBranch(repoConfig, branchConfig) {
         try { execSync("rm -rf " + JSON.stringify(wasmDir)); } catch (_) {}
       }
 
-      // If no android-arm64 binary exists, install musl and symlink it
+      // If no android-arm64 binary exists, install musl and create a
+      // proper android-arm64 package from it. Can't just symlink because
+      // the .node file inside is named differently (linux-arm64-musl vs
+      // android-arm64) and Next.js checks the filename.
       if (!fs.existsSync(androidSwcDir)) {
         if (!fs.existsSync(muslSwcDir)) {
           addLog("ARM Android: installing @next/swc-linux-arm64-musl (static binary)");
@@ -356,16 +359,39 @@ async function buildBranch(repoConfig, branchConfig) {
           }
         }
         if (fs.existsSync(muslSwcDir)) {
-          addLog("ARM Android: symlinking musl binary as swc-android-arm64");
+          addLog("ARM Android: creating swc-android-arm64 from musl binary");
           try {
-            fs.symlinkSync(muslSwcDir, androidSwcDir, "dir");
-          } catch (e) {
-            // symlink might fail — try copy instead
-            try {
-              execSync("cp -r " + JSON.stringify(muslSwcDir) + " " + JSON.stringify(androidSwcDir));
-            } catch (_) {
-              addLog("WARNING: could not create android-arm64 symlink/copy");
+            // Find the .node binary in the musl package
+            const muslFiles = fs.readdirSync(muslSwcDir);
+            const nodeFile = muslFiles.find(f => f.endsWith(".node"));
+            if (nodeFile) {
+              // Create the android-arm64 package directory
+              fs.mkdirSync(androidSwcDir, { recursive: true });
+              // Copy the binary with the android-arm64 name
+              const targetName = "next-swc.android-arm64.node";
+              fs.copyFileSync(
+                path.join(muslSwcDir, nodeFile),
+                path.join(androidSwcDir, targetName)
+              );
+              // Create a package.json so require() finds it
+              const muslPkg = JSON.parse(fs.readFileSync(path.join(muslSwcDir, "package.json"), "utf8"));
+              const androidPkg = {
+                name: "@next/swc-android-arm64",
+                version: muslPkg.version,
+                main: targetName,
+                os: ["android"],
+                cpu: ["arm64"]
+              };
+              fs.writeFileSync(
+                path.join(androidSwcDir, "package.json"),
+                JSON.stringify(androidPkg, null, 2)
+              );
+              addLog("ARM Android: created swc-android-arm64 v" + muslPkg.version);
+            } else {
+              addLog("WARNING: no .node file found in musl package");
             }
+          } catch (e) {
+            addLog("WARNING: could not create android-arm64 package: " + e.message);
           }
         }
       }
