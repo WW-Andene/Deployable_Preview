@@ -1,6 +1,40 @@
 # DeployView ⚡
 
 Build, serve, and preview your app from GitHub — replaces Vercel, Netlify, and Screenfly.
+Ships with **64 MCP tools** organized into 11 categories so AI assistants
+can observe, measure, interact with, audit, and reason about any
+deployed preview without ever leaving text.
+
+## Architecture
+
+```
+server/
+  dv/                    ← the tool engine — single source of truth
+    core.js              ← defineTool / callTool / result helpers / capability gates
+    index.js             ← facade: loads every tool category at require time
+    tools/
+      browse.js          ← observation: screenshot, inspect, dom_query, find_all, meta, …
+      interact.js        ← user actions (one big tool, 19 sub-actions)
+      visual.js          ← pixel_color, measure, screenshot_diff, SSIM, palette, …
+      state.js           ← emulate, storage, clipboard, cookies_full, reset_session
+      audit.js           ← accessibility, lighthouse, vitals, coverage, HTML valid, …
+      network.js         ← capture_requests, har_capture, download, web_fetch, robots
+      deploy.js          ← list_previews, build_status, trigger_build, deploy_and_verify, …
+      content.js         ← ocr, text_diff, broken_links, stack_trace, unminify, …
+      ai.js              ← visual_query, find_element, visual_diff, verify_loop (Groq)
+      pages.js           ← list_pages, close_page
+      engine.js          ← dv_status, dv_tools (self-introspection)
+  mcp.js                 ← thin JSON-RPC adapter over dv
+  mcp-browser.js         ← Playwright / Puppeteer primitives (unchanged)
+  mcp-enrichments.js     ← lazy-loaded npm library wrappers (unchanged)
+  mcp-groq.js            ← Groq client + auth gate (unchanged)
+  routes/api.js          ← HTTP surface: /api/dv/* + legacy /api/mcp/* aliases
+```
+
+Every tool is defined **once** in `dv/tools/*.js` with its schema,
+description, category, capability requirements, and handler — the MCP
+JSON-RPC adapter, the HTTP REST layer, and the dashboard all consume the
+same registry. No more duplicated TOOLS arrays or switch cases.
 
 ## What it does
 

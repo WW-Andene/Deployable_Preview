@@ -473,30 +473,70 @@ router.get("/apk/:owner/:repo/download", (req, res) => {
   res.sendFile(resolvedPath);
 });
 
-// ── MCP HTTP tools ─────────────────────────────────────────────────────────
+// ── DV engine HTTP surface ─────────────────────────────────────────────────
+//
+// The /api/dv/* routes are the primary HTTP interface to the DeployView
+// tool engine. Every request flows through dv.callTool() — the same path
+// used by the MCP JSON-RPC adapter. The /api/mcp/* routes below are kept
+// as thin aliases for backwards compatibility.
 
-const { TOOLS: mcpTools, handleTool: mcpHandleTool } = require("../mcp");
+const dv = require("../dv");
 const mcpBrowser = require("../mcp-browser");
 
-// List available MCP tools
+// Engine status: tool count, categories, library + Groq availability.
+router.get("/dv/status", (req, res) => {
+  res.json(dv.status());
+});
+
+// Full tool catalogue grouped by category. Optional ?category= filter.
+router.get("/dv/tools", (req, res) => {
+  if (req.query.category) {
+    const grouped = dv.getToolsByCategory();
+    if (!grouped[req.query.category]) {
+      return res.status(404).json({
+        error: "Unknown category: " + req.query.category,
+        available: Object.keys(grouped)
+      });
+    }
+    return res.json({ category: req.query.category, tools: grouped[req.query.category] });
+  }
+  res.json({ byCategory: dv.getToolsByCategory(), flat: dv.listTools() });
+});
+
+// Invoke any tool by name: POST /api/dv/call { tool, args }
+router.post("/dv/call", async (req, res) => {
+  const { tool, args } = req.body || {};
+  if (!tool) return res.status(400).json({ error: "tool name required" });
+  const result = await dv.callTool(tool, args || {});
+  if (result.isError) res.status(400).json(result);
+  else res.json(result);
+});
+
+// Named POST shortcut: POST /api/dv/call/:name — body IS the args object.
+router.post("/dv/call/:name", async (req, res) => {
+  const result = await dv.callTool(req.params.name, req.body || {});
+  if (result.isError) res.status(400).json(result);
+  else res.json(result);
+});
+
+// ── Legacy /api/mcp/* aliases ─────────────────────────────────────────────
+
+const mcpHandleTool = dv.callTool;
+const mcpTools = dv.listTools();
+
 router.get("/mcp/tools", (req, res) => {
   res.json({
-    tools: mcpTools,
+    tools: dv.listTools(),
     playwrightAvailable: mcpBrowser.hasPlaywright(),
-    hint: "POST /api/mcp/call with { tool, args } to invoke a tool"
+    hint: "POST /api/mcp/call with { tool, args } — or use /api/dv/call"
   });
 });
 
-// Call an MCP tool via HTTP
 router.post("/mcp/call", async (req, res) => {
-  const { tool, args } = req.body;
+  const { tool, args } = req.body || {};
   if (!tool) return res.status(400).json({ error: "tool name required" });
-  try {
-    const result = await mcpHandleTool(tool, args || {});
-    res.json(result);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  const result = await dv.callTool(tool, args || {});
+  res.json(result);
 });
 
 // Shortcut: screenshot
