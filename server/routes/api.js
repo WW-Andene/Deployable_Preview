@@ -79,6 +79,7 @@ const SUGGESTED_KEYS = [
   { key: "WEBHOOK_SECRET",     label: "Webhook Secret",       hint: "GitHub webhook HMAC verification (optional)" },
   { key: "OPENAI_API_KEY",     label: "OpenAI API Key",       hint: "For AI-powered features in your apps", link: "https://platform.openai.com/api-keys" },
   { key: "ANTHROPIC_API_KEY",  label: "Anthropic API Key",    hint: "Claude API access for your apps", link: "https://console.anthropic.com/settings/keys" },
+  { key: "GROQ_API_KEY",       label: "Groq API Key",         hint: "Enables visual_query / find_element / visual_diff / verify_loop (vision-model Q&A on screenshots)", link: "https://console.groq.com/keys" },
   { key: "VERCEL_TOKEN",       label: "Vercel Token",         hint: "For Vercel API integrations" },
   { key: "SUPABASE_KEY",       label: "Supabase Key",         hint: "Supabase project API key" },
   { key: "DATABASE_URL",       label: "Database URL",         hint: "PostgreSQL / MySQL connection string" },

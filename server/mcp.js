@@ -508,6 +508,160 @@ const TOOLS = [
     }
   },
   {
+    name: "accessibility",
+    description: "Run a full axe-core WCAG accessibility audit against a preview. Returns structured violations grouped by rule with node targets, HTML snippets, and impact levels. Requires axe-core (npm install axe-core).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        tags:  { type: "array", items: { type: "string" }, description: "Limit to specific tags (e.g. ['wcag2a','wcag2aa'])" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "ocr",
+    description: "Read text from a preview screenshot via Tesseract.js. Claude gets text + word-level bounding boxes instead of image pixels. Can target the full page, a CSS selector, or a clipped region. Requires tesseract.js (npm install tesseract.js).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        selector: { type: "string", description: "Optional CSS selector — OCR only the matching element" },
+        x: { type: "number" },
+        y: { type: "number" },
+        width:  { type: "number" },
+        height: { type: "number" },
+        fullPage: { type: "boolean" },
+        lang: { type: "string", description: "Tesseract language code (default: 'eng'). Supports 'eng+fra' etc." }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "lighthouse",
+    description: "Run a full Lighthouse audit (performance / SEO / best-practices / accessibility) on a preview. Returns category scores, key metrics (LCP, CLS, TBT, TTI…), and notable failing audits. Takes ~15–30s. Requires lighthouse + chrome-launcher.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        categories: {
+          type: "array",
+          items: { type: "string" },
+          description: "Categories to run (default: performance, accessibility, best-practices, seo)"
+        }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "computed_styles",
+    description: "Get the computed style map for an element. Pass compareTo to diff against another element — css-tree is used to compare values structurally so '1rem' and '16px' register as equal. Returns only the diffs when compareTo is set.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        selector: { type: "string", description: "CSS selector of the element to inspect" },
+        compareTo: { type: "string", description: "Optional CSS selector to diff against" },
+        properties: { type: "array", items: { type: "string" }, description: "Optional whitelist of CSS properties to collect" }
+      },
+      required: ["owner", "repo", "slug", "selector"]
+    }
+  },
+  {
+    name: "visual_query",
+    description: "Ask Groq a natural-language question about a preview screenshot. Claude gets the text answer — no pixels. Requires GROQ_API_KEY. Good for: 'is there an error banner visible?', 'what does the heading say?', 'how many products are shown?'.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        question: { type: "string", description: "Natural-language question about the page" },
+        fullPage: { type: "boolean", description: "Capture the full scrollable page (default: viewport only)" },
+        model: { type: "string", description: "Groq model ID (default: meta-llama/llama-4-scout-17b-16e-instruct)" },
+        maxTokens: { type: "number", description: "Max output tokens (default: 1024)" }
+      },
+      required: ["owner", "repo", "slug", "question"]
+    }
+  },
+  {
+    name: "find_element",
+    description: "Use Groq to locate an element visually from a natural-language description, without needing a CSS selector. Returns approximate bounding box and confidence. Good for 'the login button', 'the red error text', 'the hero image'. Requires GROQ_API_KEY.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        description: { type: "string", description: "Natural-language description of the target element" },
+        model: { type: "string", description: "Groq model ID" }
+      },
+      required: ["owner", "repo", "slug", "description"]
+    }
+  },
+  {
+    name: "visual_diff",
+    description: "Take two screenshots of a preview — one before and one after an optional action — and ask Groq to describe what changed in words. Much cheaper context-wise than sending both screenshots to Claude. Requires GROQ_API_KEY.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        action: {
+          type: "object",
+          description: "Optional interact-style action to run between the two screenshots",
+          properties: {
+            action:   { type: "string" },
+            selector: { type: "string" },
+            value:    { type: "string" },
+            x: { type: "number" }, y: { type: "number" }
+          }
+        },
+        waitMs: { type: "number", description: "Milliseconds to wait after the action before the second screenshot" },
+        model: { type: "string", description: "Groq model ID" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "verify_loop",
+    description: "Run an evaluate+screenshot+Groq-check cycle in a loop until a natural-language success condition is met. Claude passes a condition once; DeployView iterates and returns a text summary of attempts. Use when you're dialling in a visual state. Requires GROQ_API_KEY.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        condition: { type: "string", description: "Natural-language success condition — e.g. 'the modal is closed and the save button is green'" },
+        evaluate: { type: "string", description: "Optional JS code to run in the page on each attempt" },
+        action: {
+          type: "object",
+          description: "Optional interact-style action to run on each attempt",
+          properties: {
+            action:   { type: "string" },
+            selector: { type: "string" },
+            value:    { type: "string" }
+          }
+        },
+        maxAttempts: { type: "number", description: "Max attempts before giving up (default: 5, cap: 20)" },
+        delayMs: { type: "number", description: "Milliseconds between attempts (default: 800)" },
+        settleMs:{ type: "number", description: "Milliseconds to wait for the page to settle before each screenshot (default: 300)" },
+        model: { type: "string", description: "Groq model ID" },
+        returnScreenshot: { type: "boolean", description: "Include the final screenshot in the response (default: false — text only)" }
+      },
+      required: ["owner", "repo", "slug", "condition"]
+    }
+  },
+  {
     name: "web_fetch",
     description: [
       "Universal URL fetcher and scraper. Handles:",
@@ -1131,6 +1285,127 @@ async function handleTool(name, args) {
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       } catch (e) {
         return { content: [{ type: "text", text: "close_page failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "accessibility": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.runAccessibility(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Accessibility audit error: " + result.error }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "accessibility failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "ocr": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.runOCR(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "OCR error: " + result.error }], isError: true };
+        }
+        // Trim words to keep response readable
+        const summary = {
+          text: result.text,
+          confidence: result.confidence,
+          wordCount: result.wordCount,
+          lang: result.lang,
+          url: result.url,
+          engine: result.engine,
+          wordsSample: (result.words || []).slice(0, 50)
+        };
+        return { content: [{ type: "text", text: JSON.stringify(summary, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "ocr failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "lighthouse": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.runLighthouseAudit(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Lighthouse error: " + result.error }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "lighthouse failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "computed_styles": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.getComputedStyles(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Computed styles error: " + result.error }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "computed_styles failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "visual_query": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.visualQuery(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Visual query error: " + result.error }], isError: true };
+        }
+        // Return only the text answer to keep Claude's context clean
+        return { content: [{ type: "text", text: result.text || "(no answer)" }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "visual_query failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "find_element": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.findElementVisually(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Find element error: " + result.error }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "find_element failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "visual_diff": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.visualDiffWithAction(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Visual diff error: " + result.error }], isError: true };
+        }
+        return { content: [{ type: "text", text: result.summary || "(no summary)" }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "visual_diff failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "verify_loop": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.runVerifyLoop(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Verify loop error: " + result.error }], isError: true };
+        }
+        const content = [];
+        if (args.returnScreenshot && result.finalScreenshot) {
+          content.push({ type: "image", data: result.finalScreenshot, mimeType: "image/png" });
+        }
+        const { finalScreenshot, ...meta } = result;
+        content.push({ type: "text", text: JSON.stringify(meta, null, 2) });
+        return { content };
+      } catch (e) {
+        return { content: [{ type: "text", text: "verify_loop failed: " + e.message }], isError: true };
       }
     }
 

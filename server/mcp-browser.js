@@ -1422,9 +1422,9 @@ const pngLite = require("./png-lite");
 
 /**
  * Read the RGB(A) color of a single pixel in the current rendered page.
- * Takes a 1×1 PNG clip to avoid decoding the full screenshot.
+ * Prefers sharp (native) when available and falls back to png-lite.
  *
- * @param {object} opts - { owner, repo, slug, x, y, deviceScaleFactor?, width?, height? }
+ * @param {object} opts - { owner, repo, slug, x, y, width?, height? }
  */
 async function getPixelColor(opts) {
   const { owner, repo, slug, width, height } = opts;
@@ -1441,25 +1441,36 @@ async function getPixelColor(opts) {
   const browser = await getBrowser();
   const { page, url } = await getSessionPage(browser, owner, repo, slug, width, height);
 
-  // Clamp to viewport to avoid Playwright errors on out-of-bounds clips.
   const vp = getViewport(page) || { width: 1280, height: 720 };
   if (x < 0 || y < 0 || x >= vp.width || y >= vp.height) {
     return { error: "point out of viewport", point: { x, y }, viewport: vp };
   }
 
+  const enrich = require("./mcp-enrichments");
+
+  // Try sharp path first — faster, no JS PNG parsing
+  if (enrich.have("sharp")) {
+    try {
+      const buf = await page.screenshot({ type: "png" });
+      const pixel = await enrich.sharpPixel(buf, x, y);
+      if (!pixel.error) return { point: { x, y }, viewport: vp, url, ...pixel };
+      // fall through on error
+    } catch (_) { /* fall through */ }
+  }
+
+  // png-lite fallback: take a 1x1 clip, decode
   let buf;
   try {
     buf = await page.screenshot({ type: "png", clip: { x, y, width: 1, height: 1 } });
   } catch (e) {
-    // Fallback: full-page screenshot and decode a single pixel
     buf = await page.screenshot({ type: "png" });
     const full = pngLite.decode(buf);
     const pixel = pngLite.getPixel(full, x, y);
-    return { point: { x, y }, viewport: vp, url, ...pixel };
+    return { point: { x, y }, viewport: vp, url, engine: "png-lite", ...pixel };
   }
   const img = pngLite.decode(buf);
   const pixel = pngLite.getPixel(img, 0, 0);
-  return { point: { x, y }, viewport: vp, url, ...pixel };
+  return { point: { x, y }, viewport: vp, url, engine: "png-lite", ...pixel };
 }
 
 /**
@@ -1558,20 +1569,34 @@ async function measure(opts) {
 
 /**
  * Compare two PNG screenshots pixel-by-pixel and return diff stats.
- * Both inputs are required as base64 PNG buffers.
+ * Prefers pixelmatch (generates a heatmap) when available; falls back to
+ * the zero-dep png-lite diff.
  *
- * Typical flow:
- *   1) take a screenshot, save the base64
- *   2) make a change
- *   3) take another screenshot
- *   4) call screenshot_diff with both base64 strings
- *
- * @param {object} opts - { before, after, threshold? }
+ * @param {object} opts - { before, after, threshold?, includeAA? }
  */
 async function screenshotDiff(opts) {
   if (!opts || !opts.before || !opts.after) {
     return { error: "before and after (base64 PNGs) are required" };
   }
+
+  const enrich = require("./mcp-enrichments");
+  if (enrich.have("pixelmatch") && enrich.have("pngjs")) {
+    // pixelmatch threshold is 0..1, default 0.1 — map our "10/255" default
+    const threshold = opts.threshold != null
+      ? (opts.threshold > 1 ? Number(opts.threshold) / 255 : Number(opts.threshold))
+      : 0.1;
+    const result = enrich.pixelDiff(opts.before, opts.after, {
+      threshold,
+      includeAA: !!opts.includeAA
+    });
+    if (!result.error) {
+      result.engine = "pixelmatch";
+      return result;
+    }
+    // fall through on error
+  }
+
+  // png-lite fallback
   let a, b;
   try {
     a = pngLite.decode(Buffer.from(opts.before, "base64"));
@@ -1584,7 +1609,9 @@ async function screenshotDiff(opts) {
     return { error: "failed to decode 'after' PNG: " + e.message };
   }
   const threshold = opts.threshold != null ? Number(opts.threshold) : 10;
-  return pngLite.diff(a, b, { threshold });
+  const out = pngLite.diff(a, b, { threshold });
+  out.engine = "png-lite";
+  return out;
 }
 
 // ── Emulation (DPR, color scheme, geolocation, network throttling) ──────────
@@ -2358,6 +2385,316 @@ async function closePage(opts) {
   }
 }
 
+// ── axe-core accessibility audit ───────────────────────────────────────────
+
+/**
+ * Run a full axe-core accessibility audit against a preview session.
+ * Returns structured violations grouped by rule with node targets + HTML.
+ *
+ * @param {object} opts - { owner, repo, slug, tags? }
+ */
+async function runAccessibility(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+
+  const enrich = require("./mcp-enrichments");
+  if (!enrich.have("axe-core")) {
+    return {
+      error: "axe-core not installed. Run: npm install axe-core",
+      url
+    };
+  }
+
+  const result = await enrich.runAxe(page, { tags: opts.tags, rules: opts.rules });
+  return { ...result, url };
+}
+
+// ── Tesseract OCR ──────────────────────────────────────────────────────────
+
+/**
+ * Take a screenshot (or region) and run Tesseract OCR over it.
+ * Returns extracted text + word-level bounding boxes.
+ *
+ * @param {object} opts - { owner, repo, slug, selector?, x?, y?, width?, height?, lang? }
+ */
+async function runOCR(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const enrich = require("./mcp-enrichments");
+  if (!enrich.have("tesseract.js")) {
+    return { error: "tesseract.js not installed. Run: npm install tesseract.js" };
+  }
+
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.vw, opts.vh);
+
+  let buf;
+  if (opts.selector) {
+    const el = await page.$(opts.selector);
+    if (el) {
+      buf = await el.screenshot({ type: "png" });
+    } else {
+      return { error: "selector not found: " + opts.selector, url };
+    }
+  } else if (
+    opts.x != null && opts.y != null &&
+    opts.width != null && opts.height != null
+  ) {
+    buf = await page.screenshot({
+      type: "png",
+      clip: {
+        x: Number(opts.x), y: Number(opts.y),
+        width: Number(opts.width), height: Number(opts.height)
+      }
+    });
+  } else {
+    buf = await page.screenshot({ type: "png", fullPage: !!opts.fullPage });
+  }
+
+  const result = await enrich.runOCR(buf, { lang: opts.lang });
+  return { ...result, url };
+}
+
+// ── Lighthouse full audit ──────────────────────────────────────────────────
+
+/**
+ * Run a full Lighthouse audit on a preview URL. Note: Lighthouse launches
+ * its own Chrome instance — this is separate from the DeployView browser
+ * session. Takes ~15–30s.
+ *
+ * @param {object} opts - { owner, repo, slug, categories? }
+ */
+async function runLighthouseAudit(opts) {
+  const enrich = require("./mcp-enrichments");
+  if (!enrich.have("lighthouse")) {
+    return { error: "lighthouse not installed. Run: npm install lighthouse chrome-launcher" };
+  }
+
+  let auditUrl;
+  try {
+    auditUrl = resolvePreviewUrl(opts.owner, opts.repo, opts.slug);
+  } catch (e) {
+    return { error: e.message };
+  }
+  return enrich.runLighthouse(auditUrl, { categories: opts.categories });
+}
+
+// ── Computed styles with css-tree structural diff ─────────────────────────
+
+/**
+ * Get the computed style map for an element, and optionally diff against
+ * a second selector so callers can compare tokens structurally (e.g.
+ * "1rem" vs "16px" — not the same string but equivalent).
+ *
+ * @param {object} opts - { owner, repo, slug, selector, compareTo?, properties? }
+ */
+async function getComputedStyles(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+
+  if (!opts.selector) return { error: "selector required" };
+
+  // Whitelist of properties to collect (configurable)
+  const defaultProps = [
+    "display", "position", "visibility", "opacity", "z-index",
+    "width", "height", "min-width", "min-height", "max-width", "max-height",
+    "margin", "padding", "border", "border-radius", "box-sizing",
+    "color", "background-color", "background-image", "background-size",
+    "font-family", "font-size", "font-weight", "line-height", "letter-spacing",
+    "text-align", "text-transform", "text-decoration",
+    "transform", "transform-origin", "transition", "animation",
+    "flex", "flex-direction", "justify-content", "align-items", "gap",
+    "grid-template-columns", "grid-template-rows",
+    "overflow", "box-shadow", "filter", "cursor"
+  ];
+  const props = Array.isArray(opts.properties) && opts.properties.length
+    ? opts.properties
+    : defaultProps;
+
+  const getStyles = async (sel) => {
+    return await page.evaluate((args) => {
+      const el = document.querySelector(args.sel);
+      if (!el) return null;
+      const s = window.getComputedStyle(el);
+      const out = {};
+      for (const p of args.props) out[p] = s.getPropertyValue(p);
+      return out;
+    }, { sel, props });
+  };
+
+  const styles = await getStyles(opts.selector);
+  if (!styles) return { error: "selector not found: " + opts.selector, url };
+
+  const result = { selector: opts.selector, styles, url };
+
+  if (opts.compareTo) {
+    const other = await getStyles(opts.compareTo);
+    if (!other) {
+      result.compareError = "compareTo not found: " + opts.compareTo;
+      return result;
+    }
+
+    const enrich = require("./mcp-enrichments");
+    const hasCssTree = enrich.have("css-tree");
+
+    const diffs = {};
+    for (const p of props) {
+      const a = styles[p];
+      const b = other[p];
+      if (a === b) continue;
+      if (hasCssTree) {
+        const structural = enrich.diffCssValues(a, b);
+        if (!structural.error && structural.same) continue;  // equivalent
+        diffs[p] = { a, b, structural: structural.error ? undefined : structural };
+      } else {
+        diffs[p] = { a, b };
+      }
+    }
+    result.compareTo = opts.compareTo;
+    result.otherStyles = other;
+    result.diffCount = Object.keys(diffs).length;
+    result.diffs = diffs;
+    result.engine = hasCssTree ? "css-tree" : "string";
+  }
+
+  return result;
+}
+
+// ── Groq visual tools ─────────────────────────────────────────────────────
+
+/**
+ * Take a screenshot of a preview and ask Groq a natural-language question
+ * about it. Claude gets the text answer — no pixels in its context.
+ */
+async function visualQuery(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const groq = require("./mcp-groq");
+  if (!groq.hasGroq()) return { error: "GROQ_API_KEY not set" };
+
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+
+  const buf = await page.screenshot({ type: "png", fullPage: !!opts.fullPage });
+  const result = await groq.visualQuery({
+    pngBase64: buf.toString("base64"),
+    question: opts.question,
+    model: opts.model,
+    maxTokens: opts.maxTokens
+  });
+  return { ...result, url };
+}
+
+/**
+ * Use Groq to find an element visually (no CSS selector required) and
+ * return its bounding box and a confidence score.
+ */
+async function findElementVisually(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const groq = require("./mcp-groq");
+  if (!groq.hasGroq()) return { error: "GROQ_API_KEY not set" };
+
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+
+  const buf = await page.screenshot({ type: "png" });
+  const result = await groq.findElement({
+    pngBase64: buf.toString("base64"),
+    description: opts.description,
+    model: opts.model
+  });
+  return { ...result, url };
+}
+
+/**
+ * Take two screenshots around an action and ask Groq to describe what changed.
+ * Useful for "did my change break anything" checks.
+ *
+ * @param {object} opts - { owner, repo, slug, action?: { ...interactOpts }, waitMs? }
+ */
+async function visualDiffWithAction(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const groq = require("./mcp-groq");
+  if (!groq.hasGroq()) return { error: "GROQ_API_KEY not set" };
+
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+
+  const beforeBuf = await page.screenshot({ type: "png" });
+
+  if (opts.action) {
+    try {
+      await interact({ owner: opts.owner, repo: opts.repo, slug: opts.slug, ...opts.action });
+    } catch (e) {
+      return { error: "action failed: " + e.message, url };
+    }
+  }
+  if (opts.waitMs) await new Promise((r) => setTimeout(r, Math.min(Number(opts.waitMs) || 0, 30000)));
+
+  const afterBuf = await page.screenshot({ type: "png" });
+
+  const result = await groq.visualDiff({
+    beforeBase64: beforeBuf.toString("base64"),
+    afterBase64:  afterBuf.toString("base64"),
+    model: opts.model
+  });
+  return { ...result, url };
+}
+
+/**
+ * Verify loop: run an action, take a screenshot, ask Groq whether the
+ * success condition is met, repeat until pass or maxAttempts. Returns a
+ * text summary so Claude doesn't see the intermediate pixels.
+ */
+async function runVerifyLoop(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const groq = require("./mcp-groq");
+  if (!groq.hasGroq()) return { error: "GROQ_API_KEY not set" };
+
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+
+  const actAndCapture = async (attempt) => {
+    // Optional per-attempt evaluate step so the page advances
+    if (opts.evaluate) {
+      try {
+        const code = typeof opts.evaluate === "string"
+          ? opts.evaluate
+          : (typeof opts.evaluate === "function" ? opts.evaluate(attempt) : null);
+        if (code) {
+          await page.evaluate("(async () => { " + code + " })()");
+        }
+      } catch (e) {
+        return { pngBase64: null, note: "evaluate threw: " + e.message };
+      }
+    }
+    // Optional structured interact action
+    if (opts.action) {
+      try {
+        await interact({ owner: opts.owner, repo: opts.repo, slug: opts.slug, ...opts.action });
+      } catch (e) {
+        return { pngBase64: null, note: "action threw: " + e.message };
+      }
+    }
+    await new Promise((r) => setTimeout(r, Math.min(Number(opts.settleMs) || 300, 5000)));
+    const buf = await page.screenshot({ type: "png", fullPage: !!opts.fullPage });
+    return { pngBase64: buf.toString("base64"), note: "attempt " + (attempt + 1) };
+  };
+
+  const result = await groq.verifyLoop({
+    condition: opts.condition,
+    actAndCapture,
+    maxAttempts: opts.maxAttempts,
+    delayMs: opts.delayMs,
+    model: opts.model
+  });
+  // Don't return the final screenshot bytes back to Claude unless asked
+  if (!opts.returnScreenshot && result.finalScreenshot) {
+    delete result.finalScreenshot;
+  }
+  return { ...result, url };
+}
+
 module.exports = {
   takeScreenshot,
   inspectDOM,
@@ -2384,5 +2721,15 @@ module.exports = {
   clipboard,
   canvasData,
   listPages,
-  closePage
+  closePage,
+  // Library-backed enrichments
+  runAccessibility,
+  runOCR,
+  runLighthouseAudit,
+  getComputedStyles,
+  // Groq-backed visual tools
+  visualQuery,
+  findElementVisually,
+  visualDiffWithAction,
+  runVerifyLoop
 };

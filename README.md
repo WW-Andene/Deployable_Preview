@@ -158,9 +158,46 @@ npm start
 | `deploy_and_verify` | One-shot: trigger build → wait for ready → screenshot + console (replaces 5 separate calls) |
 | `clipboard` | Read/write the browser clipboard (permissions auto-granted) |
 | `canvas_data` | Extract `<canvas>` pixels via `getImageData` (2D) or `toDataURL` (WebGL) |
-| `list_pages` | List all open tabs/popups after an interaction that spawned a new window |
-| `close_page` | Close a specific tab by index or URL substring |
+| `list_pages` / `close_page` | Manage open tabs/popups |
+| `accessibility` | Full axe-core WCAG audit — violations grouped by rule |
+| `ocr` | Read text from a screenshot via Tesseract.js — Claude gets text, not pixels |
+| `lighthouse` | Full Lighthouse audit (perf / SEO / best-practices / a11y) |
+| `computed_styles` | Computed style map for an element; optional structural diff vs another (css-tree) |
+| `visual_query` | Ask Groq a natural-language question about a screenshot — text answer only |
+| `find_element` | Groq locates an element visually from a description (bounding box + confidence) |
+| `visual_diff` | Take two screenshots around an action, Groq describes what changed in words |
+| `verify_loop` | Iterate evaluate → screenshot → Groq check until a condition passes |
 | `web_fetch` | Universal URL fetcher / scraper (HTML, JSON, RSS, binaries) with optional JS rendering |
+
+### Optional enrichments (npm libraries)
+
+These are listed in `optionalDependencies` so the core install works even
+when native builds (`sharp`, `tesseract.js`, `lighthouse`) can't be built
+on a host. Tools gracefully fall back or report a clear "install X" error.
+
+```bash
+npm install pixelmatch pngjs sharp axe-core tesseract.js lighthouse css-tree
+```
+
+| Library | Used by | What it adds |
+|---|---|---|
+| `pixelmatch` + `pngjs` | `screenshot_diff` | Faster pixel diff + red-highlight heatmap PNG returned as base64 |
+| `sharp` | `get_pixel_color` | Native-speed pixel extraction from screenshots |
+| `axe-core` | `accessibility` | Full WCAG 2.1 audit injected into the preview page |
+| `tesseract.js` | `ocr` | Text extraction from screenshots (50+ languages) |
+| `lighthouse` + `chrome-launcher` | `lighthouse` | Performance / SEO / best-practices / a11y scoring |
+| `css-tree` | `computed_styles` | Structural CSS value comparison (e.g. `1rem` = `16px`) |
+
+### Groq visual tools
+
+Visual reasoning offloaded to Groq's vision models so Claude's context
+stays text-only. Set `GROQ_API_KEY` in Settings → Secrets (or as an env var) to enable:
+- `visual_query` — ask a question about the page, get a text answer
+- `find_element` — locate an element by description, get a bounding box
+- `visual_diff` — describe what changed between two screenshots in words
+- `verify_loop` — iterate until a natural-language success condition is met
+
+Free keys: https://console.groq.com/keys
 
 The `interact` tool also supports **iframe scoping** via the `frame` parameter
 (CSS selector of an `<iframe>`, a URL substring, or a frame name), and a **pinch**
