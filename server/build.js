@@ -407,18 +407,22 @@ async function buildBranch(repoConfig, branchConfig) {
     var cmd, outName;
     var userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
 
-    // If Next.js SWC is broken on this platform, tell Next.js to use Babel
+    // Fix Next.js SWC on ARM (Termux/Android): the @next/swc-wasm-nodejs
+    // WASM module crashes with "Reflect.get called on non-object" on ARM.
+    // Fix: delete the broken WASM module AND set NEXT_DISABLE_SWC=1 so
+    // Next.js falls back to Babel. This is aggressive but guaranteed to work.
     const _isARM = process.arch === "arm64" || process.arch === "arm";
-    if (_isARM && fs.existsSync(path.join(workDir, "node_modules", "next"))) {
-      const swcDir = path.join(workDir, "node_modules", "@next");
-      let hasNativeSwc = false;
-      try {
-        hasNativeSwc = fs.readdirSync(swcDir).some(d => d.startsWith("swc-") && !d.includes("wasm"));
-      } catch (_) {}
-      if (!hasNativeSwc) {
-        addLog("No native SWC — setting NEXT_DISABLE_SWC=1 for Babel fallback");
-        userEnv.NEXT_DISABLE_SWC = "1";
+    const _nextDir = path.join(workDir, "node_modules", "next");
+    if (_isARM && fs.existsSync(_nextDir)) {
+      // Remove the broken WASM SWC module so Next.js can't even try to load it
+      const wasmDir = path.join(workDir, "node_modules", "@next", "swc-wasm-nodejs");
+      if (fs.existsSync(wasmDir)) {
+        addLog("ARM: removing broken @next/swc-wasm-nodejs");
+        try { execSync("rm -rf " + JSON.stringify(wasmDir)); } catch (_) {}
       }
+      // Force Babel fallback
+      addLog("ARM: setting NEXT_DISABLE_SWC=1 (Babel fallback)");
+      userEnv.NEXT_DISABLE_SWC = "1";
     }
 
     if (pygameFile) {
