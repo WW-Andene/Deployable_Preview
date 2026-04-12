@@ -345,7 +345,7 @@ async function runLighthouse(url, opts) {
     if (!port) {
       if (!chromeLauncher) return missing("chrome-launcher", "lighthouse");
       const launch = chromeLauncher.launch || (chromeLauncher.default && chromeLauncher.default.launch);
-      chrome = await launch({
+      const launchOpts = {
         chromeFlags: [
           "--headless",
           "--no-sandbox",
@@ -353,7 +353,9 @@ async function runLighthouse(url, opts) {
           "--use-gl=swiftshader",
           "--enable-webgl"
         ]
-      });
+      };
+      if (process.env.CHROME_PATH) launchOpts.chromePath = process.env.CHROME_PATH;
+      chrome = await launch(launchOpts);
       port = chrome.port;
     }
 

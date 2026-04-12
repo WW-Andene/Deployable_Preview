@@ -98,6 +98,30 @@ function isInstalled(name) {
   }
 }
 
+function getTermuxEnv() {
+  // On Termux, native modules need these env vars to find system libraries
+  const isTermux = !!process.env.TERMUX_VERSION || (process.env.PREFIX || "").includes("com.termux");
+  if (!isTermux) return {};
+  const PREFIX = process.env.PREFIX || "/data/data/com.termux/files/usr";
+  const chromePath = (() => {
+    try {
+      return require("child_process").execSync(
+        "which chromium-browser 2>/dev/null || which chromium 2>/dev/null",
+        { stdio: ["ignore", "pipe", "ignore"], timeout: 3000 }
+      ).toString().trim();
+    } catch (_) { return ""; }
+  })();
+  return {
+    PKG_CONFIG_PATH: PREFIX + "/lib/pkgconfig",
+    CFLAGS: "-I" + PREFIX + "/include",
+    CXXFLAGS: "-I" + PREFIX + "/include",
+    LDFLAGS: "-L" + PREFIX + "/lib",
+    LD_LIBRARY_PATH: PREFIX + "/lib",
+    SHARP_FORCE_GLOBAL_LIBVIPS: "true",
+    CHROME_PATH: chromePath || undefined
+  };
+}
+
 function runNpmInstall(packages) {
   const timeout = parseInt(process.env.DEPLOYVIEW_ENRICHMENT_TIMEOUT, 10) || (10 * 60 * 1000);
   const args = [
@@ -109,8 +133,10 @@ function runNpmInstall(packages) {
     ...packages
   ];
   log("Running: npm " + args.join(" "));
+  const env = { ...process.env, ...getTermuxEnv() };
   const r = spawnSync("npm", args, {
     cwd: ROOT,
+    env,
     stdio: QUIET ? ["ignore", "pipe", "pipe"] : "inherit",
     timeout,
     shell: process.platform === "win32"

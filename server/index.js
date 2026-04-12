@@ -19,6 +19,25 @@ const previewRoutes = require("./routes/preview");
 const { setupStreamableHTTP } = require("./mcp-streamable-http");
 const { ensureBrowser } = require("./browser-setup");
 
+// ── Termux runtime env setup ──
+// On Termux, native modules and chrome-launcher need env vars pointing
+// to system libraries. Set them early so every require() sees them.
+const isTermux = !!process.env.TERMUX_VERSION || (process.env.PREFIX || "").includes("com.termux");
+if (isTermux) {
+  const PREFIX = process.env.PREFIX || "/data/data/com.termux/files/usr";
+  if (!process.env.PKG_CONFIG_PATH) process.env.PKG_CONFIG_PATH = PREFIX + "/lib/pkgconfig";
+  if (!process.env.LD_LIBRARY_PATH) process.env.LD_LIBRARY_PATH = PREFIX + "/lib";
+  if (!process.env.SHARP_FORCE_GLOBAL_LIBVIPS) process.env.SHARP_FORCE_GLOBAL_LIBVIPS = "true";
+  if (!process.env.CHROME_PATH) {
+    try {
+      process.env.CHROME_PATH = execSync(
+        "which chromium-browser 2>/dev/null || which chromium 2>/dev/null",
+        { stdio: ["ignore", "pipe", "ignore"], timeout: 3000 }
+      ).toString().trim();
+    } catch (_) {}
+  }
+}
+
 // ── Startup validation ──
 (function checkPrerequisites() {
   // Node version check

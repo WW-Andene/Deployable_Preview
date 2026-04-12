@@ -133,10 +133,11 @@ if (isTermux) {
   log("Termux detected — ensuring native libraries for enrichments...");
 
   // Libraries needed by:
-  //   canvas (node-canvas): libcairo, pango, libjpeg-turbo, giflib, librsvg
+  //   canvas (node-canvas): libcairo, pango, libjpeg-turbo, giflib, librsvg, pkg-config
   //   sharp:                libvips (pkg has it as vips)
   //   puppeteer/chromium:   chromium (for the browser binary)
   const pkgs = [
+    "pkg-config",                                                 // for node-gyp to find libs
     "libcairo", "pango", "libjpeg-turbo", "giflib", "librsvg",  // for canvas
     "vips",                                                       // for sharp
     "chromium"                                                    // for browser tools
@@ -144,19 +145,60 @@ if (isTermux) {
 
   for (const pkg of pkgs) {
     try {
-      // Check if already installed via dpkg
       execSync("dpkg -s " + pkg + " 2>/dev/null", { stdio: "pipe", timeout: 5000 });
     } catch (_) {
-      // Not installed — try to install
       log("  Installing " + pkg + "...");
       try {
         execSync("pkg install " + pkg + " -y", { stdio: "inherit", timeout: 3 * 60 * 1000 });
         ok(pkg + " installed.");
       } catch (e) {
         warn(pkg + " install failed: " + (e.message || "").split("\n")[0]);
-        warn("  Some enrichment tools may not work. Install manually: pkg install " + pkg);
+        warn("  Install manually: pkg install " + pkg);
       }
     }
+  }
+
+  // Set environment variables so node-gyp and native modules find Termux libraries.
+  // These paths are non-standard — without them, canvas/sharp/etc. can't build or
+  // link against the system libraries we just installed.
+  const PREFIX = process.env.PREFIX || "/data/data/com.termux/files/usr";
+  const envVars = {
+    PKG_CONFIG_PATH: PREFIX + "/lib/pkgconfig",
+    CFLAGS:  "-I" + PREFIX + "/include",
+    CXXFLAGS: "-I" + PREFIX + "/include",
+    LDFLAGS: "-L" + PREFIX + "/lib",
+    LD_LIBRARY_PATH: PREFIX + "/lib",
+    // sharp: use the system libvips instead of downloading a prebuilt (no Android ARM prebuilt)
+    SHARP_FORCE_GLOBAL_LIBVIPS: "true",
+    // lighthouse: tell chrome-launcher where system Chromium lives
+    CHROME_PATH: (() => {
+      try {
+        return execSync("which chromium-browser 2>/dev/null || which chromium 2>/dev/null", { stdio: ["ignore", "pipe", "ignore"], timeout: 3000 }).toString().trim();
+      } catch (_) { return ""; }
+    })()
+  };
+
+  for (const [k, v] of Object.entries(envVars)) {
+    if (v && !process.env[k]) {
+      process.env[k] = v;
+      log("  Set " + k + "=" + v);
+    }
+  }
+
+  // Also write a .npmrc in the project root so future npm install runs pick up the flags
+  const npmrcPath = path.join(ROOT, ".npmrc");
+  const npmrcLines = [
+    "# Auto-generated for Termux native module builds",
+    "sharp_force_global_libvips=true"
+  ];
+  try {
+    const existing = require("fs").readFileSync(npmrcPath, "utf8");
+    if (!existing.includes("sharp_force_global_libvips")) {
+      require("fs").appendFileSync(npmrcPath, "\n" + npmrcLines.join("\n") + "\n");
+      log("  Updated .npmrc with Termux build flags");
+    }
+  } catch (_) {
+    // .npmrc doesn't exist or can't be read — that's fine, env vars are set
   }
 }
 
