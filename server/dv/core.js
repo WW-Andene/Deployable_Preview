@@ -145,7 +145,7 @@ function checkRequirement(req) {
   if (!req || !req.kind) return null;
 
   if (req.kind === "browser") {
-    const browser = require("../mcp-browser");
+    const browser = require("../browser");
     if (!browser.hasPlaywright()) {
       return fail("No browser available — server is still setting one up, try again in a moment.");
     }
@@ -230,7 +230,7 @@ function status() {
 
   try { libraries = require("../mcp-enrichments").status(); } catch (_) {}
   try { groqAuthorized = require("../mcp-groq").isClaudeGroqAuthorized(); } catch (_) {}
-  try { browserAvailable = require("../mcp-browser").hasPlaywright(); } catch (_) {}
+  try { browserAvailable = require("../browser").hasPlaywright(); } catch (_) {}
 
   const byCat = {};
   for (const t of registry.values()) byCat[t.category] = (byCat[t.category] || 0) + 1;

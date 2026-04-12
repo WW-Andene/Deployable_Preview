@@ -176,7 +176,7 @@ function shutdown(signal) {
 
   // Close Playwright browser
   try {
-    const mcpBrowser = require("./mcp-browser");
+    const mcpBrowser = require("./browser");
     mcpBrowser.closeBrowser().catch(() => {});
   } catch (e) { /* not loaded */ }
 

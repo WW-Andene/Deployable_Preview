@@ -40,7 +40,7 @@ const dv = require("./dv");
 // path (so MCP stdio starts fast).
 let mcpBrowser = null;
 function getBrowserModule() {
-  if (!mcpBrowser) mcpBrowser = require("./mcp-browser");
+  if (!mcpBrowser) mcpBrowser = require("./browser");
   return mcpBrowser;
 }
 
