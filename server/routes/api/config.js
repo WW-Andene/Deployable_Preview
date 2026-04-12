@@ -1,0 +1,345 @@
+// ── Config sub-router ────────────────────────────────────────────────────────
+// Token, repos, branches, secrets, preferences, workspace, config export/import
+
+const express = require("express");
+const { exec } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+const router = express.Router();
+
+const { getConfig, saveConfig, getSecret } = require("../../config");
+const { ghApi } = require("../../github");
+const { buildStatus, branchSlug, buildKey, getBranchDir, deployBranch } = require("../../build");
+const { runningServers, killServer } = require("../../process");
+
+// ── Token ────────────────────────────────────────────────────────────────────
+router.post("/token", (req, res) => {
+  const config = getConfig();
+  config.token = req.body.token || "";
+  saveConfig();
+  ghApi("/user", config.token)
+    .then((user) => res.json({ ok: true, user: user.login }))
+    .catch((e) => { config.token = ""; saveConfig(); res.status(401).json({ error: e.message }); });
+});
+
+router.get("/token", (req, res) => {
+  res.json({ hasToken: !!getConfig().token });
+});
+
+// ── Secrets / Keys management ────────────────────────────────────────────────
+// Suggested keys with hints (but any key is allowed)
+const SUGGESTED_KEYS = [
+  { key: "GITHUB_TOKEN",       label: "GitHub Token",         hint: "Personal Access Token with repo + workflow scope", link: "https://github.com/settings/tokens/new?scopes=repo,workflow&description=DeployView" },
+  { key: "NGROK_AUTHTOKEN",    label: "ngrok Auth Token",     hint: "Free at ngrok.com \u2014 enables HTTPS tunnels", link: "https://dashboard.ngrok.com/get-started/your-authtoken" },
+  { key: "BROWSERLESS_API_KEY",label: "Browserless API Key",  hint: "Remote browser for screenshots on mobile/Android \u2014 free 1k units", link: "https://www.browserless.io/pricing" },
+  { key: "BROWSER_WS_ENDPOINT",label: "Browser WS Endpoint",  hint: "Custom Chrome DevTools WebSocket URL (overrides Browserless)" },
+  { key: "WEBHOOK_SECRET",     label: "Webhook Secret",       hint: "GitHub webhook HMAC verification (optional)" },
+  { key: "OPENAI_API_KEY",     label: "OpenAI API Key",       hint: "For AI-powered features in your apps", link: "https://platform.openai.com/api-keys" },
+  { key: "ANTHROPIC_API_KEY",  label: "Anthropic API Key",    hint: "Claude API access for your apps", link: "https://console.anthropic.com/settings/keys" },
+  { key: "GROQ_API_KEY",       label: "Groq API Key",         hint: "Enables visual_query / find_element / visual_diff / verify_loop (vision-model Q&A on screenshots)", link: "https://console.groq.com/keys" },
+  { key: "VERCEL_TOKEN",       label: "Vercel Token",         hint: "For Vercel API integrations" },
+  { key: "SUPABASE_KEY",       label: "Supabase Key",         hint: "Supabase project API key" },
+  { key: "DATABASE_URL",       label: "Database URL",         hint: "PostgreSQL / MySQL connection string" },
+  { key: "STRIPE_SECRET_KEY",  label: "Stripe Secret Key",    hint: "For payment integrations", link: "https://dashboard.stripe.com/apikeys" },
+  { key: "RESEND_API_KEY",     label: "Resend API Key",       hint: "For email sending", link: "https://resend.com/api-keys" },
+];
+const SAFE_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+
+function maskValue(val) {
+  if (!val) return "";
+  if (val.length <= 8) return val.slice(0, 2) + "...";
+  return val.slice(0, 4) + "\u2022\u2022\u2022" + val.slice(-4);
+}
+
+router.get("/secrets", (req, res) => {
+  const config = getConfig();
+  const secrets = config.secrets || {};
+  // Merge: suggested keys + any custom keys already saved
+  const allKeys = new Map();
+  for (const sk of SUGGESTED_KEYS) allKeys.set(sk.key, { ...sk });
+  for (const k of Object.keys(secrets)) {
+    if (!allKeys.has(k)) allKeys.set(k, { key: k, label: k, hint: "Custom key" });
+  }
+  const result = [];
+  for (const [key, meta] of allKeys) {
+    let val = secrets[key] || process.env[key] || "";
+    if (key === "GITHUB_TOKEN" && !val) val = config.token || "";
+    result.push({
+      key,
+      label: meta.label || key,
+      hint: meta.hint || "",
+      link: meta.link || null,
+      suggested: SUGGESTED_KEYS.some((sk) => sk.key === key),
+      hasValue: !!val,
+      masked: maskValue(val),
+      source: secrets[key] ? "config" : (process.env[key] ? "env" : (key === "GITHUB_TOKEN" && config.token ? "config" : "none"))
+    });
+  }
+  res.json(result);
+});
+
+router.get("/secrets/suggestions", (req, res) => {
+  res.json(SUGGESTED_KEYS);
+});
+
+router.post("/secrets", (req, res) => {
+  const config = getConfig();
+  if (!config.secrets) config.secrets = {};
+  const { key, value } = req.body;
+  if (!key || typeof key !== "string") return res.status(400).json({ error: "key required" });
+  if (!SAFE_KEY_RE.test(key)) return res.status(400).json({ error: "Invalid key name \u2014 use A-Z, 0-9, _ only" });
+  if (value === undefined || value === null) return res.status(400).json({ error: "value required" });
+  const trimmed = String(value).trim();
+  if (trimmed) {
+    config.secrets[key] = trimmed;
+    if (key === "GITHUB_TOKEN") config.token = trimmed;
+    process.env[key] = trimmed;
+  } else {
+    delete config.secrets[key];
+    if (key === "GITHUB_TOKEN") config.token = "";
+    delete process.env[key];
+  }
+  saveConfig();
+  res.json({ ok: true, key, hasValue: !!trimmed });
+});
+
+router.delete("/secrets/:key", (req, res) => {
+  const config = getConfig();
+  if (!config.secrets) config.secrets = {};
+  const key = req.params.key;
+  delete config.secrets[key];
+  if (key === "GITHUB_TOKEN") config.token = "";
+  delete process.env[key];
+  saveConfig();
+  res.json({ ok: true, key, removed: true });
+});
+
+// ── Preferences ──────────────────────────────────────────────────────────────
+router.get("/preferences", (req, res) => {
+  const config = getConfig();
+  res.json(config.preferences || {});
+});
+
+router.post("/preferences", (req, res) => {
+  const config = getConfig();
+  if (!config.preferences) config.preferences = {};
+  const updates = req.body;
+  if (typeof updates !== "object" || updates === null || Array.isArray(updates)) return res.status(400).json({ error: "Object required" });
+  for (const key of Object.keys(updates)) {
+    if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+    config.preferences[key] = updates[key];
+  }
+  saveConfig();
+  res.json({ ok: true, preferences: config.preferences });
+});
+
+// ── GitHub branches ──────────────────────────────────────────────────────────
+router.get("/github/:owner/:repo/branches", async (req, res) => {
+  try {
+    const config = getConfig();
+    const branches = await ghApi("/repos/" + req.params.owner + "/" + req.params.repo + "/branches?per_page=100", config.token);
+    const info = await ghApi("/repos/" + req.params.owner + "/" + req.params.repo, config.token);
+    // Sort: default branch first, then by commit date (newest first)
+    // GitHub branches API includes commit.sha — fetch dates for top branches
+    const withDates = branches.map((b) => ({
+      name: b.name,
+      sha: b.commit && b.commit.sha,
+      date: b.commit && b.commit.url ? null : null // placeholder
+    }));
+    // Fetch commit dates in parallel (limit to first 30 to avoid rate limits)
+    const toFetch = withDates.slice(0, 30);
+    try {
+      const dateResults = await Promise.all(toFetch.map((b) =>
+        ghApi("/repos/" + req.params.owner + "/" + req.params.repo + "/commits/" + b.sha, config.token)
+          .then((c) => ({ name: b.name, date: c.commit && c.commit.committer && c.commit.committer.date }))
+          .catch(() => ({ name: b.name, date: null }))
+      ));
+      const dateMap = {};
+      for (const d of dateResults) dateMap[d.name] = d.date;
+      withDates.forEach((b) => { b.date = dateMap[b.name] || null; });
+    } catch (e) { /* ignore date fetch errors, use unsorted */ }
+    // Sort: default branch first, then by date descending
+    withDates.sort((a, b) => {
+      if (a.name === info.default_branch) return -1;
+      if (b.name === info.default_branch) return 1;
+      if (a.date && b.date) return new Date(b.date) - new Date(a.date);
+      if (a.date) return -1;
+      if (b.date) return 1;
+      return a.name.localeCompare(b.name);
+    });
+    res.json({ branches: withDates.map((b) => b.name), defaultBranch: info.default_branch, description: info.description });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ── Repos CRUD ───────────────────────────────────────────────────────────────
+router.get("/repos", (req, res) => {
+  const config = getConfig();
+  const withStatus = config.repos.map((r) => {
+    const branchStatuses = {};
+    for (const bc of r.activeBranches || []) {
+      const slug = branchSlug(bc);
+      const srv = runningServers[buildKey(r.owner, r.repo, bc)];
+      branchStatuses[slug] = { ...(buildStatus[buildKey(r.owner, r.repo, bc)] || { status: "idle" }), branch: bc.branch, baseDir: bc.baseDir || "", buildCommand: bc.buildCommand || "", outputDir: bc.outputDir || "", mode: bc.mode || "static", startCommand: bc.startCommand || "", envVars: bc.envVars || "", language: bc.language || "auto", serverPort: srv ? srv.port : null };
+    }
+    return { ...r, branchStatuses };
+  });
+  res.json(withStatus);
+});
+
+router.post("/repos", (req, res) => {
+  const config = getConfig();
+  const { owner, repo, activeBranches, buildCommand, outputDir, baseDir, description, mode, startCommand, envVars, language } = req.body;
+  const id = owner + "/" + repo;
+  if (config.repos.some((r) => r.id === id)) return res.status(400).json({ error: "Already exists" });
+  const branchConfigs = (activeBranches || []).map((b) => {
+    if (typeof b === "object") return b;
+    return { branch: b, baseDir: baseDir || "", buildCommand: "", outputDir: "", mode: mode || "static", startCommand: startCommand || "", envVars: envVars || "", language: language || "auto" };
+  });
+  const newRepo = { id, owner, repo, activeBranches: branchConfigs, buildCommand: buildCommand || "", outputDir: outputDir || "", baseDir: baseDir || "", description: description || "", startCommand: startCommand || "" };
+  config.repos.push(newRepo);
+  saveConfig();
+  for (const bc of branchConfigs) deployBranch(newRepo, bc);
+  res.json(newRepo);
+});
+
+router.post("/repos/:owner/:repo/branch", (req, res) => {
+  const config = getConfig();
+  const { branch, baseDir, buildCommand, outputDir, mode, startCommand, envVars, language } = req.body;
+  if (!branch) return res.status(400).json({ error: "branch required" });
+  const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
+  if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
+  const bd = baseDir || "";
+  if (repoConfig.activeBranches.some((bc) => bc.branch === branch && (bc.baseDir || "") === bd))
+    return res.status(400).json({ error: "Branch with this root directory already active" });
+  const bc = { branch, baseDir: bd, buildCommand: buildCommand || "", outputDir: outputDir || "", mode: mode || "static", startCommand: startCommand || "", envVars: envVars || "", language: language || "auto" };
+  repoConfig.activeBranches.push(bc);
+  saveConfig();
+  deployBranch(repoConfig, bc);
+  res.json({ ok: true, activeBranches: repoConfig.activeBranches });
+});
+
+router.delete("/repos/:owner/:repo", (req, res) => {
+  const config = getConfig();
+  config.repos = config.repos.filter((r) => r.id !== req.params.owner + "/" + req.params.repo);
+  saveConfig();
+  res.json({ ok: true });
+});
+
+router.delete("/repos/:owner/:repo/branch", (req, res) => {
+  const config = getConfig();
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: "slug query param required" });
+  const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
+  if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
+  const idx = repoConfig.activeBranches.findIndex((bc) => branchSlug(bc) === slug);
+  if (idx === -1) return res.status(404).json({ error: "Branch config not found" });
+  const bc = repoConfig.activeBranches[idx];
+  const key = buildKey(req.params.owner, req.params.repo, bc);
+  killServer(key);
+  delete buildStatus[key];
+  const dir = getBranchDir(req.params.owner, req.params.repo, bc);
+  exec("rm -rf " + JSON.stringify(dir), () => {});
+  repoConfig.activeBranches.splice(idx, 1);
+  saveConfig();
+  res.json({ ok: true, activeBranches: repoConfig.activeBranches });
+});
+
+// Edit branch config
+router.put("/repos/:owner/:repo/branch", (req, res) => {
+  const config = getConfig();
+  const { slug, baseDir, buildCommand, outputDir, mode, startCommand, envVars, language } = req.body;
+  if (!slug) return res.status(400).json({ error: "slug required" });
+  const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
+  if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
+  const bc = repoConfig.activeBranches.find((b) => branchSlug(b) === slug);
+  if (!bc) return res.status(404).json({ error: "Branch config not found" });
+  if (baseDir !== undefined) bc.baseDir = baseDir;
+  if (buildCommand !== undefined) bc.buildCommand = buildCommand;
+  if (outputDir !== undefined) bc.outputDir = outputDir;
+  if (mode !== undefined) bc.mode = mode;
+  if (startCommand !== undefined) bc.startCommand = startCommand;
+  if (envVars !== undefined) bc.envVars = envVars;
+  if (language !== undefined) bc.language = language;
+  saveConfig();
+  res.json({ ok: true, branch: bc });
+});
+
+// ── Workspace cleanup ─────────────────────────────────────────────────────
+router.get("/workspace/stats", (req, res) => {
+  const { WORKSPACE, buildStatus: bs, buildKey, branchSlug } = require("../../build");
+  try {
+    const dirs = fs.readdirSync(WORKSPACE);
+    const config = getConfig();
+    // Determine which dirs are still active
+    const activeKeys = new Set();
+    for (const repo of config.repos) {
+      for (const bc of repo.activeBranches || []) {
+        activeKeys.add(repo.owner + "__" + repo.repo + "__" + branchSlug(bc));
+      }
+    }
+    const stats = dirs.map((d) => {
+      const fullPath = path.join(WORKSPACE, d);
+      const isActive = activeKeys.has(d);
+      return { name: d, active: isActive };
+    });
+    res.json({ total: dirs.length, active: stats.filter((s) => s.active).length, orphaned: stats.filter((s) => !s.active).length, dirs: stats });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post("/workspace/cleanup", (req, res) => {
+  const { WORKSPACE, branchSlug } = require("../../build");
+  const config = getConfig();
+  const activeKeys = new Set();
+  for (const repo of config.repos) {
+    for (const bc of repo.activeBranches || []) {
+      activeKeys.add(repo.owner + "__" + repo.repo + "__" + branchSlug(bc));
+    }
+  }
+  try {
+    const dirs = fs.readdirSync(WORKSPACE);
+    let removed = 0;
+    for (const d of dirs) {
+      if (!activeKeys.has(d)) {
+        const fullPath = path.resolve(WORKSPACE, d);
+        // Safety: ensure resolved path is inside WORKSPACE
+        if (!fullPath.startsWith(path.resolve(WORKSPACE) + path.sep)) continue;
+        exec("rm -rf " + JSON.stringify(fullPath), () => {});
+        removed++;
+      }
+    }
+    res.json({ ok: true, removed, remaining: dirs.length - removed });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Config export/import ──────────────────────────────────────────────────
+const SAFE_NAME_RE = /^[a-zA-Z0-9._-]+$/;
+
+router.get("/config/export", (req, res) => {
+  const config = getConfig();
+  // Strip secrets and token for safety — export only structure
+  const safe = { ...config, token: config.token ? "[redacted]" : "", secrets: undefined, preferences: config.preferences || {} };
+  res.setHeader("Content-Disposition", 'attachment; filename="deployview-config.json"');
+  res.json(safe);
+});
+
+router.post("/config/import", (req, res) => {
+  const config = getConfig();
+  const imported = req.body;
+  if (!imported || !Array.isArray(imported.repos)) {
+    return res.status(400).json({ error: "Invalid config: repos array required" });
+  }
+  // Merge: add repos that don't already exist
+  let added = 0;
+  for (const repo of imported.repos) {
+    if (!repo.owner || !repo.repo) continue;
+    if (!SAFE_NAME_RE.test(repo.owner) || !SAFE_NAME_RE.test(repo.repo)) continue;
+    const id = repo.owner + "/" + repo.repo;
+    if (config.repos.some((r) => r.id === id)) continue;
+    config.repos.push({ ...repo, id });
+    added++;
+  }
+  if (added > 0) saveConfig();
+  res.json({ ok: true, added, total: config.repos.length });
+});
+
+module.exports = router;
