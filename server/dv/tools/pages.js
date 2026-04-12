@@ -8,7 +8,7 @@
 "use strict";
 
 const dv = require("../core");
-const browser = require("../../mcp-browser");
+const browser = require("../../browser");
 
 dv.defineTool({
   name: "list_pages",

@@ -8,7 +8,7 @@
 "use strict";
 
 const dv = require("../core");
-const browser = require("../../mcp-browser");
+const browser = require("../../browser");
 const { webFetch, extractFromHtml } = require("../../web-fetch");
 
 const OWNER = { type: "string" };

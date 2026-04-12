@@ -9,7 +9,7 @@
 "use strict";
 
 const dv = require("../core");
-const browser = require("../../mcp-browser");
+const browser = require("../../browser");
 const enrich = require("../../mcp-enrichments");
 
 const OWNER = { type: "string" };

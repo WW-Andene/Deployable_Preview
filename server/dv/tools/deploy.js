@@ -9,7 +9,7 @@
 "use strict";
 
 const dv = require("../core");
-const browser = require("../../mcp-browser");
+const browser = require("../../browser");
 const { getConfig } = require("../../config");
 const { buildStatus, branchSlug, deployBranch } = require("../../build");
 const { runningServers } = require("../../process");

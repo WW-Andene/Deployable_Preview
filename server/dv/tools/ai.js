@@ -11,7 +11,7 @@
 "use strict";
 
 const dv = require("../core");
-const browser = require("../../mcp-browser");
+const browser = require("../../browser");
 
 const OWNER = { type: "string" };
 const REPO  = { type: "string" };
