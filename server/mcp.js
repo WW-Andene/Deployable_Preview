@@ -114,8 +114,12 @@ const TOOLS = [
       "  • key — value = key name (e.g. 'Enter', 'Escape', 'ArrowDown'), optional selector to focus first",
       "  • tap / long_press — selector OR {x,y} (value = hold-duration ms for long_press)",
       "  • swipe — {fromSelector|fromX,fromY} → {toSelector|toX,toY}, touchscreen-backed",
+      "  • pinch — two-finger pinch centred on selector or (centerX,centerY); startDistance → endDistance",
       "  • toggle — selector + value ('hide'|'show'|'toggle'). Hides/shows elements for A/B comparison.",
-      "  • dialog — pre-arm a one-shot dialog handler (accept:boolean, value:prompt-text)"
+      "  • dialog — pre-arm a one-shot dialog handler (accept:boolean, value:prompt-text)",
+      "",
+      "iframe: pass `frame` (CSS selector of an <iframe>, frame URL substring, or frame name) to scope",
+      "selector-based actions (click/type/select/hover/evaluate/toggle) to that frame."
     ].join("\n"),
     inputSchema: {
       type: "object",
@@ -128,10 +132,15 @@ const TOOLS = [
           enum: [
             "click", "type", "select", "scroll", "hover", "navigate", "evaluate",
             "drag", "file_upload", "back", "forward", "reload",
-            "key", "tap", "swipe", "long_press", "toggle", "dialog"
+            "key", "tap", "swipe", "long_press", "pinch", "toggle", "dialog"
           ],
           description: "Action to perform"
         },
+        frame: { type: "string", description: "Optional iframe target: CSS selector of the <iframe>, URL substring, or frame name" },
+        centerX: { type: "number", description: "pinch: centre X (alternative to selector)" },
+        centerY: { type: "number", description: "pinch: centre Y (alternative to selector)" },
+        startDistance: { type: "number", description: "pinch: initial finger distance in px (default 200)" },
+        endDistance:   { type: "number", description: "pinch: final finger distance in px (default 50)" },
         selector: { type: "string", description: "CSS selector of the target element" },
         value:    { type: "string", description: "Value for type/select/scroll/navigate/evaluate/key/toggle/long_press actions" },
         x:        { type: "number", description: "X coordinate for click/hover/tap/long_press (alternative to selector)" },
@@ -446,6 +455,56 @@ const TOOLS = [
         duration:{ type: "number", description: "Seconds of console capture (default: 2)" }
       },
       required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "clipboard",
+    description: "Read or write the browser clipboard inside a preview session. Grants clipboard permissions automatically. Ops: 'read' returns the current text; 'write' sets it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        op:    { type: "string", enum: ["read", "write"], description: "Operation (default: read)" },
+        value: { type: "string", description: "Text to write (op=write)" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "canvas_data",
+    description: "Extract pixel data from a <canvas> element. Returns a base64 PNG when dataUrl=true, or raw RGBA bytes from getImageData for a 2D canvas region. Works with WebGL canvases via toDataURL. Use this instead of screenshots when you need exact canvas colours.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        selector: { type: "string", description: "CSS selector pointing to the <canvas>" },
+        x: { type: "number", description: "Region X (default: 0)" },
+        y: { type: "number", description: "Region Y (default: 0)" },
+        width:  { type: "number", description: "Region width (default: full canvas)" },
+        height: { type: "number", description: "Region height (default: full canvas)" },
+        dataUrl: { type: "boolean", description: "Return the whole canvas as a base64 PNG dataUrl instead of raw pixels" }
+      },
+      required: ["owner", "repo", "slug", "selector"]
+    }
+  },
+  {
+    name: "list_pages",
+    description: "List all open pages/tabs (including popups and target=_blank links) in the current browser. Use after an interaction that might open a new window.",
+    inputSchema: { type: "object", properties: {}, required: [] }
+  },
+  {
+    name: "close_page",
+    description: "Close a specific page/tab by zero-based index (from list_pages) or by a URL substring match.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        index: { type: "number", description: "Page index as returned by list_pages" },
+        urlContains: { type: "string", description: "Close the first page whose URL contains this substring" }
+      }
     }
   },
   {
@@ -1020,6 +1079,58 @@ async function handleTool(name, args) {
         return { content };
       } catch (e) {
         return { content: [{ type: "text", text: "deploy_and_verify failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "clipboard": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.clipboard(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Clipboard error: " + result.error }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "clipboard failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "canvas_data": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.canvasData(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Canvas data error: " + result.error }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "canvas_data failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "list_pages": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.listPages();
+        if (result.error) {
+          return { content: [{ type: "text", text: "list_pages error: " + result.error }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "list_pages failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "close_page": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.closePage(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "close_page error: " + result.error }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "close_page failed: " + e.message }], isError: true };
       }
     }
 

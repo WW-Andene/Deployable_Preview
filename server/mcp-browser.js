@@ -297,9 +297,20 @@ async function getBrowser() {
     "  3. Install Playwright or Puppeteer locally"
   );
 
+  // Enable WebGL via swiftshader (software rasterizer). This lets MediaPipe,
+  // three.js, Spine WebGL, and anything else requiring a GL context run inside
+  // a headless Chromium without a real GPU. --disable-gpu is intentionally
+  // *not* passed — it would kill WebGL along with the hardware path.
   const opts = {
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--use-gl=swiftshader",
+      "--enable-webgl",
+      "--ignore-gpu-blocklist"
+    ]
   };
 
   // Use system Chromium path if set (Termux / Android)
@@ -581,12 +592,18 @@ async function interact(opts) {
   const browser = await getBrowser();
   const { page, url } = await getSessionPage(browser, owner, repo, slug, width, height);
 
+  // Resolve iframe target if requested. Selector-based actions (click/type/
+  // select/hover/evaluate/toggle) operate on `target`. Coordinate-based
+  // actions (mouse, keyboard, tap, swipe, drag) stay on `page`.
+  const target = opts.frame ? await resolveFrame(page, opts.frame) : page;
+
   let result = { success: true, action, url };
+  if (opts.frame) result.frame = opts.frame;
 
   switch (action) {
     case "click":
       if (selector) {
-        await page.click(selector);
+        await target.click(selector);
       } else if (x !== undefined && y !== undefined) {
         await page.mouse.click(x, y);
       }
@@ -781,12 +798,12 @@ async function interact(opts) {
 
     case "type":
       if (!selector) throw new Error("selector required for type action");
-      await page.click(selector);
-      if (typeof page.fill === "function") {
-        await page.fill(selector, value || "");
+      await target.click(selector);
+      if (typeof target.fill === "function") {
+        await target.fill(selector, value || "");
       } else {
-        await page.evaluate(function(sel) { document.querySelector(sel).value = ""; }, selector);
-        await page.type(selector, value || "");
+        await target.evaluate(function(sel) { document.querySelector(sel).value = ""; }, selector);
+        await target.type(selector, value || "");
       }
       result.typed = value;
       result.into = selector;
@@ -794,10 +811,10 @@ async function interact(opts) {
 
     case "select":
       if (!selector) throw new Error("selector required for select action");
-      if (typeof page.selectOption === "function") {
-        await page.selectOption(selector, value || "");
+      if (typeof target.selectOption === "function") {
+        await target.selectOption(selector, value || "");
       } else {
-        await page.select(selector, value || "");
+        await target.select(selector, value || "");
       }
       result.selected = value;
       result.from = selector;
@@ -812,7 +829,7 @@ async function interact(opts) {
 
     case "hover":
       if (selector) {
-        await page.hover(selector);
+        await target.hover(selector);
       } else if (x !== undefined && y !== undefined) {
         await page.mouse.move(x, y);
       }
@@ -847,7 +864,7 @@ async function interact(opts) {
       try {
         // Wrap in async IIFE so user code can use await and statements
         var wrappedCode = "(async () => { " + value + " })()";
-        var evalResult = await page.evaluate(wrappedCode);
+        var evalResult = await target.evaluate(wrappedCode);
         result.evaluated = true;
         result.returnValue = evalResult !== undefined ? JSON.stringify(evalResult) : undefined;
       } catch (evalErr) {
@@ -855,6 +872,21 @@ async function interact(opts) {
         result.evalError = evalErr.message;
       }
       break;
+
+    case "pinch": {
+      // Two-finger pinch gesture. Moves two touch points from startDistance
+      // to endDistance along a horizontal axis centred at (cx, cy).
+      const [cx, cy] = await resolvePoint(page, {
+        selector, x: opts.centerX != null ? opts.centerX : x, y: opts.centerY != null ? opts.centerY : y
+      });
+      const startDist = Math.max(2, Number(opts.startDistance) || 200);
+      const endDist   = Math.max(2, Number(opts.endDistance)   || 50);
+      const steps     = Math.max(2, Math.min(Number(opts.steps) || 20, 200));
+      const out = await simulateTouchPinch(page, cx, cy, startDist, endDist, steps);
+      result.pinched = { centerX: cx, centerY: cy, startDistance: startDist, endDistance: endDist, steps };
+      if (out && out.error) result.warning = out.error;
+      break;
+    }
 
     default:
       throw new Error("Unknown action: " + action + ". Supported: click, type, select, scroll, hover, navigate, evaluate");
@@ -1239,6 +1271,43 @@ async function runTest(opts) {
 // ── Shared helpers for interaction and measurement ──────────────────────────
 
 /**
+ * Resolve an iframe target from a frame descriptor. Accepts a CSS selector
+ * pointing to an <iframe> element, a URL substring, or a frame name.
+ * Returns the frame-like target (has .click / .type / .evaluate).
+ */
+async function resolveFrame(page, frameDesc) {
+  if (!frameDesc) return page;
+
+  // 1. Try as a CSS selector (iframe element)
+  try {
+    const el = await page.$(frameDesc);
+    if (el && typeof el.contentFrame === "function") {
+      const frame = await el.contentFrame();
+      if (frame) return frame;
+    }
+  } catch (_) {}
+
+  // 2. Try matching frames() by URL substring or name
+  if (typeof page.frames === "function") {
+    const frames = page.frames();
+    for (const f of frames) {
+      try {
+        if (typeof page.mainFrame === "function" && f === page.mainFrame()) continue;
+      } catch (_) {}
+      let fUrl = "";
+      let fName = "";
+      try { fUrl  = typeof f.url === "function" ? f.url() : ""; } catch (_) {}
+      try { fName = typeof f.name === "function" ? f.name() : ""; } catch (_) {}
+      if ((fUrl && fUrl.includes(frameDesc)) || (fName && fName === frameDesc)) {
+        return f;
+      }
+    }
+  }
+
+  throw new Error("iframe not found: " + frameDesc);
+}
+
+/**
  * Resolve a point on the page from either a selector (center of bounding box)
  * or explicit {x, y} coordinates. Used by drag/swipe/tap/long_press.
  */
@@ -1308,6 +1377,43 @@ async function simulateTouchSwipe(page, sx, sy, ex, ey, steps) {
     await page.mouse.move(sx + (ex - sx) * t, sy + (ey - sy) * t);
   }
   await page.mouse.up();
+}
+
+/**
+ * Simulate a two-finger pinch gesture via CDP touch events. Moves two touch
+ * points horizontally centred on (cx, cy) from startDistance to endDistance.
+ * Used to trigger pinch-zoom in apps that listen for touch events.
+ */
+async function simulateTouchPinch(page, cx, cy, startDist, endDist, steps) {
+  const getClient = async () => {
+    if (typeof page.createCDPSession === "function") {
+      try { return await page.createCDPSession(); } catch (_) { return null; }
+    }
+    if (page._client && typeof page._client === "function") {
+      try { return page._client(); } catch (_) { return null; }
+    }
+    return null;
+  };
+  const client = await getClient();
+  if (!client) return { error: "CDP session unavailable for pinch" };
+  try {
+    const pointsAt = (dist) => ([
+      { x: cx - dist / 2, y: cy, id: 0 },
+      { x: cx + dist / 2, y: cy, id: 1 }
+    ]);
+    await client.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: pointsAt(startDist) });
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const dist = startDist + (endDist - startDist) * t;
+      await client.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: pointsAt(dist) });
+    }
+    await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    if (typeof client.detach === "function") await client.detach().catch(() => {});
+    return { ok: true };
+  } catch (e) {
+    if (typeof client.detach === "function") client.detach().catch(() => {});
+    return { error: e.message };
+  }
 }
 
 // ── Pixel color / element rect / measurement ────────────────────────────────
@@ -2051,6 +2157,207 @@ async function deployAndVerify(opts) {
   };
 }
 
+// ── Clipboard read / write ─────────────────────────────────────────────────
+
+/**
+ * Read or write the system clipboard inside a preview session. Grants
+ * clipboard permissions on the browser context first so navigator.clipboard
+ * calls succeed without a user gesture.
+ *
+ * @param {object} opts - { owner, repo, slug, op: "read" | "write", value? }
+ */
+async function clipboard(opts) {
+  const { owner, repo, slug } = opts;
+  const op = opts.op || "read";
+  if (!hasPlaywright()) return { error: "No browser available." };
+
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, owner, repo, slug, opts.width, opts.height);
+
+  // Try to grant clipboard permissions. Silently ignore if the API isn't there.
+  try {
+    const origin = new URL(url).origin;
+    if (page.context && typeof page.context === "function") {
+      const ctx = page.context();
+      if (ctx && typeof ctx.grantPermissions === "function") {
+        await ctx.grantPermissions(["clipboard-read", "clipboard-write"], { origin }).catch(() => {});
+      }
+    } else if (browser.defaultBrowserContext) {
+      const bctx = browser.defaultBrowserContext();
+      if (bctx && typeof bctx.overridePermissions === "function") {
+        await bctx.overridePermissions(origin, ["clipboard-read", "clipboard-write"]).catch(() => {});
+      }
+    }
+  } catch (_) {}
+
+  if (op === "read") {
+    try {
+      const text = await page.evaluate(async () => {
+        if (!navigator.clipboard || !navigator.clipboard.readText) {
+          return { __error: "navigator.clipboard.readText unavailable" };
+        }
+        try { return await navigator.clipboard.readText(); }
+        catch (e) { return { __error: e.message }; }
+      });
+      if (text && typeof text === "object" && text.__error) {
+        return { error: text.__error, url };
+      }
+      return { text, url };
+    } catch (e) {
+      return { error: "clipboard read failed: " + e.message, url };
+    }
+  }
+
+  if (op === "write") {
+    const value = opts.value != null ? String(opts.value) : "";
+    try {
+      const out = await page.evaluate(async (v) => {
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+          return { __error: "navigator.clipboard.writeText unavailable" };
+        }
+        try { await navigator.clipboard.writeText(v); return { ok: true }; }
+        catch (e) { return { __error: e.message }; }
+      }, value);
+      if (out && out.__error) return { error: out.__error, url };
+      return { wrote: value.length + " chars", url };
+    } catch (e) {
+      return { error: "clipboard write failed: " + e.message, url };
+    }
+  }
+
+  return { error: "unknown op: " + op };
+}
+
+// ── Canvas data extraction ─────────────────────────────────────────────────
+
+/**
+ * Extract pixel data from a <canvas> element. Can return either the full
+ * canvas as a base64 PNG (dataUrl=true) or an ImageData region as raw
+ * RGBA bytes. Useful for verifying WebGL / 2D canvas output without
+ * screenshotting the whole page.
+ */
+async function canvasData(opts) {
+  const { owner, repo, slug, selector } = opts;
+  if (!selector) return { error: "selector required (must point to a <canvas>)" };
+  if (!hasPlaywright()) return { error: "No browser available." };
+
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, owner, repo, slug);
+
+  const result = await page.evaluate((args) => {
+    const el = document.querySelector(args.sel);
+    if (!el) return { __error: "canvas not found" };
+    if (el.tagName !== "CANVAS") return { __error: "not a <canvas> element: " + el.tagName };
+    const canvas = el;
+    const canvasWidth  = canvas.width;
+    const canvasHeight = canvas.height;
+
+    if (args.dataUrl) {
+      try {
+        return { width: canvasWidth, height: canvasHeight, dataUrl: canvas.toDataURL("image/png") };
+      } catch (e) {
+        return { __error: "toDataURL failed: " + e.message + " (canvas may be tainted)" };
+      }
+    }
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      // WebGL canvas — fall back to dataUrl
+      try {
+        return {
+          width: canvasWidth, height: canvasHeight,
+          dataUrl: canvas.toDataURL("image/png"),
+          note: "WebGL canvas — returning dataUrl (no 2D context for getImageData)"
+        };
+      } catch (e) {
+        return { __error: "WebGL canvas read failed: " + e.message };
+      }
+    }
+
+    const sx = Number.isFinite(args.x) ? args.x : 0;
+    const sy = Number.isFinite(args.y) ? args.y : 0;
+    const sw = Number.isFinite(args.w) && args.w > 0 ? args.w : canvasWidth - sx;
+    const sh = Number.isFinite(args.h) && args.h > 0 ? args.h : canvasHeight - sy;
+
+    try {
+      const img = ctx.getImageData(sx, sy, sw, sh);
+      const bytes = new Uint8Array(img.data.buffer);
+      let bin = "";
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return {
+        width: sw, height: sh,
+        canvasWidth, canvasHeight,
+        region: { x: sx, y: sy, width: sw, height: sh },
+        base64: btoa(bin)
+      };
+    } catch (e) {
+      return { __error: "getImageData failed: " + e.message };
+    }
+  }, { sel: selector, x: opts.x, y: opts.y, w: opts.width, h: opts.height, dataUrl: !!opts.dataUrl });
+
+  if (result && result.__error) return { error: result.__error, url };
+  return { ...result, url };
+}
+
+// ── Pages / popups / new tabs ──────────────────────────────────────────────
+
+async function listPages() {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const browser = await getBrowser();
+  let pages = [];
+  try {
+    if (typeof browser.pages === "function") {
+      pages = await browser.pages();
+    } else if (browser.contexts && typeof browser.contexts === "function") {
+      for (const c of browser.contexts()) {
+        if (typeof c.pages === "function") pages = pages.concat(await c.pages());
+      }
+    }
+  } catch (e) {
+    return { error: "listPages failed: " + e.message };
+  }
+  const out = [];
+  for (let i = 0; i < pages.length; i++) {
+    const p = pages[i];
+    let pUrl = "";
+    let pTitle = "";
+    try { pUrl = typeof p.url === "function" ? p.url() : ""; } catch (_) {}
+    try { pTitle = await p.title(); } catch (_) {}
+    out.push({ index: i, url: pUrl, title: pTitle });
+  }
+  return { count: out.length, pages: out };
+}
+
+async function closePage(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const browser = await getBrowser();
+  let pages = [];
+  try {
+    if (typeof browser.pages === "function") pages = await browser.pages();
+    else if (browser.contexts && typeof browser.contexts === "function") {
+      for (const c of browser.contexts()) {
+        if (typeof c.pages === "function") pages = pages.concat(await c.pages());
+      }
+    }
+  } catch (e) { return { error: e.message }; }
+
+  let target = null;
+  if (Number.isFinite(opts && opts.index)) {
+    target = pages[opts.index];
+  } else if (opts && opts.urlContains) {
+    target = pages.find((p) => {
+      try { return (p.url() || "").includes(opts.urlContains); } catch (_) { return false; }
+    });
+  }
+  if (!target) return { error: "no matching page" };
+  try {
+    await target.close();
+    return { closed: true };
+  } catch (e) {
+    return { error: "close failed: " + e.message };
+  }
+}
+
 module.exports = {
   takeScreenshot,
   inspectDOM,
@@ -2073,5 +2380,9 @@ module.exports = {
   performanceMetrics,
   capturePreviewRequests,
   captureDownload,
-  deployAndVerify
+  deployAndVerify,
+  clipboard,
+  canvasData,
+  listPages,
+  closePage
 };

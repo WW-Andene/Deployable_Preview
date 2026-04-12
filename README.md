@@ -156,7 +156,19 @@ npm start
 | `capture_requests` | Duration-based network-request recorder for a preview |
 | `download` | Trigger + capture a file download, returned as base64 |
 | `deploy_and_verify` | One-shot: trigger build → wait for ready → screenshot + console (replaces 5 separate calls) |
+| `clipboard` | Read/write the browser clipboard (permissions auto-granted) |
+| `canvas_data` | Extract `<canvas>` pixels via `getImageData` (2D) or `toDataURL` (WebGL) |
+| `list_pages` | List all open tabs/popups after an interaction that spawned a new window |
+| `close_page` | Close a specific tab by index or URL substring |
 | `web_fetch` | Universal URL fetcher / scraper (HTML, JSON, RSS, binaries) with optional JS rendering |
+
+The `interact` tool also supports **iframe scoping** via the `frame` parameter
+(CSS selector of an `<iframe>`, a URL substring, or a frame name), and a **pinch**
+action for two-finger pinch-zoom gestures.
+
+**Headless WebGL**: Chromium is now launched with `--use-gl=swiftshader` +
+`--enable-webgl` so MediaPipe, three.js, Spine WebGL, and anything else
+requiring a GL context runs inside the headless browser without a real GPU.
 
 ### MCP HTTP API
 

@@ -86,7 +86,7 @@ async function tryPlaywright(executablePath) {
   catch (_) { try { pw = require("playwright-core"); } catch (_2) { return false; } }
   const opts = {
     headless: true, timeout: 15000,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist"]
   };
   if (executablePath) opts.executablePath = executablePath;
   try { const b = await pw.chromium.launch(opts); await b.close(); return true; }
@@ -99,7 +99,7 @@ async function tryPuppeteer(executablePath) {
   catch (_) { try { puppeteer = require("puppeteer-core"); } catch (_2) { return false; } }
   const opts = {
     headless: true, timeout: 15000,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist"]
   };
   if (executablePath) opts.executablePath = executablePath;
   try { const b = await puppeteer.launch(opts); await b.close(); return true; }
