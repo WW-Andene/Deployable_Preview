@@ -230,92 +230,6 @@ async function installDeps(workDir, addLog, language) {
   else if (hasYarnLock) await runCmd("yarn install", workDir);
   else await runCmd("npm install", workDir);
 
-  // Fix Next.js SWC on ARM (Termux / Android / aarch64).
-  //
-  // The @next/swc-wasm-nodejs WASM fallback crashes on ARM with
-  // "Reflect.get called on non-object". Native SWC binaries:
-  //   - @next/swc-linux-arm64-gnu   → needs glibc (NOT available on Termux/Android/Bionic)
-  //   - @next/swc-linux-arm64-musl  → statically linked, sometimes works on non-glibc
-  //
-  // Strategy: try musl first (static, might work). If that fails too,
-  // set NEXT_DISABLE_SWC=1 so Next.js falls back to Babel (slower but works everywhere).
-  const isARM = process.arch === "arm64" || process.arch === "arm";
-  const isAndroid = !!process.env.TERMUX_VERSION || (process.env.PREFIX || "").includes("com.termux") || process.platform === "android";
-  const hasNext = fs.existsSync(path.join(workDir, "node_modules", "next"));
-  if (isARM && hasNext) {
-    // Check if any working SWC native binary is already present
-    const swcDir = path.join(workDir, "node_modules", "@next");
-    let hasWorkingSwc = false;
-    try {
-      const dirs = fs.readdirSync(swcDir).filter(d => d.startsWith("swc-") && !d.includes("wasm"));
-      hasWorkingSwc = dirs.length > 0;
-    } catch (_) {}
-
-    if (!hasWorkingSwc && isAndroid) {
-      // On Android/Termux, try the musl binary (statically linked, no glibc dependency)
-      const muslPkg = process.arch === "arm64" ? "@next/swc-linux-arm64-musl" : null;
-      if (muslPkg) {
-        addLog("ARM + Android detected with Next.js — trying musl SWC binary: " + muslPkg);
-        try {
-          await runCmd("npm install " + muslPkg + " --no-save --no-audit", workDir);
-          addLog("SWC musl binary installed for ARM");
-          hasWorkingSwc = true;
-        } catch (e) {
-          addLog("musl SWC also failed — will use Babel fallback");
-        }
-      }
-    } else if (!hasWorkingSwc) {
-      // Regular ARM Linux (not Android) — try glibc binary
-      const gnuPkg = process.arch === "arm64" ? "@next/swc-linux-arm64-gnu" : "@next/swc-linux-arm-gnueabihf";
-      addLog("ARM detected with Next.js — installing native SWC binary: " + gnuPkg);
-      try {
-        await runCmd("npm install " + gnuPkg + " --no-save --no-audit", workDir);
-        addLog("SWC native binary installed for ARM");
-        hasWorkingSwc = true;
-      } catch (e) {
-        addLog("WARNING: SWC native binary install failed");
-      }
-    }
-
-    // If no native SWC works, disable SWC entirely so Next.js uses Babel.
-    // Slower compilation but guaranteed to work on any platform.
-    if (!hasWorkingSwc) {
-      addLog("Disabling SWC — Next.js will use Babel compiler (slower but compatible)");
-      // Write next.config override to disable SWC
-      const nextConfigPath = path.join(workDir, "next.config.js");
-      const nextConfigMjs = path.join(workDir, "next.config.mjs");
-      const nextConfigTs = path.join(workDir, "next.config.ts");
-      // Only inject if there's no existing SWC disable
-      try {
-        let configContent = "";
-        let configPath = null;
-        if (fs.existsSync(nextConfigMjs)) { configPath = nextConfigMjs; configContent = fs.readFileSync(nextConfigMjs, "utf8"); }
-        else if (fs.existsSync(nextConfigTs)) { configPath = nextConfigTs; configContent = fs.readFileSync(nextConfigTs, "utf8"); }
-        else if (fs.existsSync(nextConfigPath)) { configPath = nextConfigPath; configContent = fs.readFileSync(nextConfigPath, "utf8"); }
-
-        if (configPath && !configContent.includes("swcMinify") && !configContent.includes("NEXT_DISABLE_SWC")) {
-          // Inject swcMinify: false into the config
-          addLog("Patching " + path.basename(configPath) + " to disable SWC minification");
-          if (configContent.includes("module.exports")) {
-            // CJS config
-            configContent = configContent.replace(
-              /module\.exports\s*=\s*\{/,
-              "module.exports = {\n  swcMinify: false,"
-            );
-          } else if (configContent.includes("export default")) {
-            // ESM config
-            configContent = configContent.replace(
-              /export\s+default\s*\{/,
-              "export default {\n  swcMinify: false,"
-            );
-          }
-          fs.writeFileSync(configPath, configContent);
-        }
-      } catch (e) {
-        addLog("WARNING: Could not patch next.config: " + e.message);
-      }
-    }
-  }
 }
 
 // ── Default build commands per language ──
@@ -407,22 +321,60 @@ async function buildBranch(repoConfig, branchConfig) {
     var cmd, outName;
     var userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
 
-    // Fix Next.js SWC on ARM (Termux/Android): the @next/swc-wasm-nodejs
-    // WASM module crashes with "Reflect.get called on non-object" on ARM.
-    // Fix: delete the broken WASM module AND set NEXT_DISABLE_SWC=1 so
-    // Next.js falls back to Babel. This is aggressive but guaranteed to work.
+    // Fix Next.js SWC on ARM Android (Termux): Next.js detects the platform
+    // as "android-arm64" and tries to download @next/swc-android-arm64 — but
+    // that package doesn't exist for most Next.js versions (404 error).
+    // The WASM fallback also crashes on ARM ("Reflect.get called on non-object").
+    //
+    // Fix: install the musl binary (@next/swc-linux-arm64-musl) which is
+    // statically linked (no libc dependency) and works on Android because
+    // the kernel is Linux-compatible. Then symlink it as the android-arm64
+    // variant so Next.js finds and loads it.
     const _isARM = process.arch === "arm64" || process.arch === "arm";
+    const _isAndroid = !!process.env.TERMUX_VERSION || (process.env.PREFIX || "").includes("com.termux") || process.platform === "android";
     const _nextDir = path.join(workDir, "node_modules", "next");
-    if (_isARM && fs.existsSync(_nextDir)) {
-      // Remove the broken WASM SWC module so Next.js can't even try to load it
-      const wasmDir = path.join(workDir, "node_modules", "@next", "swc-wasm-nodejs");
+    if (_isARM && _isAndroid && fs.existsSync(_nextDir)) {
+      const nextAtDir = path.join(workDir, "node_modules", "@next");
+      const androidSwcDir = path.join(nextAtDir, "swc-android-arm64");
+      const muslSwcDir = path.join(nextAtDir, "swc-linux-arm64-musl");
+      const wasmDir = path.join(nextAtDir, "swc-wasm-nodejs");
+
+      // Remove the broken WASM module
       if (fs.existsSync(wasmDir)) {
-        addLog("ARM: removing broken @next/swc-wasm-nodejs");
+        addLog("ARM Android: removing broken @next/swc-wasm-nodejs");
         try { execSync("rm -rf " + JSON.stringify(wasmDir)); } catch (_) {}
       }
-      // Force Babel fallback
-      addLog("ARM: setting NEXT_DISABLE_SWC=1 (Babel fallback)");
-      userEnv.NEXT_DISABLE_SWC = "1";
+
+      // If no android-arm64 binary exists, install musl and symlink it
+      if (!fs.existsSync(androidSwcDir)) {
+        if (!fs.existsSync(muslSwcDir)) {
+          addLog("ARM Android: installing @next/swc-linux-arm64-musl (static binary)");
+          try {
+            await runCmd("npm install @next/swc-linux-arm64-musl --no-save --no-audit", workDir);
+          } catch (e) {
+            addLog("WARNING: musl SWC install failed: " + (e.message || "").split("\n")[0]);
+          }
+        }
+        if (fs.existsSync(muslSwcDir)) {
+          addLog("ARM Android: symlinking musl binary as swc-android-arm64");
+          try {
+            fs.symlinkSync(muslSwcDir, androidSwcDir, "dir");
+          } catch (e) {
+            // symlink might fail — try copy instead
+            try {
+              execSync("cp -r " + JSON.stringify(muslSwcDir) + " " + JSON.stringify(androidSwcDir));
+            } catch (_) {
+              addLog("WARNING: could not create android-arm64 symlink/copy");
+            }
+          }
+        }
+      }
+
+      if (fs.existsSync(androidSwcDir)) {
+        addLog("ARM Android: SWC android-arm64 binary ready");
+      } else {
+        addLog("WARNING: no SWC binary available — Next.js build may fail");
+      }
     }
 
     if (pygameFile) {
