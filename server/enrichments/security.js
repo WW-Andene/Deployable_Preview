@@ -31,26 +31,38 @@ function vulnScan(fingerprints) {
   }
 }
 
+/**
+ * Parse a Content-Security-Policy header string into directives.
+ * Inline implementation — replaces the deprecated csp-parse package.
+ *
+ * CSP format: "directive-name value1 value2; directive-name value3"
+ */
 function cspCheck(cspHeader) {
-  const cspParse = tryRequire("csp-parse");
-  if (!cspParse) return missing("csp-parse", "csp_check");
+  if (!cspHeader || typeof cspHeader !== "string") {
+    return { error: "CSP header string required" };
+  }
   try {
-    const Policy = cspParse.default || cspParse;
-    const policy = new Policy(cspHeader);
     const directives = {};
-    // csp-parse exposes .directives as a map
-    if (policy.directives) {
-      for (const k of Object.keys(policy.directives)) directives[k] = policy.directives[k];
+    const parts = cspHeader.split(";").map((s) => s.trim()).filter(Boolean);
+    for (const part of parts) {
+      const tokens = part.split(/\s+/);
+      const name = tokens[0].toLowerCase();
+      directives[name] = tokens.slice(1);
     }
-    // Compute issues: unsafe-inline / unsafe-eval / missing default-src etc.
+
     const issues = [];
     const all = JSON.stringify(directives);
     if (/'unsafe-inline'/.test(all)) issues.push("contains 'unsafe-inline'");
     if (/'unsafe-eval'/.test(all))   issues.push("contains 'unsafe-eval'");
     if (!directives["default-src"])  issues.push("no default-src directive");
-    return { directives, issues };
+    if (directives["script-src"] && directives["script-src"].includes("*")) {
+      issues.push("script-src allows wildcard (*)");
+    }
+    if (!directives["frame-ancestors"]) issues.push("no frame-ancestors directive (clickjacking risk)");
+
+    return { directives, directiveCount: Object.keys(directives).length, issues };
   } catch (e) {
-    return { error: "csp-parse failed: " + e.message };
+    return { error: "CSP parse failed: " + e.message };
   }
 }
 

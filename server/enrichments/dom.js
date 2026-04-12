@@ -58,20 +58,49 @@ function cssSpecificity(selector) {
 }
 
 /**
- * HTML5 validation via the W3C Nu validator (html-validator package).
+ * HTML5 validation via the W3C Nu validator API (direct HTTPS call).
+ * Replaces the deprecated html-validator package which pulled in the
+ * deprecated `request` library.
  */
 async function validateHtml(htmlOrUrl) {
-  const validator = tryRequire("html-validator");
-  if (!validator) return missing("html-validator", "validate_html");
+  const https = require("https");
+
   try {
-    const fn = validator.default || validator;
-    const options = { format: "json" };
+    let apiUrl;
+    let body = null;
+    let headers = { "Accept": "application/json" };
+
     if (typeof htmlOrUrl === "string" && /^https?:\/\//.test(htmlOrUrl)) {
-      options.url = htmlOrUrl;
+      apiUrl = "https://validator.w3.org/nu/?doc=" + encodeURIComponent(htmlOrUrl) + "&out=json";
     } else {
-      options.data = htmlOrUrl;
+      apiUrl = "https://validator.w3.org/nu/?out=json";
+      body = typeof htmlOrUrl === "string" ? htmlOrUrl : String(htmlOrUrl);
+      headers["Content-Type"] = "text/html; charset=utf-8";
     }
-    const result = await fn(options);
+
+    const result = await new Promise((resolve, reject) => {
+      const parsed = new URL(apiUrl);
+      const opts = {
+        hostname: parsed.hostname,
+        path: parsed.pathname + parsed.search,
+        method: body ? "POST" : "GET",
+        headers,
+        timeout: 30000
+      };
+      const req = https.request(opts, (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); }
+          catch (e) { reject(new Error("W3C validator returned non-JSON")); }
+        });
+      });
+      req.on("error", reject);
+      req.on("timeout", () => { req.destroy(); reject(new Error("W3C validator timed out")); });
+      if (body) req.write(body);
+      req.end();
+    });
+
     const messages = (result && result.messages) || [];
     return {
       errorCount: messages.filter((m) => m.type === "error").length,
@@ -85,7 +114,7 @@ async function validateHtml(htmlOrUrl) {
       }))
     };
   } catch (e) {
-    return { error: "html-validator failed: " + e.message };
+    return { error: "W3C HTML validation failed: " + e.message };
   }
 }
 

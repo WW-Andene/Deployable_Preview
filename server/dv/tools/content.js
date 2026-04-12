@@ -182,7 +182,7 @@ dv.defineTool({
   name: "csp_check",
   category: "content",
   description: "Parse a Content-Security-Policy header and report directives + common issues (unsafe-inline / unsafe-eval / missing default-src).",
-  requires: [{ kind: "library", name: "csp-parse" }],
+  requires: [],  // inline CSP parser — no library needed
   schema: {
     type: "object",
     properties: { header: { type: "string" } },

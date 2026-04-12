@@ -69,7 +69,7 @@ const LIBS = [
   "cheerio",
   "css-select",
   "specificity",
-  "html-validator",
+  // html-validator removed — replaced with direct W3C Nu validator HTTPS call
   // Performance
   "web-vitals",
   "gzip-size",
@@ -83,7 +83,7 @@ const LIBS = [
   "v8-to-istanbul",
   // Security / cookies / robots
   "retire",
-  "csp-parse",
+  // csp-parse removed — replaced with inline CSP parser
   "set-cookie-parser",
   "tough-cookie",
   "robots-parser"

@@ -133,7 +133,7 @@ dv.defineTool({
   name: "validate_html",
   category: "audit",
   description: "Run the W3C Nu HTML validator on the live preview, a supplied HTML string, or a URL. Returns errors and warnings with line/column info.",
-  requires: [{ kind: "library", name: "html-validator" }],
+  requires: [],  // inline W3C Nu validator — no library needed
   schema: {
     type: "object",
     properties: {
