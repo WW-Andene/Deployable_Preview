@@ -523,20 +523,22 @@ const TOOLS = [
   },
   {
     name: "ocr",
-    description: "Read text from a preview screenshot via Tesseract.js. Claude gets text + word-level bounding boxes instead of image pixels. Can target the full page, a CSS selector, or a clipped region. Requires tesseract.js (npm install tesseract.js).",
+    description: "Read text from a preview screenshot. Two engines: 'tesseract' (local, needs tesseract.js) or 'groq' (vision model, faster and more accurate for handwriting / stylised fonts — needs GROQ_API_KEY). Primary real-world use case is the Whispering Wishes app's OCR feature. Can target the full page, a CSS selector, or a clipped region.",
     inputSchema: {
       type: "object",
       properties: {
         owner: { type: "string" },
         repo:  { type: "string" },
         slug:  { type: "string" },
+        engine: { type: "string", enum: ["tesseract", "groq"], description: "OCR engine (default: tesseract)" },
+        model: { type: "string", description: "Groq model ID (engine=groq only)" },
         selector: { type: "string", description: "Optional CSS selector — OCR only the matching element" },
         x: { type: "number" },
         y: { type: "number" },
         width:  { type: "number" },
         height: { type: "number" },
         fullPage: { type: "boolean" },
-        lang: { type: "string", description: "Tesseract language code (default: 'eng'). Supports 'eng+fra' etc." }
+        lang: { type: "string", description: "Language hint — Tesseract lang code ('eng', 'eng+fra') or natural-language hint for Groq" }
       },
       required: ["owner", "repo", "slug"]
     }
@@ -659,6 +661,425 @@ const TOOLS = [
         returnScreenshot: { type: "boolean", description: "Include the final screenshot in the response (default: false — text only)" }
       },
       required: ["owner", "repo", "slug", "condition"]
+    }
+  },
+  {
+    name: "palette",
+    description: "Extract the dominant colour and palette from the preview page (or a selector) using color-thief. Returns a list of hex/RGB swatches sorted by visual weight.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        selector: { type: "string" },
+        count: { type: "number", description: "Number of palette entries (default: 6)" },
+        fullPage: { type: "boolean" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "color_stats",
+    description: "Full colour distribution / vibrancy analysis for the preview (or selector). Uses get-image-colors (Vibrant). Returns hex, RGB, HSL, and luminance per colour.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        selector: { type: "string" },
+        count: { type: "number" },
+        fullPage: { type: "boolean" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "visual_similarity",
+    description: "Structural similarity index (SSIM) between two base64 PNG screenshots. Better than pixel diff at answering 'does it look the same?' — ignores minor rendering variance. Returns mssim 0..1 plus a human-readable interpretation.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        before: { type: "string", description: "Base64 PNG" },
+        after:  { type: "string", description: "Base64 PNG" }
+      },
+      required: ["before", "after"]
+    }
+  },
+  {
+    name: "tolerance_diff",
+    description: "Screenshot diff with perceptual tolerance and anti-alias ignoring (via looks-same). Far fewer false positives than pixelmatch on text-heavy pages.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        before: { type: "string" },
+        after: { type: "string" },
+        tolerance: { type: "number", description: "Per-channel tolerance 0..255 (default 2.3)" },
+        ignoreAntialiasing: { type: "boolean", description: "Ignore anti-aliasing artefacts (default: true)" },
+        antialiasingTolerance: { type: "number", description: "AA tolerance (default: 4)" },
+        ignoreCaret: { type: "boolean", description: "Ignore text caret blink (default: true)" },
+        strict: { type: "boolean" }
+      },
+      required: ["before", "after"]
+    }
+  },
+  {
+    name: "render_overlay",
+    description: "Draw annotations (rectangles, lines, circles, labels) on top of a preview screenshot. Returns the annotated image as base64. Good for showing measurement results visually.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        fullPage: { type: "boolean" },
+        shapes: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              type: { type: "string", enum: ["rect", "line", "circle", "text"] },
+              x: { type: "number" }, y: { type: "number" },
+              x1: { type: "number" }, y1: { type: "number" },
+              x2: { type: "number" }, y2: { type: "number" },
+              width: { type: "number" }, height: { type: "number" },
+              radius: { type: "number" },
+              text: { type: "string" }, font: { type: "string" }, color: { type: "string" },
+              stroke: { type: "string" }, fill: { type: "string" }, lineWidth: { type: "number" }
+            }
+          }
+        }
+      },
+      required: ["owner", "repo", "slug", "shapes"]
+    }
+  },
+  {
+    name: "image_info",
+    description: "Get image dimensions and EXIF metadata for a preview screenshot or a supplied base64 image. Uses image-size and exifreader.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        base64: { type: "string", description: "Optional base64 image (skip the session screenshot)" },
+        fullPage: { type: "boolean" }
+      }
+    }
+  },
+  {
+    name: "dom_query",
+    description: "Parse the live preview HTML (or a supplied HTML string) with cheerio and return elements matching a selector. Returns tag / text / attributes / HTML for each match.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        html: { type: "string", description: "Optional HTML input (overrides session)" },
+        selector: { type: "string", description: "CSS selector (cheerio-supported)" },
+        limit: { type: "number", description: "Max matches to return (default: 100)" }
+      },
+      required: ["selector"]
+    }
+  },
+  {
+    name: "find_all",
+    description: "Find every element matching a CSS selector on the live preview and return their bounding boxes and a short text preview. Unlike dom_query this includes layout info.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        selector: { type: "string" },
+        limit: { type: "number" }
+      },
+      required: ["owner", "repo", "slug", "selector"]
+    }
+  },
+  {
+    name: "css_specificity",
+    description: "Compute CSS specificity for a selector (A,B,C,D tuple) using the `specificity` package. Useful for debugging override conflicts.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        selector: { type: "string" }
+      },
+      required: ["selector"]
+    }
+  },
+  {
+    name: "validate_html",
+    description: "Run the W3C Nu HTML validator on the live preview, a supplied HTML string, or a URL. Returns errors and warnings with line/column info.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        html: { type: "string" },
+        url: { type: "string" }
+      }
+    }
+  },
+  {
+    name: "vitals",
+    description: "Inject web-vitals into the preview and collect CLS, LCP, INP, FCP, TTFB. Returns per-metric value + rating. Requires web-vitals (npm install web-vitals) or falls back to CDN.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        waitMs: { type: "number", description: "How long to let metrics accumulate (default: 4000)" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "code_coverage",
+    description: "Start JS + CSS coverage on the preview, optionally reload, wait for a duration, then return per-URL usage percentages. Playwright-native — shows which code actually ran.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        reload: { type: "boolean" },
+        waitMs: { type: "number", description: "Settle time before stopping coverage (default: 3000)" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "har_capture",
+    description: "Capture a full HAR-like log (requests, responses, headers, sizes, TLS details) for a duration. Richer than capture_requests: includes request headers, post data, and response security details.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        duration: { type: "number", description: "Seconds (default: 5, max: 60)" },
+        maxEntries: { type: "number" },
+        reload: { type: "boolean" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "service_workers",
+    description: "List service workers active on the preview (Playwright workers + navigator.serviceWorker registrations) with their scopes and script URLs.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "resource_timing",
+    description: "Return performance.getEntriesByType('resource') for every asset: DNS / TCP / SSL / TTFB / total duration. Sorted slowest-first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "browser_apis",
+    description: "Feature-detect which Web APIs are available on the preview: service workers, WebGL, BluetoothLE, FileSystem, WebGPU, WakeLock, SpeechRecognition, etc. Plus the full navigator fingerprint.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "idb_inspect",
+    description: "Dump IndexedDB databases and object store names for the preview origin. Useful for finding hidden offline state.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "framework_data",
+    description: "Dump framework state from the preview: Next.js __NEXT_DATA__, Nuxt __NUXT__, Sveltekit, Remix, Redux initial state, Vue/React devtools hooks.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "data_attrs",
+    description: "Extract every [data-*] attribute from the preview DOM. Often contains IDs, state, config, and analytics targets that aren't visible in the rendered UI.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "meta",
+    description: "Collect every meta tag, Open Graph tag, Twitter card, canonical link, favicon, hreflang, and JSON-LD structured-data block on the preview page.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "robots",
+    description: "Fetch robots.txt for the preview origin and parse it with robots-parser. Returns crawl-delay, sitemaps, and whether a given URL is allowed for a user agent.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        url: { type: "string", description: "Optional specific URL to check (default: the preview URL)" },
+        userAgent: { type: "string", description: "User-agent to check against (default: 'Claude')" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "text_diff",
+    description: "Structured text diff between two strings (e.g. DOM text before/after). Modes: chars, words, sentences, lines (default). Returns per-part add/remove breakdown.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        a: { type: "string" },
+        b: { type: "string" },
+        mode: { type: "string", enum: ["chars", "words", "sentences", "lines"] }
+      },
+      required: ["a", "b"]
+    }
+  },
+  {
+    name: "text_analysis",
+    description: "Tokenize text, count sentences/words, detect unique vocabulary, and run AFINN sentiment scoring via the `natural` package.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: { type: "string" }
+      },
+      required: ["text"]
+    }
+  },
+  {
+    name: "broken_links",
+    description: "Crawl the preview for broken links using linkinator. Returns the list of links that failed with status codes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        recurse: { type: "boolean", description: "Recurse into same-origin links (default: false)" },
+        concurrency: { type: "number" },
+        timeout: { type: "number" },
+        skip: { type: "array", items: { type: "string" }, description: "Glob patterns to skip" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "stack_trace",
+    description: "Parse a raw JavaScript stack trace into structured frames (function, file, line, col) using error-stack-parser.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        stack: { type: "string" }
+      },
+      required: ["stack"]
+    }
+  },
+  {
+    name: "unminify",
+    description: "Resolve a minified JS line/col back to the original source using a supplied source-map JSON.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        lineNumber: { type: "number" },
+        columnNumber: { type: "number" },
+        sourceMap: { description: "Parsed source-map object or JSON string" }
+      },
+      required: ["lineNumber", "columnNumber", "sourceMap"]
+    }
+  },
+  {
+    name: "csp_check",
+    description: "Parse a Content-Security-Policy header and report directives + common issues (unsafe-inline / unsafe-eval / missing default-src).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        header: { type: "string" }
+      },
+      required: ["header"]
+    }
+  },
+  {
+    name: "cookies_full",
+    description: "Parse Set-Cookie headers and cookie strings with set-cookie-parser + tough-cookie — returns full flag details (httpOnly, secure, sameSite, expires, domain, path).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        setCookieHeaders: { type: "array", items: { type: "string" } },
+        cookies: { type: "array", items: { type: "string" } }
+      }
+    }
+  },
+  {
+    name: "vuln_scan",
+    description: "Scan JS library fingerprints for known vulnerabilities using retire.js. Pass an array of { path, url, content } entries — e.g. gathered from capture_requests.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fingerprints: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              path: { type: "string" },
+              url: { type: "string" }
+            }
+          }
+        }
+      },
+      required: ["fingerprints"]
     }
   },
   {
@@ -1304,11 +1725,10 @@ async function handleTool(name, args) {
     case "ocr": {
       try {
         const browser = getBrowserModule();
-        const result = await browser.runOCR(args);
+        const result = await browser.runOCRDispatch(args);
         if (result.error) {
           return { content: [{ type: "text", text: "OCR error: " + result.error }], isError: true };
         }
-        // Trim words to keep response readable
         const summary = {
           text: result.text,
           confidence: result.confidence,
@@ -1407,6 +1827,270 @@ async function handleTool(name, args) {
       } catch (e) {
         return { content: [{ type: "text", text: "verify_loop failed: " + e.message }], isError: true };
       }
+    }
+
+    // ── Round 3: image / visual / DOM / perf / runtime / meta ────────────
+    case "palette": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.getPalette(args);
+        if (result.error) return { content: [{ type: "text", text: "palette error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "palette failed: " + e.message }], isError: true }; }
+    }
+    case "color_stats": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.getColorStats(args);
+        if (result.error) return { content: [{ type: "text", text: "color_stats error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "color_stats failed: " + e.message }], isError: true }; }
+    }
+    case "visual_similarity": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.visualSimilarity(args);
+        if (result.error) return { content: [{ type: "text", text: "visual_similarity error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "visual_similarity failed: " + e.message }], isError: true }; }
+    }
+    case "tolerance_diff": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.toleranceDiffTool(args);
+        if (result.error) return { content: [{ type: "text", text: "tolerance_diff error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "tolerance_diff failed: " + e.message }], isError: true }; }
+    }
+    case "render_overlay": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.renderOverlayTool(args);
+        if (result.error) return { content: [{ type: "text", text: "render_overlay error: " + result.error }], isError: true };
+        return {
+          content: [
+            { type: "image", data: result.base64, mimeType: result.mimeType },
+            { type: "text", text: "Overlay rendered for " + result.url }
+          ]
+        };
+      } catch (e) { return { content: [{ type: "text", text: "render_overlay failed: " + e.message }], isError: true }; }
+    }
+    case "image_info": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.imageInfo(args);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "image_info failed: " + e.message }], isError: true }; }
+    }
+    case "dom_query": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.domQueryTool(args);
+        if (result.error) return { content: [{ type: "text", text: "dom_query error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "dom_query failed: " + e.message }], isError: true }; }
+    }
+    case "find_all": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.findAll(args);
+        if (result.error) return { content: [{ type: "text", text: "find_all error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "find_all failed: " + e.message }], isError: true }; }
+    }
+    case "css_specificity": {
+      try {
+        const enrich = require("./mcp-enrichments");
+        const result = enrich.cssSpecificity(args.selector);
+        if (result.error) return { content: [{ type: "text", text: "css_specificity error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "css_specificity failed: " + e.message }], isError: true }; }
+    }
+    case "validate_html": {
+      try {
+        const enrich = require("./mcp-enrichments");
+        let input = args.html || args.url || null;
+        // If no html/url given, pull the live HTML from the preview session via evaluate
+        if (!input && args.owner && args.repo && args.slug) {
+          const browser = getBrowserModule();
+          const r = await browser.interact({
+            owner: args.owner, repo: args.repo, slug: args.slug,
+            action: "evaluate", value: "return document.documentElement.outerHTML;"
+          });
+          if (r && r.returnValue != null) {
+            try { input = JSON.parse(r.returnValue); }
+            catch (_) { input = r.returnValue; }
+          }
+        }
+        if (!input) return { content: [{ type: "text", text: "validate_html error: html, url, or (owner, repo, slug) required" }], isError: true };
+        const result = await enrich.validateHtml(input);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "validate_html failed: " + e.message }], isError: true }; }
+    }
+    case "vitals": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.getWebVitals(args);
+        if (result.error) return { content: [{ type: "text", text: "vitals error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "vitals failed: " + e.message }], isError: true }; }
+    }
+    case "code_coverage": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.getCodeCoverage(args);
+        if (result.error) return { content: [{ type: "text", text: "code_coverage error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "code_coverage failed: " + e.message }], isError: true }; }
+    }
+    case "har_capture": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.captureHar(args);
+        if (result.error) return { content: [{ type: "text", text: "har_capture error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "har_capture failed: " + e.message }], isError: true }; }
+    }
+    case "service_workers": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.listServiceWorkers(args);
+        if (result.error) return { content: [{ type: "text", text: "service_workers error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "service_workers failed: " + e.message }], isError: true }; }
+    }
+    case "resource_timing": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.getResourceTiming(args);
+        if (result.error) return { content: [{ type: "text", text: "resource_timing error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "resource_timing failed: " + e.message }], isError: true }; }
+    }
+    case "browser_apis": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.getBrowserApis(args);
+        if (result.error) return { content: [{ type: "text", text: "browser_apis error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "browser_apis failed: " + e.message }], isError: true }; }
+    }
+    case "idb_inspect": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.inspectIndexedDB(args);
+        if (result.error) return { content: [{ type: "text", text: "idb_inspect error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "idb_inspect failed: " + e.message }], isError: true }; }
+    }
+    case "framework_data": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.getFrameworkData(args);
+        if (result.error) return { content: [{ type: "text", text: "framework_data error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "framework_data failed: " + e.message }], isError: true }; }
+    }
+    case "data_attrs": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.getDataAttrs(args);
+        if (result.error) return { content: [{ type: "text", text: "data_attrs error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "data_attrs failed: " + e.message }], isError: true }; }
+    }
+    case "meta": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.getMeta(args);
+        if (result.error) return { content: [{ type: "text", text: "meta error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "meta failed: " + e.message }], isError: true }; }
+    }
+    case "robots": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.getRobots(args);
+        if (result.error) return { content: [{ type: "text", text: "robots error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "robots failed: " + e.message }], isError: true }; }
+    }
+    case "text_diff": {
+      try {
+        const enrich = require("./mcp-enrichments");
+        const result = enrich.textDiff(args.a, args.b, args.mode);
+        if (result.error) return { content: [{ type: "text", text: "text_diff error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "text_diff failed: " + e.message }], isError: true }; }
+    }
+    case "text_analysis": {
+      try {
+        const enrich = require("./mcp-enrichments");
+        const result = enrich.textAnalysis(args.text);
+        if (result.error) return { content: [{ type: "text", text: "text_analysis error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "text_analysis failed: " + e.message }], isError: true }; }
+    }
+    case "broken_links": {
+      try {
+        // Build the full preview URL then call linkinator
+        const browser = getBrowserModule();
+        // Get the preview URL by taking a dummy interact-evaluate — simpler: use findAll with body selector
+        const pvUrl = "/preview/" + args.owner + "/" + args.repo + "/" + args.slug + "/";
+        const port = process.env.PORT || 3000;
+        const fullUrl = "http://127.0.0.1:" + port + pvUrl;
+        const enrich = require("./mcp-enrichments");
+        const result = await enrich.scanBrokenLinks(fullUrl, {
+          recurse: args.recurse,
+          concurrency: args.concurrency,
+          timeout: args.timeout,
+          skip: args.skip
+        });
+        if (result.error) return { content: [{ type: "text", text: "broken_links error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "broken_links failed: " + e.message }], isError: true }; }
+    }
+    case "stack_trace": {
+      try {
+        const enrich = require("./mcp-enrichments");
+        const result = enrich.parseStackTrace(args.stack);
+        if (result.error) return { content: [{ type: "text", text: "stack_trace error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "stack_trace failed: " + e.message }], isError: true }; }
+    }
+    case "unminify": {
+      try {
+        const enrich = require("./mcp-enrichments");
+        const sm = typeof args.sourceMap === "string" ? JSON.parse(args.sourceMap) : args.sourceMap;
+        const result = await enrich.unminifyFrame({ lineNumber: args.lineNumber, columnNumber: args.columnNumber }, sm);
+        if (result.error) return { content: [{ type: "text", text: "unminify error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "unminify failed: " + e.message }], isError: true }; }
+    }
+    case "csp_check": {
+      try {
+        const enrich = require("./mcp-enrichments");
+        const result = enrich.cspCheck(args.header);
+        if (result.error) return { content: [{ type: "text", text: "csp_check error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "csp_check failed: " + e.message }], isError: true }; }
+    }
+    case "cookies_full": {
+      try {
+        const enrich = require("./mcp-enrichments");
+        const out = {};
+        if (args.setCookieHeaders) out.setCookieHeaders = enrich.parseSetCookie(args.setCookieHeaders);
+        if (args.cookies) out.cookies = enrich.parseCookieJar(args.cookies);
+        return { content: [{ type: "text", text: JSON.stringify(out, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "cookies_full failed: " + e.message }], isError: true }; }
+    }
+    case "vuln_scan": {
+      try {
+        const enrich = require("./mcp-enrichments");
+        const result = enrich.vulnScan(args.fingerprints);
+        if (result.error) return { content: [{ type: "text", text: "vuln_scan error: " + result.error }], isError: true };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) { return { content: [{ type: "text", text: "vuln_scan failed: " + e.message }], isError: true }; }
     }
 
     case "web_fetch": {

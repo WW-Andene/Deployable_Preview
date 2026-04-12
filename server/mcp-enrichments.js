@@ -487,17 +487,635 @@ function diffCssValues(a, b) {
   };
 }
 
+// ── Color palette (color-thief / get-image-colors) ────────────────────────
+
+/**
+ * Extract the dominant color and palette from a PNG buffer using colorthief.
+ */
+async function extractPalette(pngBuf, count) {
+  const ColorThief = tryRequire("colorthief");
+  if (!ColorThief) return missing("colorthief", "palette");
+  try {
+    const os = require("os");
+    const fs = require("fs");
+    const path = require("path");
+    const crypto = require("crypto");
+    // colorthief needs a file path or Jimp/Buffer; use a temp file for wide compat
+    const tmp = path.join(os.tmpdir(), "dv-ct-" + crypto.randomBytes(6).toString("hex") + ".png");
+    fs.writeFileSync(tmp, pngBuf);
+    let dominant, palette;
+    try {
+      // colorthief API varies by version; try the common shapes
+      const CT = ColorThief.default || ColorThief;
+      if (typeof CT.getColor === "function") {
+        dominant = await CT.getColor(tmp);
+        palette  = await CT.getPalette(tmp, count || 6);
+      } else {
+        const inst = new CT();
+        dominant = await inst.getColor(tmp);
+        palette  = await inst.getPalette(tmp, count || 6);
+      }
+    } finally {
+      try { fs.unlinkSync(tmp); } catch (_) {}
+    }
+    const toHex = (rgb) =>
+      "#" + rgb.map((n) => n.toString(16).padStart(2, "0")).join("");
+    return {
+      dominant: { rgb: dominant, hex: toHex(dominant) },
+      palette: (palette || []).map((rgb) => ({ rgb, hex: toHex(rgb) })),
+      engine: "colorthief"
+    };
+  } catch (e) {
+    return { error: "colorthief failed: " + e.message };
+  }
+}
+
+/**
+ * Full color distribution / stats via get-image-colors (uses Vibrant).
+ */
+async function colorStats(pngBuf, count) {
+  const getColors = tryRequire("get-image-colors");
+  if (!getColors) return missing("get-image-colors", "color_stats");
+  try {
+    const fn = typeof getColors === "function" ? getColors : getColors.default;
+    const colors = await fn(pngBuf, { count: count || 8, type: "image/png" });
+    return {
+      count: colors.length,
+      colors: colors.map((c) => ({
+        hex: c.hex ? c.hex() : null,
+        rgb: c._rgb || (typeof c.rgb === "function" ? c.rgb() : null),
+        hsl: typeof c.hsl === "function" ? c.hsl() : null,
+        luminance: typeof c.luminance === "function" ? c.luminance() : null
+      })),
+      engine: "get-image-colors"
+    };
+  } catch (e) {
+    return { error: "get-image-colors failed: " + e.message };
+  }
+}
+
+// ── SSIM (structural similarity) ───────────────────────────────────────────
+
+async function ssimDiff(beforeBuf, afterBuf) {
+  const ssim = tryRequire("ssim.js");
+  const pngjs = tryRequire("pngjs");
+  if (!ssim || !pngjs) return missing(ssim ? "pngjs" : "ssim.js", "visual_similarity");
+  try {
+    const a = pngjs.PNG.sync.read(beforeBuf);
+    const b = pngjs.PNG.sync.read(afterBuf);
+    if (a.width !== b.width || a.height !== b.height) {
+      return {
+        error: "size-mismatch",
+        a: { width: a.width, height: a.height },
+        b: { width: b.width, height: b.height }
+      };
+    }
+    const fn = ssim.default || ssim.ssim || ssim;
+    const result = fn({ data: a.data, width: a.width, height: a.height }, { data: b.data, width: b.width, height: b.height });
+    return {
+      mssim: result.mssim,
+      performance: result.performance,
+      similarity: result.mssim,
+      identical: result.mssim >= 0.999,
+      engine: "ssim.js",
+      interpretation:
+        result.mssim >= 0.99 ? "visually identical"
+        : result.mssim >= 0.95 ? "minor differences"
+        : result.mssim >= 0.85 ? "noticeable differences"
+        : "significantly different"
+    };
+  } catch (e) {
+    return { error: "ssim.js failed: " + e.message };
+  }
+}
+
+// ── Anti-alias / tolerance diff (looks-same) ──────────────────────────────
+
+async function toleranceDiff(beforeBuf, afterBuf, opts) {
+  const looksSame = tryRequire("looks-same");
+  if (!looksSame) return missing("looks-same", "tolerance_diff");
+  try {
+    const fn = looksSame.default || looksSame;
+    const result = await fn(beforeBuf, afterBuf, {
+      tolerance: opts && opts.tolerance != null ? Number(opts.tolerance) : 2.3,
+      ignoreAntialiasing: opts && opts.ignoreAntialiasing !== false,
+      antialiasingTolerance: opts && opts.antialiasingTolerance != null ? Number(opts.antialiasingTolerance) : 4,
+      ignoreCaret: opts && opts.ignoreCaret !== false,
+      strict: !!(opts && opts.strict)
+    });
+    const output = {
+      equal: !!result.equal,
+      engine: "looks-same"
+    };
+    if (result.diffClusters) output.clusters = result.diffClusters;
+    if (result.differentPixels != null) output.differentPixels = result.differentPixels;
+    if (result.totalPixels != null) output.totalPixels = result.totalPixels;
+    return output;
+  } catch (e) {
+    return { error: "looks-same failed: " + e.message };
+  }
+}
+
+// ── Render overlay (node-canvas) ──────────────────────────────────────────
+
+/**
+ * Draw annotations (rectangles, lines, labels) on top of a PNG buffer.
+ * Used by DV:render_overlay to annotate measurement output visually.
+ *
+ * @param {Buffer} pngBuf
+ * @param {object[]} shapes - [{ type: "rect"|"line"|"text"|"circle", x, y, ... }]
+ * @returns {Promise<Buffer>} annotated PNG buffer
+ */
+async function renderOverlay(pngBuf, shapes) {
+  const canvasMod = tryRequire("canvas");
+  if (!canvasMod) return missing("canvas", "render_overlay");
+  try {
+    const { createCanvas, loadImage } = canvasMod;
+    const img = await loadImage(pngBuf);
+    const canvas = createCanvas(img.width, img.height);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0);
+
+    for (const s of (shapes || [])) {
+      ctx.lineWidth = s.lineWidth || 2;
+      ctx.strokeStyle = s.stroke || "#ff0000";
+      ctx.fillStyle   = s.fill   || "rgba(255,0,0,0.25)";
+      if (s.type === "rect") {
+        ctx.beginPath();
+        ctx.rect(s.x, s.y, s.width, s.height);
+        if (s.fill) ctx.fill();
+        ctx.stroke();
+      } else if (s.type === "line") {
+        ctx.beginPath();
+        ctx.moveTo(s.x1, s.y1);
+        ctx.lineTo(s.x2, s.y2);
+        ctx.stroke();
+      } else if (s.type === "circle") {
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.radius || 8, 0, Math.PI * 2);
+        if (s.fill) ctx.fill();
+        ctx.stroke();
+      } else if (s.type === "text") {
+        ctx.font = s.font || "16px sans-serif";
+        ctx.fillStyle = s.color || "#ff0000";
+        ctx.fillText(s.text, s.x, s.y);
+      }
+    }
+    return canvas.toBuffer("image/png");
+  } catch (e) {
+    return { error: "render overlay failed: " + e.message };
+  }
+}
+
+// ── Image dimensions + metadata ───────────────────────────────────────────
+
+function imageDimensions(buf) {
+  const sizeOf = tryRequire("image-size");
+  if (!sizeOf) return missing("image-size", "image_dimensions");
+  try {
+    const fn = sizeOf.default || sizeOf;
+    const result = fn(buf);
+    return result;
+  } catch (e) {
+    return { error: "image-size failed: " + e.message };
+  }
+}
+
+async function imageMetadata(buf) {
+  const exifReader = tryRequire("exifreader");
+  if (!exifReader) return missing("exifreader", "image_meta");
+  try {
+    const fn = exifReader.load || (exifReader.default && exifReader.default.load);
+    if (!fn) return { error: "exifreader.load not found" };
+    // The npm build of exifreader accepts ArrayBuffer or Buffer
+    const tags = fn(buf.buffer ? buf.buffer : buf);
+    // Trim verbose fields
+    const out = {};
+    for (const k of Object.keys(tags)) {
+      const v = tags[k];
+      if (v && (v.description != null || v.value != null)) {
+        out[k] = v.description != null ? v.description : v.value;
+      }
+    }
+    return out;
+  } catch (e) {
+    return { error: "exifreader failed: " + e.message };
+  }
+}
+
+// ── Cheerio (HTML parse) + CSS specificity ───────────────────────────────
+
+function parseHtml(html) {
+  const cheerio = tryRequire("cheerio");
+  if (!cheerio) return null;
+  try {
+    const load = cheerio.load || (cheerio.default && cheerio.default.load);
+    return load(html);
+  } catch (_) { return null; }
+}
+
+/**
+ * Query HTML (page source or remote) with a cheerio selector, return matches.
+ * Supports attribute + text extraction.
+ */
+function domQuery(html, selector, opts) {
+  const $ = parseHtml(html);
+  if (!$) return missing("cheerio", "dom_query");
+  try {
+    const max = Math.min(Math.max(parseInt((opts && opts.limit) || 100, 10), 1), 1000);
+    const results = [];
+    $(selector).each((_, el) => {
+      if (results.length >= max) return;
+      const $el = $(el);
+      const attrs = {};
+      if (el.attribs) {
+        for (const k of Object.keys(el.attribs)) attrs[k] = el.attribs[k];
+      }
+      results.push({
+        tag: el.name || el.tagName,
+        text: $el.text().slice(0, 500).trim(),
+        html: $el.html() ? $el.html().slice(0, 1000) : null,
+        attrs
+      });
+    });
+    return { selector, count: results.length, matches: results };
+  } catch (e) {
+    return { error: "cheerio query failed: " + e.message };
+  }
+}
+
+/**
+ * Compute CSS specificity for a selector using the `specificity` package.
+ */
+function cssSpecificity(selector) {
+  const spec = tryRequire("specificity");
+  if (!spec) return missing("specificity", "css_specificity");
+  try {
+    const fn = spec.calculate || (spec.default && spec.default.calculate);
+    if (!fn) return { error: "specificity.calculate not found" };
+    const result = fn(selector);
+    return { selector, specificity: result };
+  } catch (e) {
+    return { error: "specificity failed: " + e.message };
+  }
+}
+
+/**
+ * HTML5 validation via the W3C Nu validator (html-validator package).
+ */
+async function validateHtml(htmlOrUrl) {
+  const validator = tryRequire("html-validator");
+  if (!validator) return missing("html-validator", "validate_html");
+  try {
+    const fn = validator.default || validator;
+    const options = { format: "json" };
+    if (typeof htmlOrUrl === "string" && /^https?:\/\//.test(htmlOrUrl)) {
+      options.url = htmlOrUrl;
+    } else {
+      options.data = htmlOrUrl;
+    }
+    const result = await fn(options);
+    const messages = (result && result.messages) || [];
+    return {
+      errorCount: messages.filter((m) => m.type === "error").length,
+      warningCount: messages.filter((m) => m.type === "info" || m.type === "warning").length,
+      messages: messages.slice(0, 100).map((m) => ({
+        type: m.type,
+        subType: m.subType,
+        message: m.message,
+        line: m.lastLine,
+        col: m.lastColumn
+      }))
+    };
+  } catch (e) {
+    return { error: "html-validator failed: " + e.message };
+  }
+}
+
+// ── Text diff / analysis ──────────────────────────────────────────────────
+
+function textDiff(a, b, mode) {
+  const diff = tryRequire("diff");
+  if (!diff) return missing("diff", "text_diff");
+  try {
+    const m = mode || "lines";
+    const fn =
+      m === "chars"    ? diff.diffChars
+    : m === "words"    ? diff.diffWords
+    : m === "sentences"? diff.diffSentences
+    :                    diff.diffLines;
+    const parts = fn(a || "", b || "");
+    const added = parts.filter((p) => p.added).map((p) => p.value).join("");
+    const removed = parts.filter((p) => p.removed).map((p) => p.value).join("");
+    return {
+      mode: m,
+      parts: parts.map((p) => ({
+        added: !!p.added,
+        removed: !!p.removed,
+        value: p.value.length > 500 ? p.value.slice(0, 500) + "…" : p.value
+      })),
+      addedLength: added.length,
+      removedLength: removed.length,
+      identical: !parts.some((p) => p.added || p.removed)
+    };
+  } catch (e) {
+    return { error: "diff failed: " + e.message };
+  }
+}
+
+function textAnalysis(text) {
+  const natural = tryRequire("natural");
+  if (!natural) return missing("natural", "text_analysis");
+  try {
+    const input = String(text || "");
+    const tokenizer = new natural.WordTokenizer();
+    const tokens = tokenizer.tokenize(input);
+    const sentTokenizer = new natural.SentenceTokenizer();
+    const sentences = sentTokenizer.tokenize(input);
+    let sentiment = null;
+    try {
+      const Analyzer = natural.SentimentAnalyzer;
+      const stemmer = natural.PorterStemmer;
+      const analyzer = new Analyzer("English", stemmer, "afinn");
+      sentiment = analyzer.getSentiment(tokens);
+    } catch (_) {}
+    return {
+      length: input.length,
+      tokenCount: tokens.length,
+      sentenceCount: sentences.length,
+      uniqueWords: new Set(tokens.map((t) => t.toLowerCase())).size,
+      sentiment,
+      sampleTokens: tokens.slice(0, 40)
+    };
+  } catch (e) {
+    return { error: "natural failed: " + e.message };
+  }
+}
+
+// ── Broken-link scanner (linkinator) ──────────────────────────────────────
+
+async function scanBrokenLinks(url, opts) {
+  const linkinator = tryRequire("linkinator");
+  if (!linkinator) return missing("linkinator", "broken_links");
+  try {
+    const LinkChecker = linkinator.LinkChecker;
+    const checker = new LinkChecker();
+    const results = await checker.check({
+      path: url,
+      recurse: !!(opts && opts.recurse),
+      concurrency: (opts && opts.concurrency) || 10,
+      timeout: (opts && opts.timeout) || 5000,
+      linksToSkip: (opts && opts.skip) || [],
+      retry: false
+    });
+    const broken = results.links.filter((l) => l.state === "BROKEN");
+    return {
+      url,
+      total: results.links.length,
+      broken: broken.length,
+      brokenLinks: broken.slice(0, 100).map((l) => ({
+        url: l.url,
+        status: l.status,
+        parent: l.parent,
+        failureDetails: (l.failureDetails || []).slice(0, 2)
+      }))
+    };
+  } catch (e) {
+    return { error: "linkinator failed: " + e.message };
+  }
+}
+
+// ── Error stack parsing + source-map unminify ─────────────────────────────
+
+function parseStackTrace(stack) {
+  const parser = tryRequire("error-stack-parser");
+  if (!parser) return missing("error-stack-parser", "stack_trace");
+  try {
+    const fn = parser.parse || (parser.default && parser.default.parse);
+    // error-stack-parser expects an Error — build a fake one
+    const fakeErr = { stack };
+    const frames = fn(fakeErr);
+    return {
+      frameCount: frames.length,
+      frames: frames.map((f) => ({
+        functionName: f.functionName,
+        fileName: f.fileName,
+        lineNumber: f.lineNumber,
+        columnNumber: f.columnNumber,
+        source: f.source
+      }))
+    };
+  } catch (e) {
+    return { error: "error-stack-parser failed: " + e.message };
+  }
+}
+
+async function unminifyFrame(frame, sourceMapJSON) {
+  const sourceMap = tryRequire("source-map");
+  if (!sourceMap) return missing("source-map", "unminify");
+  try {
+    const SourceMapConsumer = sourceMap.SourceMapConsumer;
+    const consumer = await new SourceMapConsumer(sourceMapJSON);
+    try {
+      const pos = consumer.originalPositionFor({
+        line: frame.lineNumber,
+        column: frame.columnNumber
+      });
+      return pos;
+    } finally {
+      if (typeof consumer.destroy === "function") consumer.destroy();
+    }
+  } catch (e) {
+    return { error: "source-map failed: " + e.message };
+  }
+}
+
+async function unminifyCoverage(jsText, coverage, sourceMapJSON) {
+  const v8ToIstanbul = tryRequire("v8-to-istanbul");
+  if (!v8ToIstanbul) return missing("v8-to-istanbul", "code_coverage");
+  try {
+    const fn = v8ToIstanbul.default || v8ToIstanbul;
+    const converter = fn("", 0, {
+      source: jsText,
+      sourceMap: sourceMapJSON ? { sourcemap: sourceMapJSON } : undefined
+    });
+    await converter.load();
+    converter.applyCoverage(coverage);
+    return converter.toIstanbul();
+  } catch (e) {
+    return { error: "v8-to-istanbul failed: " + e.message };
+  }
+}
+
+// ── Security: retire.js + csp-parse ───────────────────────────────────────
+
+/**
+ * Scan JS source (and optional library fingerprints) for known vulnerabilities.
+ * retire.js exposes its scanner programmatically — falls back to the public
+ * vulnerabilities list via a simple fingerprint match when not available.
+ */
+function vulnScan(fingerprints) {
+  const retire = tryRequire("retire");
+  if (!retire) return missing("retire", "vuln_scan");
+  try {
+    const scanJsFile = retire.scanJsFile || (retire.default && retire.default.scanJsFile);
+    if (!scanJsFile) {
+      return {
+        error: "retire.scanJsFile not exposed by this version — use the CLI or upgrade"
+      };
+    }
+    const repo = retire.loadJsRepository ? retire.loadJsRepository() : null;
+    const findings = [];
+    for (const f of (fingerprints || [])) {
+      try {
+        const result = scanJsFile(f.path || f.url || "", "", repo || {});
+        if (result && result.length) findings.push({ file: f.path || f.url, findings: result });
+      } catch (_) {}
+    }
+    return { findings, scanned: (fingerprints || []).length };
+  } catch (e) {
+    return { error: "retire failed: " + e.message };
+  }
+}
+
+function cspCheck(cspHeader) {
+  const cspParse = tryRequire("csp-parse");
+  if (!cspParse) return missing("csp-parse", "csp_check");
+  try {
+    const Policy = cspParse.default || cspParse;
+    const policy = new Policy(cspHeader);
+    const directives = {};
+    // csp-parse exposes .directives as a map
+    if (policy.directives) {
+      for (const k of Object.keys(policy.directives)) directives[k] = policy.directives[k];
+    }
+    // Compute issues: unsafe-inline / unsafe-eval / missing default-src etc.
+    const issues = [];
+    const all = JSON.stringify(directives);
+    if (/'unsafe-inline'/.test(all)) issues.push("contains 'unsafe-inline'");
+    if (/'unsafe-eval'/.test(all))   issues.push("contains 'unsafe-eval'");
+    if (!directives["default-src"])  issues.push("no default-src directive");
+    return { directives, issues };
+  } catch (e) {
+    return { error: "csp-parse failed: " + e.message };
+  }
+}
+
+// ── Cookie parsing (set-cookie-parser + tough-cookie) ─────────────────────
+
+function parseSetCookie(setCookieHeaders) {
+  const parser = tryRequire("set-cookie-parser");
+  if (!parser) return missing("set-cookie-parser", "cookies_full");
+  try {
+    const fn = parser.parse || (parser.default && parser.default.parse);
+    const arr = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders];
+    const parsed = fn(arr, { decodeValues: true });
+    return { count: parsed.length, cookies: parsed };
+  } catch (e) {
+    return { error: "set-cookie-parser failed: " + e.message };
+  }
+}
+
+function parseCookieJar(cookies) {
+  const tough = tryRequire("tough-cookie");
+  if (!tough) return missing("tough-cookie", "cookies_full");
+  try {
+    const Cookie = tough.Cookie;
+    const parsed = (cookies || []).map((raw) => {
+      try {
+        const c = typeof raw === "string" ? Cookie.parse(raw) : Cookie.fromJSON(raw);
+        return c ? c.toJSON() : { raw };
+      } catch (_) { return { raw }; }
+    });
+    return { count: parsed.length, cookies: parsed };
+  } catch (e) {
+    return { error: "tough-cookie failed: " + e.message };
+  }
+}
+
+// ── robots.txt parsing ────────────────────────────────────────────────────
+
+async function parseRobots(url, userAgent) {
+  const robotsParser = tryRequire("robots-parser");
+  if (!robotsParser) return missing("robots-parser", "robots");
+  try {
+    const https = require("https");
+    const http = require("http");
+    const urlObj = new URL(url);
+    const origin = urlObj.origin;
+    const robotsUrl = origin + "/robots.txt";
+    const robotsText = await new Promise((resolve) => {
+      const lib = robotsUrl.startsWith("https:") ? https : http;
+      const req = lib.get(robotsUrl, { timeout: 10000 }, (res) => {
+        let body = "";
+        res.on("data", (c) => body += c);
+        res.on("end", () => resolve(body));
+      });
+      req.on("error", () => resolve(""));
+      req.on("timeout", () => { req.destroy(); resolve(""); });
+    });
+    const fn = robotsParser.default || robotsParser;
+    const robots = fn(robotsUrl, robotsText);
+    const ua = userAgent || "Claude";
+    return {
+      robotsUrl,
+      allowed: robots.isAllowed(url, ua),
+      disallowed: robots.isDisallowed(url, ua),
+      crawlDelay: robots.getCrawlDelay(ua),
+      sitemaps: robots.getSitemaps(),
+      preferredHost: robots.getPreferredHost ? robots.getPreferredHost() : null
+    };
+  } catch (e) {
+    return { error: "robots-parser failed: " + e.message };
+  }
+}
+
+// ── gzip-size for asset sizing ─────────────────────────────────────────────
+
+async function gzipSize(input) {
+  const gz = tryRequire("gzip-size");
+  if (!gz) return missing("gzip-size");
+  try {
+    const fn = gz.gzipSize || gz.default || gz;
+    return typeof fn === "function" ? await fn(input) : fn.sync(input);
+  } catch (e) {
+    return { error: "gzip-size failed: " + e.message };
+  }
+}
+
 // ── Library status report ──────────────────────────────────────────────────
 
 function status() {
   return {
-    pixelmatch: have("pixelmatch"),
-    pngjs: have("pngjs"),
-    sharp: have("sharp"),
-    "axe-core": have("axe-core"),
-    "tesseract.js": have("tesseract.js"),
-    lighthouse: have("lighthouse"),
-    "css-tree": have("css-tree")
+    pixelmatch:         have("pixelmatch"),
+    pngjs:              have("pngjs"),
+    sharp:              have("sharp"),
+    "axe-core":         have("axe-core"),
+    "tesseract.js":     have("tesseract.js"),
+    lighthouse:         have("lighthouse"),
+    "css-tree":         have("css-tree"),
+    colorthief:         have("colorthief"),
+    "get-image-colors": have("get-image-colors"),
+    "ssim.js":          have("ssim.js"),
+    "looks-same":       have("looks-same"),
+    canvas:             have("canvas"),
+    "image-size":       have("image-size"),
+    exifreader:         have("exifreader"),
+    cheerio:            have("cheerio"),
+    specificity:        have("specificity"),
+    "html-validator":   have("html-validator"),
+    diff:               have("diff"),
+    natural:            have("natural"),
+    linkinator:         have("linkinator"),
+    "error-stack-parser": have("error-stack-parser"),
+    "source-map":       have("source-map"),
+    "v8-to-istanbul":   have("v8-to-istanbul"),
+    retire:             have("retire"),
+    "csp-parse":        have("csp-parse"),
+    "set-cookie-parser": have("set-cookie-parser"),
+    "tough-cookie":     have("tough-cookie"),
+    "robots-parser":    have("robots-parser"),
+    "gzip-size":        have("gzip-size")
   };
 }
 
@@ -514,5 +1132,28 @@ module.exports = {
   shutdownTesseract,
   runLighthouse,
   parseCssValue,
-  diffCssValues
+  diffCssValues,
+  // batch 2 (round 3)
+  extractPalette,
+  colorStats,
+  ssimDiff,
+  toleranceDiff,
+  renderOverlay,
+  imageDimensions,
+  imageMetadata,
+  domQuery,
+  cssSpecificity,
+  validateHtml,
+  textDiff,
+  textAnalysis,
+  scanBrokenLinks,
+  parseStackTrace,
+  unminifyFrame,
+  unminifyCoverage,
+  vulnScan,
+  cspCheck,
+  parseSetCookie,
+  parseCookieJar,
+  parseRobots,
+  gzipSize
 };

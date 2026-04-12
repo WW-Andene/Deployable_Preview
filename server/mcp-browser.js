@@ -2570,7 +2570,7 @@ async function getComputedStyles(opts) {
 async function visualQuery(opts) {
   if (!hasPlaywright()) return { error: "No browser available." };
   const groq = require("./mcp-groq");
-  if (!groq.hasGroq()) return { error: "GROQ_API_KEY not set" };
+  if (!groq.isClaudeGroqAuthorized()) return { error: "Groq access not authorized (GROQ_API_KEY missing or claudeGroqAccess=false)" };
 
   const browser = await getBrowser();
   const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
@@ -2592,7 +2592,7 @@ async function visualQuery(opts) {
 async function findElementVisually(opts) {
   if (!hasPlaywright()) return { error: "No browser available." };
   const groq = require("./mcp-groq");
-  if (!groq.hasGroq()) return { error: "GROQ_API_KEY not set" };
+  if (!groq.isClaudeGroqAuthorized()) return { error: "Groq access not authorized (GROQ_API_KEY missing or claudeGroqAccess=false)" };
 
   const browser = await getBrowser();
   const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
@@ -2615,7 +2615,7 @@ async function findElementVisually(opts) {
 async function visualDiffWithAction(opts) {
   if (!hasPlaywright()) return { error: "No browser available." };
   const groq = require("./mcp-groq");
-  if (!groq.hasGroq()) return { error: "GROQ_API_KEY not set" };
+  if (!groq.isClaudeGroqAuthorized()) return { error: "Groq access not authorized (GROQ_API_KEY missing or claudeGroqAccess=false)" };
 
   const browser = await getBrowser();
   const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
@@ -2649,7 +2649,7 @@ async function visualDiffWithAction(opts) {
 async function runVerifyLoop(opts) {
   if (!hasPlaywright()) return { error: "No browser available." };
   const groq = require("./mcp-groq");
-  if (!groq.hasGroq()) return { error: "GROQ_API_KEY not set" };
+  if (!groq.isClaudeGroqAuthorized()) return { error: "Groq access not authorized (GROQ_API_KEY missing or claudeGroqAccess=false)" };
 
   const browser = await getBrowser();
   const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
@@ -2695,6 +2695,678 @@ async function runVerifyLoop(opts) {
   return { ...result, url };
 }
 
+// ── Playwright-native probes (round 4) ────────────────────────────────────
+
+/** Get the latest screenshot of a preview as a buffer — used by tools that
+ *  need the raw image (palette, SSIM, render_overlay, image_meta). */
+async function _pagePng(opts, fullPage) {
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+  const buf = await page.screenshot({ type: "png", fullPage: !!fullPage });
+  return { page, url, buf };
+}
+
+/**
+ * Extract the dominant palette from the current page (or a selector).
+ */
+async function getPalette(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+  let buf;
+  if (opts.selector) {
+    const el = await page.$(opts.selector);
+    if (!el) return { error: "selector not found: " + opts.selector, url };
+    buf = await el.screenshot({ type: "png" });
+  } else {
+    buf = await page.screenshot({ type: "png", fullPage: !!opts.fullPage });
+  }
+  const enrich = require("./mcp-enrichments");
+  const result = await enrich.extractPalette(buf, opts.count || 6);
+  return { ...result, url };
+}
+
+/**
+ * Full color statistics (vibrancy, luminance) for the page or a selector.
+ */
+async function getColorStats(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+  let buf;
+  if (opts.selector) {
+    const el = await page.$(opts.selector);
+    if (!el) return { error: "selector not found: " + opts.selector, url };
+    buf = await el.screenshot({ type: "png" });
+  } else {
+    buf = await page.screenshot({ type: "png", fullPage: !!opts.fullPage });
+  }
+  const enrich = require("./mcp-enrichments");
+  const result = await enrich.colorStats(buf, opts.count || 8);
+  return { ...result, url };
+}
+
+/**
+ * Visual SSIM similarity between two base64 PNG screenshots.
+ */
+async function visualSimilarity(opts) {
+  if (!opts || !opts.before || !opts.after) {
+    return { error: "before and after base64 PNGs are required" };
+  }
+  const enrich = require("./mcp-enrichments");
+  const a = Buffer.from(opts.before, "base64");
+  const b = Buffer.from(opts.after, "base64");
+  return enrich.ssimDiff(a, b);
+}
+
+/**
+ * Anti-alias-tolerant screenshot diff via looks-same.
+ */
+async function toleranceDiffTool(opts) {
+  if (!opts || !opts.before || !opts.after) {
+    return { error: "before and after base64 PNGs are required" };
+  }
+  const enrich = require("./mcp-enrichments");
+  const a = Buffer.from(opts.before, "base64");
+  const b = Buffer.from(opts.after, "base64");
+  return enrich.toleranceDiff(a, b, opts);
+}
+
+/**
+ * Render shapes on top of a preview screenshot (rectangles, lines, labels).
+ */
+async function renderOverlayTool(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+  const buf = await page.screenshot({ type: "png", fullPage: !!opts.fullPage });
+  const enrich = require("./mcp-enrichments");
+  const result = await enrich.renderOverlay(buf, opts.shapes || []);
+  if (result && result.error) return { error: result.error, url };
+  return { base64: result.toString("base64"), mimeType: "image/png", url };
+}
+
+/**
+ * Return image dimensions + EXIF metadata for a screenshot or arbitrary PNG.
+ */
+async function imageInfo(opts) {
+  const enrich = require("./mcp-enrichments");
+  let buf;
+  if (opts && opts.base64) {
+    buf = Buffer.from(opts.base64, "base64");
+  } else {
+    if (!hasPlaywright()) return { error: "No browser available and no base64 provided" };
+    const browser = await getBrowser();
+    const { page } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+    buf = await page.screenshot({ type: "png", fullPage: !!opts.fullPage });
+  }
+  const dims = enrich.imageDimensions(buf);
+  const meta = await enrich.imageMetadata(buf);
+  return { dimensions: dims, metadata: meta };
+}
+
+/**
+ * Parse HTML (page source or remote HTML) with cheerio and return matches.
+ */
+async function domQueryTool(opts) {
+  const enrich = require("./mcp-enrichments");
+  if (!opts) return { error: "opts required" };
+
+  let html = opts.html || null;
+  let url = null;
+  if (!html) {
+    if (!hasPlaywright()) return { error: "No browser available and no html provided" };
+    const browser = await getBrowser();
+    const session = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+    html = await session.page.content();
+    url = session.url;
+  }
+  if (!opts.selector) return { error: "selector required" };
+  const result = enrich.domQuery(html, opts.selector, { limit: opts.limit });
+  return { ...result, url };
+}
+
+/**
+ * Find all elements matching a selector on the live page and return their
+ * bounding boxes and a short text preview. Live version of domQuery that
+ * returns layout info the parser can't see.
+ */
+async function findAll(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  if (!opts.selector) return { error: "selector required" };
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+  const limit = Math.min(Math.max(parseInt(opts.limit, 10) || 100, 1), 500);
+  const results = await page.evaluate((args) => {
+    const out = [];
+    const els = document.querySelectorAll(args.sel);
+    for (let i = 0; i < Math.min(els.length, args.limit); i++) {
+      const el = els[i];
+      const r = el.getBoundingClientRect();
+      const s = window.getComputedStyle(el);
+      out.push({
+        tag: el.tagName.toLowerCase(),
+        id: el.id || null,
+        className: el.className || null,
+        text: (el.textContent || "").slice(0, 200).trim(),
+        rect: { x: r.x, y: r.y, width: r.width, height: r.height },
+        visible: !!(r.width && r.height) && s.visibility !== "hidden" && s.display !== "none"
+      });
+    }
+    return { total: els.length, items: out };
+  }, { sel: opts.selector, limit });
+  return { selector: opts.selector, url, ...results };
+}
+
+/**
+ * Inject web-vitals via evaluate and collect CLS, LCP, INP, FCP, TTFB.
+ * Waits a short "settle" duration so values converge.
+ */
+async function getWebVitals(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const enrich = require("./mcp-enrichments");
+
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+
+  // Prefer bundled web-vitals if installed, otherwise load from CDN
+  let source = null;
+  try {
+    const path = require("path");
+    const fs = require("fs");
+    const wvPath = require.resolve("web-vitals/dist/web-vitals.iife.js");
+    source = fs.readFileSync(wvPath, "utf8");
+  } catch (_) {}
+
+  if (source) {
+    try {
+      if (typeof page.addScriptTag === "function") {
+        await page.addScriptTag({ content: source });
+      } else {
+        await page.evaluate(source);
+      }
+    } catch (e) {
+      return { error: "web-vitals inject failed: " + e.message, url };
+    }
+  } else {
+    // Fallback: tell the page to load from a CDN
+    try {
+      if (typeof page.addScriptTag === "function") {
+        await page.addScriptTag({ url: "https://unpkg.com/web-vitals@4/dist/web-vitals.iife.js" });
+      } else {
+        await page.evaluate(async () => {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement("script");
+            s.src = "https://unpkg.com/web-vitals@4/dist/web-vitals.iife.js";
+            s.onload = resolve;
+            s.onerror = () => reject(new Error("CDN load failed"));
+            document.head.appendChild(s);
+          });
+        });
+      }
+    } catch (e) {
+      return { error: "web-vitals CDN load failed: " + e.message, url };
+    }
+  }
+
+  // Collect vitals — run a listener and wait for a settle duration
+  const waitMs = Math.max(500, Math.min(parseInt(opts.waitMs, 10) || 4000, 30000));
+  const vitals = await page.evaluate((duration) => {
+    return new Promise((resolve) => {
+      const got = {};
+      const wv = window.webVitals || {};
+      const fns = ["onCLS", "onLCP", "onINP", "onFID", "onFCP", "onTTFB"];
+      for (const fn of fns) {
+        if (typeof wv[fn] === "function") {
+          wv[fn]((metric) => {
+            got[metric.name] = {
+              value: metric.value,
+              rating: metric.rating,
+              delta: metric.delta,
+              id: metric.id
+            };
+          });
+        }
+      }
+      setTimeout(() => resolve(got), duration);
+    });
+  }, waitMs);
+
+  return { vitals, url, hasWebVitalsLib: enrich.have("web-vitals") };
+}
+
+/**
+ * Collect JS + CSS coverage using Playwright's coverage API.
+ * Returns per-URL usage percentages.
+ */
+async function getCodeCoverage(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+
+  if (!page.coverage) return { error: "coverage API not available on this browser driver", url };
+
+  const waitMs = Math.max(500, Math.min(parseInt(opts.waitMs, 10) || 3000, 30000));
+
+  try {
+    await page.coverage.startJSCoverage({ resetOnNavigation: false });
+    if (typeof page.coverage.startCSSCoverage === "function") {
+      await page.coverage.startCSSCoverage({ resetOnNavigation: false });
+    }
+
+    if (opts.reload) {
+      try { await page.reload({ waitUntil: waitUntilIdle(), timeout: 30000 }); } catch (_) {}
+    }
+    await new Promise((r) => setTimeout(r, waitMs));
+
+    const jsCov = await page.coverage.stopJSCoverage();
+    const cssCov = typeof page.coverage.stopCSSCoverage === "function"
+      ? await page.coverage.stopCSSCoverage()
+      : [];
+
+    const summarize = (items) => items.map((i) => {
+      let usedBytes = 0;
+      let totalBytes = i.text ? i.text.length : 0;
+      for (const r of (i.ranges || [])) usedBytes += r.end - r.start;
+      return {
+        url: i.url,
+        totalBytes,
+        usedBytes,
+        unusedBytes: totalBytes - usedBytes,
+        usedPercent: totalBytes ? Number(((usedBytes / totalBytes) * 100).toFixed(2)) : 0
+      };
+    });
+
+    return { url, js: summarize(jsCov), css: summarize(cssCov) };
+  } catch (e) {
+    return { error: "coverage failed: " + e.message, url };
+  }
+}
+
+/**
+ * Capture every request/response for a duration and return a HAR-like array.
+ * Richer than capture_requests — includes headers, timings, post data.
+ */
+async function captureHar(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+
+  const duration = Math.max(1, Math.min(Number(opts.duration) || 5, 60)) * 1000;
+  const maxEntries = Math.max(10, Math.min(Number(opts.maxEntries) || 500, 2000));
+  const entries = [];
+  let truncated = false;
+
+  const onRequest = (req) => {
+    try {
+      if (entries.length >= maxEntries) { truncated = true; return; }
+      const entry = {
+        startedDateTime: new Date().toISOString(),
+        request: {
+          method: typeof req.method === "function" ? req.method() : "GET",
+          url: typeof req.url === "function" ? req.url() : "",
+          headers: typeof req.headers === "function" ? req.headers() : {},
+          postData: typeof req.postData === "function" ? req.postData() : null,
+          resourceType: typeof req.resourceType === "function" ? req.resourceType() : "other"
+        },
+        response: null
+      };
+      entries.push(entry);
+      req.__dvEntry = entry;
+    } catch (_) {}
+  };
+  const onResponse = async (resp) => {
+    try {
+      const req = resp.request ? resp.request() : null;
+      const entry = req && req.__dvEntry;
+      if (!entry) return;
+      const headers = typeof resp.headers === "function" ? resp.headers() : {};
+      entry.response = {
+        status: typeof resp.status === "function" ? resp.status() : 0,
+        statusText: typeof resp.statusText === "function" ? resp.statusText() : "",
+        headers,
+        contentType: (headers["content-type"] || "").split(";")[0].trim(),
+        size: headers["content-length"] ? parseInt(headers["content-length"], 10) : null,
+        fromCache: typeof resp.fromCache === "function" ? !!resp.fromCache() : false,
+        fromServiceWorker: typeof resp.fromServiceWorker === "function" ? !!resp.fromServiceWorker() : false
+      };
+      // Capture security info when available
+      if (typeof resp.securityDetails === "function") {
+        try {
+          const sec = await resp.securityDetails();
+          if (sec) {
+            entry.response.security = {
+              protocol: sec.protocol && sec.protocol(),
+              issuer: sec.issuer && sec.issuer(),
+              subjectName: sec.subjectName && sec.subjectName(),
+              validFrom: sec.validFrom && sec.validFrom(),
+              validTo: sec.validTo && sec.validTo()
+            };
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+  };
+
+  page.on("request", onRequest);
+  page.on("response", onResponse);
+
+  if (opts.reload) {
+    try { await page.reload({ waitUntil: waitUntilIdle(), timeout: 30000 }); } catch (_) {}
+  }
+  await new Promise((r) => setTimeout(r, duration));
+  try { page.off("request", onRequest); } catch (_) {}
+  try { page.off("response", onResponse); } catch (_) {}
+
+  return { url, duration: duration / 1000, count: entries.length, truncated, entries };
+}
+
+/**
+ * List all service workers active in the current context.
+ */
+async function listServiceWorkers(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+
+  const workers = [];
+  if (typeof page.workers === "function") {
+    for (const w of page.workers()) {
+      try {
+        workers.push({ url: typeof w.url === "function" ? w.url() : null });
+      } catch (_) {}
+    }
+  }
+
+  // Ask the page itself for service worker registrations
+  const registrations = await page.evaluate(async () => {
+    if (!("serviceWorker" in navigator)) return [];
+    try {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      return regs.map((r) => ({
+        scope: r.scope,
+        active: r.active ? { scriptURL: r.active.scriptURL, state: r.active.state } : null,
+        installing: r.installing ? { scriptURL: r.installing.scriptURL, state: r.installing.state } : null,
+        waiting: r.waiting ? { scriptURL: r.waiting.scriptURL, state: r.waiting.state } : null,
+        updateViaCache: r.updateViaCache
+      }));
+    } catch (e) {
+      return [{ error: e.message }];
+    }
+  });
+
+  return { workers, registrations, url };
+}
+
+/**
+ * Return performance.getEntries() for every loaded resource. Includes
+ * TCP / request / response / decoded timings for each URL.
+ */
+async function getResourceTiming(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+  const entries = await page.evaluate(() => {
+    const items = performance.getEntriesByType ? performance.getEntriesByType("resource") : [];
+    return items.map((r) => ({
+      name: r.name,
+      initiatorType: r.initiatorType,
+      duration: Math.round(r.duration),
+      transferSize: r.transferSize,
+      encodedBodySize: r.encodedBodySize,
+      decodedBodySize: r.decodedBodySize,
+      startTime: Math.round(r.startTime),
+      responseEnd: Math.round(r.responseEnd),
+      dns: Math.round(r.domainLookupEnd - r.domainLookupStart),
+      tcp: Math.round(r.connectEnd - r.connectStart),
+      ssl: r.secureConnectionStart ? Math.round(r.connectEnd - r.secureConnectionStart) : 0,
+      ttfb: Math.round(r.responseStart - r.requestStart)
+    }));
+  });
+  entries.sort((a, b) => b.duration - a.duration);
+  return { url, count: entries.length, slowest: entries.slice(0, 50), all: entries };
+}
+
+/**
+ * Feature-detect which Web APIs are available on the page.
+ */
+async function getBrowserApis(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+  const apis = await page.evaluate(() => {
+    const has = (path) => {
+      try {
+        const parts = path.split(".");
+        let cur = window;
+        for (const p of parts) { if (!cur || !(p in cur)) return false; cur = cur[p]; }
+        return true;
+      } catch (_) { return false; }
+    };
+    const list = [
+      "navigator.serviceWorker", "navigator.clipboard", "navigator.share",
+      "navigator.geolocation", "navigator.mediaDevices", "navigator.bluetooth",
+      "navigator.usb", "navigator.hid", "navigator.serial", "navigator.wakeLock",
+      "navigator.storage", "navigator.permissions", "navigator.credentials",
+      "navigator.xr", "navigator.gpu",
+      "window.WebGLRenderingContext", "window.WebGL2RenderingContext",
+      "window.AudioContext", "window.SpeechSynthesis", "window.SpeechRecognition",
+      "window.webkitSpeechRecognition", "window.IntersectionObserver",
+      "window.ResizeObserver", "window.MutationObserver", "window.PerformanceObserver",
+      "window.Worker", "window.SharedWorker", "window.BroadcastChannel",
+      "window.indexedDB", "window.caches", "window.crypto", "window.crypto.subtle",
+      "window.FileSystemHandle", "window.showOpenFilePicker",
+      "window.customElements", "window.Notification",
+      "window.BarcodeDetector", "window.EyeDropper"
+    ];
+    const out = {};
+    for (const p of list) out[p] = has(p);
+    return {
+      userAgent: navigator.userAgent,
+      platform: navigator.platform,
+      language: navigator.language,
+      languages: navigator.languages,
+      hardwareConcurrency: navigator.hardwareConcurrency,
+      deviceMemory: navigator.deviceMemory,
+      online: navigator.onLine,
+      maxTouchPoints: navigator.maxTouchPoints,
+      features: out
+    };
+  });
+  return { ...apis, url };
+}
+
+/**
+ * Dump IndexedDB databases and their object stores (keys only).
+ */
+async function inspectIndexedDB(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+  const result = await page.evaluate(async () => {
+    if (!window.indexedDB || !indexedDB.databases) {
+      return { error: "IndexedDB not supported or databases() missing" };
+    }
+    try {
+      const dbs = await indexedDB.databases();
+      const out = [];
+      for (const info of dbs) {
+        const dbInfo = { name: info.name, version: info.version, stores: [] };
+        try {
+          await new Promise((resolve, reject) => {
+            const req = indexedDB.open(info.name);
+            req.onsuccess = () => {
+              const db = req.result;
+              dbInfo.stores = Array.from(db.objectStoreNames || []);
+              db.close();
+              resolve();
+            };
+            req.onerror = () => reject(req.error);
+          });
+        } catch (e) { dbInfo.error = e.message; }
+        out.push(dbInfo);
+      }
+      return { databases: out };
+    } catch (e) { return { error: e.message }; }
+  });
+  return { ...result, url };
+}
+
+/**
+ * Dump framework state: Next.js __NEXT_DATA__, Nuxt __NUXT__, Sveltekit, etc.
+ */
+async function getFrameworkData(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+  const frameworks = await page.evaluate(() => {
+    const out = {};
+    try {
+      const nextScript = document.getElementById("__NEXT_DATA__");
+      if (nextScript) out.next = JSON.parse(nextScript.textContent);
+    } catch (_) {}
+    if (window.__NUXT__) out.nuxt = window.__NUXT__;
+    if (window.__NUXT_DATA__) out.nuxtData = window.__NUXT_DATA__;
+    if (window.__SVELTEKIT_DATA__) out.sveltekit = window.__SVELTEKIT_DATA__;
+    if (window.__remixContext) out.remix = window.__remixContext;
+    if (window.__INITIAL_STATE__) out.initialState = window.__INITIAL_STATE__;
+    if (window.__REDUX_DEVTOOLS_EXTENSION__) out.hasReduxDevtools = true;
+    if (window.__VUE_DEVTOOLS_GLOBAL_HOOK__) out.hasVueDevtools = true;
+    return out;
+  });
+  return { ...frameworks, url };
+}
+
+/**
+ * Extract every `[data-*]` attribute on the live page — useful for finding
+ * hidden IDs, config blocks, and analytics targets.
+ */
+async function getDataAttrs(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+  const attrs = await page.evaluate(() => {
+    const out = [];
+    const els = document.querySelectorAll("*");
+    for (const el of els) {
+      if (!el.attributes) continue;
+      const data = {};
+      let has = false;
+      for (const a of el.attributes) {
+        if (a.name.startsWith("data-")) { data[a.name] = a.value; has = true; }
+      }
+      if (has) {
+        out.push({
+          tag: el.tagName.toLowerCase(),
+          id: el.id || null,
+          data
+        });
+        if (out.length >= 500) break;
+      }
+    }
+    return out;
+  });
+  return { url, count: attrs.length, items: attrs };
+}
+
+/**
+ * Collect every meta tag, Open Graph / Twitter card, canonical URL, and
+ * JSON-LD structured-data block on the page.
+ */
+async function getMeta(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+  const info = await page.evaluate(() => {
+    const meta = {};
+    const og = {};
+    const twitter = {};
+    for (const m of document.querySelectorAll("meta")) {
+      const name = m.getAttribute("name") || m.getAttribute("property") || m.getAttribute("itemprop");
+      if (!name) continue;
+      const value = m.getAttribute("content") || "";
+      if (name.startsWith("og:")) og[name] = value;
+      else if (name.startsWith("twitter:")) twitter[name] = value;
+      else meta[name] = value;
+    }
+    const canonical = document.querySelector("link[rel=canonical]");
+    const title = document.title;
+    const jsonLd = [];
+    for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
+      try { jsonLd.push(JSON.parse(s.textContent)); }
+      catch (_) { jsonLd.push({ __parseError: true, raw: (s.textContent || "").slice(0, 500) }); }
+    }
+    const favicons = Array.from(document.querySelectorAll("link[rel*=icon]")).map((l) => ({
+      rel: l.getAttribute("rel"),
+      href: l.href,
+      sizes: l.getAttribute("sizes"),
+      type: l.getAttribute("type")
+    }));
+    const hreflangs = Array.from(document.querySelectorAll("link[rel=alternate][hreflang]")).map((l) => ({
+      hreflang: l.getAttribute("hreflang"),
+      href: l.href
+    }));
+    return { title, canonical: canonical ? canonical.href : null, meta, og, twitter, jsonLd, favicons, hreflangs };
+  });
+  return { ...info, url };
+}
+
+/**
+ * Fetch + parse robots.txt for the preview origin using robots-parser.
+ */
+async function getRobots(opts) {
+  if (!hasPlaywright()) return { error: "No browser available." };
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
+  const target = opts.url || url;
+  const enrich = require("./mcp-enrichments");
+  return enrich.parseRobots(target, opts.userAgent);
+}
+
+// ── OCR upgrade: Tesseract or Groq vision ─────────────────────────────────
+
+/**
+ * Same interface as runOCR but accepts engine: "tesseract" | "groq".
+ * Groq path uses a vision model to transcribe the image — faster and
+ * often more accurate for handwriting or stylised fonts.
+ */
+async function runOCRDispatch(opts) {
+  const engine = (opts && opts.engine) || "tesseract";
+  if (engine === "groq") {
+    const groq = require("./mcp-groq");
+    if (!groq.isClaudeGroqAuthorized()) {
+      return { error: "Groq access not authorized (GROQ_API_KEY missing or claudeGroqAccess=false)" };
+    }
+    if (!hasPlaywright()) return { error: "No browser available." };
+    const browser = await getBrowser();
+    const { page, url } = await getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.vw, opts.vh);
+
+    let buf;
+    if (opts.selector) {
+      const el = await page.$(opts.selector);
+      if (!el) return { error: "selector not found: " + opts.selector, url };
+      buf = await el.screenshot({ type: "png" });
+    } else if (opts.x != null && opts.y != null && opts.width != null && opts.height != null) {
+      buf = await page.screenshot({
+        type: "png",
+        clip: { x: Number(opts.x), y: Number(opts.y), width: Number(opts.width), height: Number(opts.height) }
+      });
+    } else {
+      buf = await page.screenshot({ type: "png", fullPage: !!opts.fullPage });
+    }
+
+    return await groq.runGroqOCR({
+      pngBase64: buf.toString("base64"),
+      model: opts.model,
+      lang: opts.lang,
+      url
+    });
+  }
+  return runOCR(opts);
+}
+
+// ── Extended exports ──────────────────────────────────────────────────────
+
 module.exports = {
   takeScreenshot,
   inspectDOM,
@@ -2707,7 +3379,7 @@ module.exports = {
   closeAllSessions,
   hasPlaywright,
   browseUrl,
-  // New primitives
+  // Round 1 primitives
   getPixelColor,
   getElementRect,
   measure,
@@ -2722,14 +3394,38 @@ module.exports = {
   canvasData,
   listPages,
   closePage,
-  // Library-backed enrichments
+  // Round 2 library-backed
   runAccessibility,
   runOCR,
+  runOCRDispatch,
   runLighthouseAudit,
   getComputedStyles,
-  // Groq-backed visual tools
+  // Round 2 Groq-backed
   visualQuery,
   findElementVisually,
   visualDiffWithAction,
-  runVerifyLoop
+  runVerifyLoop,
+  // Round 3 image / visual
+  getPalette,
+  getColorStats,
+  visualSimilarity,
+  toleranceDiffTool,
+  renderOverlayTool,
+  imageInfo,
+  // Round 3 DOM
+  domQueryTool,
+  findAll,
+  // Round 3 perf / runtime
+  getWebVitals,
+  getCodeCoverage,
+  captureHar,
+  listServiceWorkers,
+  getResourceTiming,
+  getBrowserApis,
+  inspectIndexedDB,
+  getFrameworkData,
+  getDataAttrs,
+  // Round 3 SEO / meta
+  getMeta,
+  getRobots
 };

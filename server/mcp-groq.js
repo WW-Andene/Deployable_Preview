@@ -39,6 +39,29 @@ function getGroqKey() {
 function hasGroq() { return !!getGroqKey(); }
 
 /**
+ * Authorization gate for Groq-backed tools. Returns true if:
+ *   1. A GROQ_API_KEY is set (in config secrets or env), AND
+ *   2. The user has not explicitly revoked Claude's Groq access via
+ *      preferences.claudeGroqAccess = false.
+ *
+ * Setting the API key IS the permission grant — no extra gates. The
+ * preference flag exists only as an opt-out, not an opt-in. Default is
+ * true whenever the key is present.
+ *
+ * To revoke: set preferences.claudeGroqAccess = false in deployview.json.
+ */
+function isClaudeGroqAuthorized() {
+  if (!hasGroq()) return false;
+  try {
+    const { getConfig } = require("./config");
+    const cfg = getConfig();
+    const pref = cfg && cfg.preferences && cfg.preferences.claudeGroqAccess;
+    if (pref === false) return false;
+  } catch (_) {}
+  return true;
+}
+
+/**
  * Low-level Groq chat completion call. Accepts an array of messages
  * (OpenAI format — supports image_url parts with base64 data URLs).
  */
@@ -290,13 +313,56 @@ async function verifyLoop(opts) {
   };
 }
 
+/**
+ * Transcribe text from an image using a Groq vision model. This is the
+ * preferred OCR path for the `ocr` tool when `engine: "groq"` is set —
+ * faster and often more accurate than Tesseract for handwriting,
+ * stylised fonts, or multi-language text. The primary real-world use
+ * case is the Whispering Wishes app's OCR feature.
+ *
+ * @param {object} opts - { pngBase64, model?, lang?, url? }
+ */
+async function runGroqOCR({ pngBase64, model, lang, url }) {
+  if (!pngBase64) return { error: "pngBase64 required" };
+  const langHint = lang && lang !== "eng"
+    ? " The text is primarily in: " + lang + "."
+    : "";
+  const prompt =
+    "Transcribe all visible text from this image, preserving line breaks and reading order." +
+    langHint +
+    " Return only the transcribed text — no preamble, no commentary, no bullet points.";
+  const result = await groqChat({
+    messages: [{
+      role: "user",
+      content: [
+        { type: "text", text: prompt },
+        { type: "image_url", image_url: { url: "data:image/png;base64," + pngBase64 } }
+      ]
+    }],
+    model,
+    maxTokens: 4096,
+    temperature: 0
+  });
+  if (result.error) return result;
+  return {
+    text: (result.text || "").trim(),
+    engine: "groq",
+    model: result.model,
+    usage: result.usage,
+    lang: lang || "auto",
+    url
+  };
+}
+
 module.exports = {
   hasGroq,
   getGroqKey,
+  isClaudeGroqAuthorized,
   groqChat,
   visualQuery,
   findElement,
   visualDiff,
   checkCondition,
-  verifyLoop
+  verifyLoop,
+  runGroqOCR
 };

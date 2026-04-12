@@ -171,31 +171,68 @@ npm start
 
 ### Optional enrichments (npm libraries)
 
-These are listed in `optionalDependencies` so the core install works even
-when native builds (`sharp`, `tesseract.js`, `lighthouse`) can't be built
-on a host. Tools gracefully fall back or report a clear "install X" error.
+All listed in `optionalDependencies` so a clean install never fails when
+a native build can't complete. Tools gracefully fall back or report a
+clear `"install X"` error.
 
 ```bash
-npm install pixelmatch pngjs sharp axe-core tesseract.js lighthouse css-tree
+# Install everything at once:
+npm install pixelmatch pngjs sharp axe-core tesseract.js lighthouse css-tree \
+            colorthief get-image-colors ssim.js looks-same cheerio css-select \
+            specificity html-validator web-vitals gzip-size diff natural \
+            linkinator image-size exifreader retire csp-parse set-cookie-parser \
+            tough-cookie error-stack-parser source-map v8-to-istanbul canvas \
+            robots-parser
 ```
 
 | Library | Used by | What it adds |
 |---|---|---|
-| `pixelmatch` + `pngjs` | `screenshot_diff` | Faster pixel diff + red-highlight heatmap PNG returned as base64 |
-| `sharp` | `get_pixel_color` | Native-speed pixel extraction from screenshots |
-| `axe-core` | `accessibility` | Full WCAG 2.1 audit injected into the preview page |
-| `tesseract.js` | `ocr` | Text extraction from screenshots (50+ languages) |
-| `lighthouse` + `chrome-launcher` | `lighthouse` | Performance / SEO / best-practices / a11y scoring |
-| `css-tree` | `computed_styles` | Structural CSS value comparison (e.g. `1rem` = `16px`) |
+| `pixelmatch` + `pngjs` | `screenshot_diff` | Fast pixel diff + red-highlight heatmap PNG |
+| `sharp` | `get_pixel_color` | Native-speed pixel extraction |
+| `axe-core` | `accessibility` | Full WCAG 2.1 audit injected into the preview |
+| `tesseract.js` | `ocr` (engine=tesseract) | Local OCR |
+| `lighthouse` + `chrome-launcher` | `lighthouse` | Perf / SEO / best-practices / a11y scoring |
+| `css-tree` | `computed_styles` | Structural CSS value comparison (`1rem` = `16px`) |
+| `colorthief` | `palette` | Dominant colour palette extraction |
+| `get-image-colors` | `color_stats` | Vibrancy + luminance colour distribution |
+| `ssim.js` | `visual_similarity` | Structural similarity index — better than pixel diff |
+| `looks-same` | `tolerance_diff` | Perceptual / anti-alias-tolerant diff |
+| `canvas` (node-canvas) | `render_overlay` | Draw rectangles / lines / labels on screenshots |
+| `image-size` + `exifreader` | `image_info` | Dimensions + EXIF metadata |
+| `cheerio` | `dom_query` | Fast HTML parsing without a browser |
+| `specificity` | `css_specificity` | CSS specificity (A,B,C,D) |
+| `html-validator` | `validate_html` | W3C Nu validator client |
+| `web-vitals` | `vitals` | Live CLS / LCP / INP / FCP / TTFB collection |
+| `diff` | `text_diff` | Structured chars / words / sentences / lines diff |
+| `natural` | `text_analysis` | Tokenize / sentence split / AFINN sentiment |
+| `linkinator` | `broken_links` | Crawl-based broken-link scanner |
+| `error-stack-parser` | `stack_trace` | Parse raw stack traces into structured frames |
+| `source-map` | `unminify` | Resolve minified positions back to original source |
+| `v8-to-istanbul` | (internal helper) | Coverage format conversion |
+| `csp-parse` | `csp_check` | Content-Security-Policy parser + issue report |
+| `set-cookie-parser` + `tough-cookie` | `cookies_full` | Full cookie flag parsing (httpOnly / secure / sameSite) |
+| `retire` | `vuln_scan` | Known-vulnerability scan for JS libs |
+| `robots-parser` | `robots` | robots.txt parser |
+| `gzip-size` | (internal helper) | Gzipped asset size measurement |
 
-### Groq visual tools
+### Groq-backed tools and authorization
 
-Visual reasoning offloaded to Groq's vision models so Claude's context
-stays text-only. Set `GROQ_API_KEY` in Settings → Secrets (or as an env var) to enable:
+Visual reasoning offloaded to Groq so Claude's context stays text-only.
+Four vision tools plus a Groq OCR backend for the `ocr` tool:
+
 - `visual_query` — ask a question about the page, get a text answer
 - `find_element` — locate an element by description, get a bounding box
 - `visual_diff` — describe what changed between two screenshots in words
 - `verify_loop` — iterate until a natural-language success condition is met
+- `ocr` with `engine: "groq"` — vision-model OCR (the primary real-world
+  use case is the Whispering Wishes app's OCR feature)
+
+**Authorization model**: setting `GROQ_API_KEY` in Settings → Secrets (or
+as an env var) IS the permission grant. Claude has full access to
+Groq-backed tools whenever the key is present — no extra gates. To
+explicitly revoke, set `preferences.claudeGroqAccess = false` in
+`deployview.json`. The helper `isClaudeGroqAuthorized()` in `mcp-groq.js`
+is the single source of truth and is checked by every Groq tool.
 
 Free keys: https://console.groq.com/keys
 
