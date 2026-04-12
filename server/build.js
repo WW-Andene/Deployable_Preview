@@ -403,8 +403,24 @@ async function buildBranch(repoConfig, branchConfig) {
 
       if (fs.existsSync(androidSwcDir)) {
         addLog("ARM Android: SWC android-arm64 binary ready");
-        // Ensure LD_LIBRARY_PATH includes $PREFIX/lib so dlopen finds libgcc_s.so.1
+        // The musl binary needs libgcc_s.so.1 for stack unwinding. Termux
+        // uses LLVM (not GCC) so libgcc_s doesn't exist — but the symbols
+        // it needs (_Unwind_*) are in Termux's libunwind.so. Create a
+        // symlink so dlopen finds it.
         const PREFIX = process.env.PREFIX || "/data/data/com.termux/files/usr";
+        const libgccPath = path.join(PREFIX, "lib", "libgcc_s.so.1");
+        if (!fs.existsSync(libgccPath)) {
+          const libunwindPath = path.join(PREFIX, "lib", "libunwind.so");
+          if (fs.existsSync(libunwindPath)) {
+            addLog("ARM Android: creating libgcc_s.so.1 symlink -> libunwind.so");
+            try { fs.symlinkSync(libunwindPath, libgccPath); }
+            catch (e) {
+              addLog("WARNING: could not create libgcc_s.so.1 symlink: " + e.message);
+            }
+          } else {
+            addLog("WARNING: neither libgcc_s.so.1 nor libunwind.so found in " + PREFIX + "/lib");
+          }
+        }
         if (!userEnv.LD_LIBRARY_PATH) {
           userEnv.LD_LIBRARY_PATH = PREFIX + "/lib" + (process.env.LD_LIBRARY_PATH ? ":" + process.env.LD_LIBRARY_PATH : "");
         }
