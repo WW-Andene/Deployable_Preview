@@ -138,10 +138,28 @@ app.use((err, req, res, _next) => {
 function getPollInterval() {
   var config = getConfig();
   var val = config.preferences && config.preferences.pollInterval;
-  if (val && parseInt(val) >= 1000) return parseInt(val);
-  return parseInt(process.env.POLL_INTERVAL) || 5000;
+  // 0 = disabled (default). Any positive value >= 2000 enables polling.
+  if (val === 0 || val === "0" || val === false) return 0;
+  if (val && parseInt(val) >= 2000) return parseInt(val);
+  if (process.env.POLL_INTERVAL) return parseInt(process.env.POLL_INTERVAL) || 0;
+  return 0; // OFF by default — Claude's MCP connection gets reset by constant rebuilds
 }
 let pollIntervalId = null;
+
+function startPolling() {
+  stopPolling();
+  const interval = getPollInterval();
+  if (interval > 0) {
+    pollIntervalId = setInterval(pollForChanges, interval);
+    console.log("  Polling: every " + (interval / 1000) + "s");
+  } else {
+    console.log("  Polling: OFF (enable in Settings or use manual rebuild)");
+  }
+}
+
+function stopPolling() {
+  if (pollIntervalId) { clearInterval(pollIntervalId); pollIntervalId = null; }
+}
 
 async function pollForChanges() {
   const config = getConfig();
@@ -176,7 +194,9 @@ async function pollForChanges() {
   }
 }
 
-pollIntervalId = setInterval(pollForChanges, getPollInterval());
+startPolling();
+// Expose for live toggle from preferences API
+global._dvRestartPolling = startPolling;
 
 // ── Graceful shutdown ──
 let httpServer = null;
@@ -184,7 +204,7 @@ let httpServer = null;
 function shutdown(signal) {
   console.log("\n  [" + signal + "] Shutting down gracefully...");
 
-  if (pollIntervalId) clearInterval(pollIntervalId);
+  stopPolling();
 
   // Kill all running server processes
   const { runningServers, killServer } = require("./process");

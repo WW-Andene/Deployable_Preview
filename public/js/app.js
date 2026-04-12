@@ -86,7 +86,9 @@ function loadRepos() {
 
 function startStatusPoll() {
   if (S.pollTimer) clearInterval(S.pollTimer);
-  var interval = (S.preferences && S.preferences.pollInterval) || 5000;
+  S.pollTimer = null;
+  var interval = (S.preferences && S.preferences.pollInterval != null) ? S.preferences.pollInterval : 0;
+  if (!interval || interval < 2000) return; // OFF by default
   S.pollTimer = setInterval(function() {
     api("GET", "/api/repos").then(function(repos) {
       var changed = false;
