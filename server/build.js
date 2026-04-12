@@ -345,11 +345,15 @@ async function buildBranch(repoConfig, branchConfig) {
         try { execSync("rm -rf " + JSON.stringify(wasmDir)); } catch (_) {}
       }
 
-      // If no android-arm64 binary exists, install musl and create a
-      // proper android-arm64 package from it. Can't just symlink because
-      // the .node file inside is named differently (linux-arm64-musl vs
-      // android-arm64) and Next.js checks the filename.
-      if (!fs.existsSync(androidSwcDir)) {
+      // Always clean up any previous attempt (broken symlinks, wrong structure)
+      // and verify we have a working .node binary. Can't just check existence
+      // because a prior symlink or empty dir passes existsSync but fails require().
+      const androidNodeFile = path.join(androidSwcDir, "next-swc.android-arm64.node");
+      if (fs.existsSync(androidSwcDir) && !fs.existsSync(androidNodeFile)) {
+        addLog("ARM Android: cleaning broken swc-android-arm64 from previous attempt");
+        try { execSync("rm -rf " + JSON.stringify(androidSwcDir)); } catch (_) {}
+      }
+      if (!fs.existsSync(androidNodeFile)) {
         if (!fs.existsSync(muslSwcDir)) {
           addLog("ARM Android: installing @next/swc-linux-arm64-musl (static binary)");
           try {
