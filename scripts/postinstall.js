@@ -140,6 +140,7 @@ if (isTermux) {
     "pkg-config",                                                 // for node-gyp to find libs
     "libcairo", "pango", "libjpeg-turbo", "giflib", "librsvg",  // for canvas
     "libvips",                                                    // for sharp (Termux pkg name)
+    "libcompiler-rt",                                             // provides libgcc_s.so.1 (needed by SWC musl binary)
     "chromium"                                                    // for browser tools
   ];
 

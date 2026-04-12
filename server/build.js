@@ -403,6 +403,11 @@ async function buildBranch(repoConfig, branchConfig) {
 
       if (fs.existsSync(androidSwcDir)) {
         addLog("ARM Android: SWC android-arm64 binary ready");
+        // Ensure LD_LIBRARY_PATH includes $PREFIX/lib so dlopen finds libgcc_s.so.1
+        const PREFIX = process.env.PREFIX || "/data/data/com.termux/files/usr";
+        if (!userEnv.LD_LIBRARY_PATH) {
+          userEnv.LD_LIBRARY_PATH = PREFIX + "/lib" + (process.env.LD_LIBRARY_PATH ? ":" + process.env.LD_LIBRARY_PATH : "");
+        }
       } else {
         addLog("WARNING: no SWC binary available — Next.js build may fail");
       }
