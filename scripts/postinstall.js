@@ -139,7 +139,7 @@ if (isTermux) {
   const pkgs = [
     "pkg-config",                                                 // for node-gyp to find libs
     "libcairo", "pango", "libjpeg-turbo", "giflib", "librsvg",  // for canvas
-    "vips",                                                       // for sharp
+    "libvips",                                                    // for sharp (Termux pkg name)
     "chromium"                                                    // for browser tools
   ];
 

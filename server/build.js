@@ -230,20 +230,89 @@ async function installDeps(workDir, addLog, language) {
   else if (hasYarnLock) await runCmd("yarn install", workDir);
   else await runCmd("npm install", workDir);
 
-  // Fix Next.js SWC on ARM (Termux / Android / aarch64): the WASM fallback
-  // crashes on ARM, so install the correct native SWC binary for the platform.
+  // Fix Next.js SWC on ARM (Termux / Android / aarch64).
+  //
+  // The @next/swc-wasm-nodejs WASM fallback crashes on ARM with
+  // "Reflect.get called on non-object". Native SWC binaries:
+  //   - @next/swc-linux-arm64-gnu   → needs glibc (NOT available on Termux/Android/Bionic)
+  //   - @next/swc-linux-arm64-musl  → statically linked, sometimes works on non-glibc
+  //
+  // Strategy: try musl first (static, might work). If that fails too,
+  // set NEXT_DISABLE_SWC=1 so Next.js falls back to Babel (slower but works everywhere).
   const isARM = process.arch === "arm64" || process.arch === "arm";
+  const isAndroid = !!process.env.TERMUX_VERSION || (process.env.PREFIX || "").includes("com.termux") || process.platform === "android";
   const hasNext = fs.existsSync(path.join(workDir, "node_modules", "next"));
   if (isARM && hasNext) {
-    const swcPkg = process.arch === "arm64" ? "@next/swc-linux-arm64-gnu" : "@next/swc-linux-arm-gnueabihf";
-    const hasSwc = fs.existsSync(path.join(workDir, "node_modules", "@next", swcPkg.split("/")[1]));
-    if (!hasSwc) {
-      addLog("ARM detected with Next.js — installing native SWC binary: " + swcPkg);
+    // Check if any working SWC native binary is already present
+    const swcDir = path.join(workDir, "node_modules", "@next");
+    let hasWorkingSwc = false;
+    try {
+      const dirs = fs.readdirSync(swcDir).filter(d => d.startsWith("swc-") && !d.includes("wasm"));
+      hasWorkingSwc = dirs.length > 0;
+    } catch (_) {}
+
+    if (!hasWorkingSwc && isAndroid) {
+      // On Android/Termux, try the musl binary (statically linked, no glibc dependency)
+      const muslPkg = process.arch === "arm64" ? "@next/swc-linux-arm64-musl" : null;
+      if (muslPkg) {
+        addLog("ARM + Android detected with Next.js — trying musl SWC binary: " + muslPkg);
+        try {
+          await runCmd("npm install " + muslPkg + " --no-save --no-audit", workDir);
+          addLog("SWC musl binary installed for ARM");
+          hasWorkingSwc = true;
+        } catch (e) {
+          addLog("musl SWC also failed — will use Babel fallback");
+        }
+      }
+    } else if (!hasWorkingSwc) {
+      // Regular ARM Linux (not Android) — try glibc binary
+      const gnuPkg = process.arch === "arm64" ? "@next/swc-linux-arm64-gnu" : "@next/swc-linux-arm-gnueabihf";
+      addLog("ARM detected with Next.js — installing native SWC binary: " + gnuPkg);
       try {
-        await runCmd("npm install " + swcPkg + " --no-save --no-audit", workDir);
+        await runCmd("npm install " + gnuPkg + " --no-save --no-audit", workDir);
         addLog("SWC native binary installed for ARM");
+        hasWorkingSwc = true;
       } catch (e) {
-        addLog("WARNING: SWC native binary install failed (" + e.message.split("\n")[0] + ") — Next.js may fall back to WASM");
+        addLog("WARNING: SWC native binary install failed");
+      }
+    }
+
+    // If no native SWC works, disable SWC entirely so Next.js uses Babel.
+    // Slower compilation but guaranteed to work on any platform.
+    if (!hasWorkingSwc) {
+      addLog("Disabling SWC — Next.js will use Babel compiler (slower but compatible)");
+      // Write next.config override to disable SWC
+      const nextConfigPath = path.join(workDir, "next.config.js");
+      const nextConfigMjs = path.join(workDir, "next.config.mjs");
+      const nextConfigTs = path.join(workDir, "next.config.ts");
+      // Only inject if there's no existing SWC disable
+      try {
+        let configContent = "";
+        let configPath = null;
+        if (fs.existsSync(nextConfigMjs)) { configPath = nextConfigMjs; configContent = fs.readFileSync(nextConfigMjs, "utf8"); }
+        else if (fs.existsSync(nextConfigTs)) { configPath = nextConfigTs; configContent = fs.readFileSync(nextConfigTs, "utf8"); }
+        else if (fs.existsSync(nextConfigPath)) { configPath = nextConfigPath; configContent = fs.readFileSync(nextConfigPath, "utf8"); }
+
+        if (configPath && !configContent.includes("swcMinify") && !configContent.includes("NEXT_DISABLE_SWC")) {
+          // Inject swcMinify: false into the config
+          addLog("Patching " + path.basename(configPath) + " to disable SWC minification");
+          if (configContent.includes("module.exports")) {
+            // CJS config
+            configContent = configContent.replace(
+              /module\.exports\s*=\s*\{/,
+              "module.exports = {\n  swcMinify: false,"
+            );
+          } else if (configContent.includes("export default")) {
+            // ESM config
+            configContent = configContent.replace(
+              /export\s+default\s*\{/,
+              "export default {\n  swcMinify: false,"
+            );
+          }
+          fs.writeFileSync(configPath, configContent);
+        }
+      } catch (e) {
+        addLog("WARNING: Could not patch next.config: " + e.message);
       }
     }
   }
@@ -337,6 +406,20 @@ async function buildBranch(repoConfig, branchConfig) {
     var pygameFile = (language === "python") ? detectPygame(workDir) : null;
     var cmd, outName;
     var userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
+
+    // If Next.js SWC is broken on this platform, tell Next.js to use Babel
+    const _isARM = process.arch === "arm64" || process.arch === "arm";
+    if (_isARM && fs.existsSync(path.join(workDir, "node_modules", "next"))) {
+      const swcDir = path.join(workDir, "node_modules", "@next");
+      let hasNativeSwc = false;
+      try {
+        hasNativeSwc = fs.readdirSync(swcDir).some(d => d.startsWith("swc-") && !d.includes("wasm"));
+      } catch (_) {}
+      if (!hasNativeSwc) {
+        addLog("No native SWC — setting NEXT_DISABLE_SWC=1 for Babel fallback");
+        userEnv.NEXT_DISABLE_SWC = "1";
+      }
+    }
 
     if (pygameFile) {
       var mainFile = findMainPyFile(workDir);
