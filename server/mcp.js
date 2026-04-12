@@ -98,18 +98,66 @@ const TOOLS = [
   },
   {
     name: "interact",
-    description: "Perform an action on a deployed preview — click buttons, type text, scroll, hover, navigate, or evaluate JS. Returns a screenshot after the action. Sessions persist across calls (state like modals, localStorage is preserved).",
+    description: [
+      "Perform an action on a deployed preview. Returns a screenshot after the action.",
+      "Sessions persist across calls (state like modals, localStorage is preserved).",
+      "Actions:",
+      "  • click / hover — selector OR {x,y}",
+      "  • type — selector + value",
+      "  • select — selector + value (option)",
+      "  • scroll — value = pixels to scroll by (positive = down)",
+      "  • navigate — value = path/URL (same-origin)",
+      "  • evaluate — value = JS code, returns result",
+      "  • drag — {selector|fromX,fromY} → {toSelector|toX,toY}, optional steps/stepDelay",
+      "  • file_upload — selector + files: [{ name, mimeType?, base64 }]",
+      "  • back / forward / reload — history navigation",
+      "  • key — value = key name (e.g. 'Enter', 'Escape', 'ArrowDown'), optional selector to focus first",
+      "  • tap / long_press — selector OR {x,y} (value = hold-duration ms for long_press)",
+      "  • swipe — {fromSelector|fromX,fromY} → {toSelector|toX,toY}, touchscreen-backed",
+      "  • toggle — selector + value ('hide'|'show'|'toggle'). Hides/shows elements for A/B comparison.",
+      "  • dialog — pre-arm a one-shot dialog handler (accept:boolean, value:prompt-text)"
+    ].join("\n"),
     inputSchema: {
       type: "object",
       properties: {
         owner:    { type: "string", description: "Repository owner" },
         repo:     { type: "string", description: "Repository name" },
         slug:     { type: "string", description: "Branch slug" },
-        action:   { type: "string", enum: ["click", "type", "select", "scroll", "hover", "navigate", "evaluate"], description: "Action to perform" },
+        action:   {
+          type: "string",
+          enum: [
+            "click", "type", "select", "scroll", "hover", "navigate", "evaluate",
+            "drag", "file_upload", "back", "forward", "reload",
+            "key", "tap", "swipe", "long_press", "toggle", "dialog"
+          ],
+          description: "Action to perform"
+        },
         selector: { type: "string", description: "CSS selector of the target element" },
-        value:    { type: "string", description: "Value for type/select/scroll/navigate/evaluate actions. For evaluate: JavaScript code to run in page context." },
-        x:        { type: "number", description: "X coordinate for click/hover (alternative to selector)" },
-        y:        { type: "number", description: "Y coordinate for click/hover (alternative to selector)" },
+        value:    { type: "string", description: "Value for type/select/scroll/navigate/evaluate/key/toggle/long_press actions" },
+        x:        { type: "number", description: "X coordinate for click/hover/tap/long_press (alternative to selector)" },
+        y:        { type: "number", description: "Y coordinate for click/hover/tap/long_press (alternative to selector)" },
+        fromX:    { type: "number", description: "Drag/swipe: start X" },
+        fromY:    { type: "number", description: "Drag/swipe: start Y" },
+        toX:      { type: "number", description: "Drag/swipe: end X" },
+        toY:      { type: "number", description: "Drag/swipe: end Y" },
+        fromSelector: { type: "string", description: "Drag/swipe: CSS selector for the start element" },
+        toSelector:   { type: "string", description: "Drag/swipe: CSS selector for the end element" },
+        steps:    { type: "number", description: "Drag/swipe: number of interpolation steps (default: 20)" },
+        stepDelay:{ type: "number", description: "Drag: milliseconds between interpolation steps (default: 8)" },
+        files: {
+          type: "array",
+          description: "file_upload: list of files to upload",
+          items: {
+            type: "object",
+            properties: {
+              name:     { type: "string", description: "Filename" },
+              mimeType: { type: "string", description: "MIME type (default: application/octet-stream)" },
+              base64:   { type: "string", description: "File contents as base64" }
+            },
+            required: ["name", "base64"]
+          }
+        },
+        accept:   { type: "boolean", description: "dialog: accept (true) or dismiss (false). Default: accept." },
         width:    { type: "number", description: "Viewport width in pixels (default: 1280)" },
         height:   { type: "number", description: "Viewport height in pixels (default: 720)" }
       },
@@ -191,6 +239,211 @@ const TOOLS = [
         repo:  { type: "string", description: "Repository name" },
         slug:  { type: "string", description: "Branch slug" },
         mode:  { type: "string", enum: ["full", "quick"], description: "Test mode: 'full' (deep interaction, ~2min) or 'quick' (tab navigation only, ~30s). Default: full" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "get_pixel_color",
+    description: "Read the RGB(A) colour of a single pixel in the rendered preview. Returns hex, rgba, and raw channel values. Use this for exact colour verification — e.g. scan a horizontal line across a sprite to find where red ends and green starts, then compute offsets mathematically.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        x: { type: "number", description: "X coordinate in viewport CSS pixels" },
+        y: { type: "number", description: "Y coordinate in viewport CSS pixels" },
+        width:  { type: "number", description: "Viewport width (default: 1280)" },
+        height: { type: "number", description: "Viewport height (default: 720)" }
+      },
+      required: ["owner", "repo", "slug", "x", "y"]
+    }
+  },
+  {
+    name: "get_element_rect",
+    description: "Return the bounding box, centre point, visibility, and computed styles for one or more elements matching a CSS selector. Structured data you can do math on — no screenshot to squint at. Returns all matches; primary is the first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        selector: { type: "string", description: "CSS selector" },
+        width:  { type: "number" },
+        height: { type: "number" }
+      },
+      required: ["owner", "repo", "slug", "selector"]
+    }
+  },
+  {
+    name: "measure",
+    description: "Measure the distance and delta between two points or elements. Either endpoint can be a selector or {x,y}. Returns dx, dy, Euclidean distance, and Manhattan distance — so Claude can do layout math in one shot.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        a: {
+          type: "object",
+          description: "First point. { selector } OR { x, y }",
+          properties: {
+            selector: { type: "string" },
+            x: { type: "number" },
+            y: { type: "number" }
+          }
+        },
+        b: {
+          type: "object",
+          description: "Second point. { selector } OR { x, y }",
+          properties: {
+            selector: { type: "string" },
+            x: { type: "number" },
+            y: { type: "number" }
+          }
+        },
+        width:  { type: "number" },
+        height: { type: "number" }
+      },
+      required: ["owner", "repo", "slug", "a", "b"]
+    }
+  },
+  {
+    name: "screenshot_diff",
+    description: "Pixel-compare two base64-encoded PNG screenshots. Returns diff pixel count, percentage, max per-channel delta, and a bounding box of where the differences are. Typical flow: take a screenshot → make a change → take another → call this with both base64 strings.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        before: { type: "string", description: "Base64-encoded PNG (earlier state)" },
+        after:  { type: "string", description: "Base64-encoded PNG (later state)" },
+        threshold: { type: "number", description: "Per-channel tolerance 0..255 (default: 10)" }
+      },
+      required: ["before", "after"]
+    }
+  },
+  {
+    name: "emulate",
+    description: "Apply environment emulation to a preview session: device pixel ratio (DPR), colour scheme (dark/light), reduced motion, touch, geolocation, custom User-Agent, and network throttling (offline / slow / latency). Sticky for the lifetime of the session.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        deviceScaleFactor: { type: "number", description: "DPR (0.5 – 4). Makes screenshots accurate on high-DPI designs." },
+        colorScheme: { type: "string", enum: ["light", "dark", "no-preference"], description: "prefers-color-scheme value" },
+        reducedMotion: { type: "string", enum: ["reduce", "no-preference"], description: "prefers-reduced-motion value" },
+        touch: { type: "boolean", description: "Enable touch events" },
+        geolocation: {
+          type: "object",
+          description: "Spoofed geolocation",
+          properties: {
+            latitude:  { type: "number" },
+            longitude: { type: "number" },
+            accuracy:  { type: "number" }
+          }
+        },
+        offline:            { type: "boolean", description: "Simulate offline mode" },
+        downloadThroughput: { type: "number", description: "Bytes/sec (-1 = unlimited)" },
+        uploadThroughput:   { type: "number", description: "Bytes/sec (-1 = unlimited)" },
+        latency:            { type: "number", description: "Added latency in ms" },
+        userAgent:          { type: "string", description: "Custom User-Agent string" },
+        width:  { type: "number" },
+        height: { type: "number" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "storage",
+    description: "Read or write cookies, localStorage, or sessionStorage on a preview session. Ops: list, get, set, delete, clear.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        store: { type: "string", enum: ["cookies", "localStorage", "sessionStorage"], description: "Which store to operate on (default: localStorage)" },
+        op:    { type: "string", enum: ["list", "get", "set", "delete", "clear"], description: "Operation (default: list)" },
+        key:   { type: "string", description: "Key / cookie name" },
+        value: { type: "string", description: "Value to set" },
+        cookie: {
+          type: "object",
+          description: "Full cookie descriptor for set (alternative to key/value)",
+          properties: {
+            name:    { type: "string" },
+            value:   { type: "string" },
+            domain:  { type: "string" },
+            path:    { type: "string" },
+            expires: { type: "number" }
+          }
+        }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "performance",
+    description: "Collect performance metrics for a preview: navigation timing (TTFB, DCL, load), paint timings, resource counts by type, total transfer size, and heap memory if available.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        reload: { type: "boolean", description: "Reload the page before measuring for a clean run" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "capture_requests",
+    description: "Attach a network-request recorder to a preview session and collect requests for a duration. Good for spotting lazy-loaded assets, XHR/fetch calls, and websocket upgrades.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        duration: { type: "number", description: "Seconds to capture (default: 5, max: 60)" },
+        maxRequests: { type: "number", description: "Cap on stored requests (default: 500, max: 2000)" },
+        reload: { type: "boolean", description: "Reload the page first to capture from the beginning" }
+      },
+      required: ["owner", "repo", "slug"]
+    }
+  },
+  {
+    name: "download",
+    description: "Trigger a file download in a preview and return the downloaded bytes as base64. Use 'click' with a selector to click a download button, or 'evaluate' with JS that triggers a download (e.g. setting location.href to a blob URL).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        trigger:  { type: "string", enum: ["click", "evaluate"], description: "How to initiate the download" },
+        selector: { type: "string", description: "Element to click (for trigger=click)" },
+        code:     { type: "string", description: "JavaScript to run (for trigger=evaluate)" },
+        timeout:  { type: "number", description: "Max milliseconds to wait for the download (default: 30000)" }
+      },
+      required: ["owner", "repo", "slug", "trigger"]
+    }
+  },
+  {
+    name: "deploy_and_verify",
+    description: "One-shot deploy + verify. Triggers a build, polls until ready, then returns a screenshot, brief console log, and commit info — replacing the typical trigger_build → build_status (x3) → screenshot flow.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo:  { type: "string" },
+        slug:  { type: "string" },
+        wait:    { type: "number", description: "Max ms to wait for ready (default: 180000)" },
+        width:   { type: "number", description: "Screenshot viewport width" },
+        height:  { type: "number", description: "Screenshot viewport height" },
+        fullPage:{ type: "boolean", description: "Take a full-page screenshot" },
+        duration:{ type: "number", description: "Seconds of console capture (default: 2)" }
       },
       required: ["owner", "repo", "slug"]
     }
@@ -621,6 +874,153 @@ async function handleTool(name, args) {
           + result.fullLog
       });
       return { content };
+    }
+
+    case "get_pixel_color": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.getPixelColor(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Pixel color error: " + result.error }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "get_pixel_color failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "get_element_rect": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.getElementRect(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Element rect error: " + result.error }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "get_element_rect failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "measure": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.measure(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Measure error: " + result.error }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "measure failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "screenshot_diff": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.screenshotDiff(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Screenshot diff error: " + result.error }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "screenshot_diff failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "emulate": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.emulate(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Emulate error: " + result.error }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "emulate failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "storage": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.storage(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Storage error: " + result.error }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "storage failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "performance": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.performanceMetrics(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Performance error: " + result.error }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "performance failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "capture_requests": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.capturePreviewRequests(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Capture requests error: " + result.error }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: "capture_requests failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "download": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.captureDownload(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Download error: " + result.error }], isError: true };
+        }
+        // Return both the file info and the raw bytes (base64)
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              suggestedFilename: result.suggestedFilename,
+              byteLength: result.byteLength,
+              url: result.url,
+              base64: result.base64
+            }, null, 2)
+          }]
+        };
+      } catch (e) {
+        return { content: [{ type: "text", text: "download failed: " + e.message }], isError: true };
+      }
+    }
+
+    case "deploy_and_verify": {
+      try {
+        const browser = getBrowserModule();
+        const result = await browser.deployAndVerify(args);
+        if (result.error) {
+          return { content: [{ type: "text", text: "Deploy and verify error: " + result.error + (result.log ? "\n\n--- Build log tail ---\n" + result.log : "") }], isError: true };
+        }
+        const content = [];
+        if (result.screenshot && result.screenshot.base64) {
+          content.push({ type: "image", data: result.screenshot.base64, mimeType: result.screenshot.mimeType });
+        }
+        const { screenshot, ...meta } = result;
+        content.push({ type: "text", text: JSON.stringify(meta, null, 2) });
+        return { content };
+      } catch (e) {
+        return { content: [{ type: "text", text: "deploy_and_verify failed: " + e.message }], isError: true };
+      }
     }
 
     case "web_fetch": {

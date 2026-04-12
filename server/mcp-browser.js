@@ -565,8 +565,10 @@ async function captureConsole(opts) {
 
 /**
  * Perform an action on a deployed preview.
- * @param {object} opts - { owner, repo, slug, action, selector, value, x, y }
- * action: "click" | "type" | "select" | "scroll" | "hover" | "navigate"
+ * @param {object} opts - { owner, repo, slug, action, selector, value, x, y, ... }
+ * action: "click" | "type" | "select" | "scroll" | "hover" | "navigate" |
+ *         "evaluate" | "drag" | "file_upload" | "back" | "forward" | "reload" |
+ *         "key" | "tap" | "swipe" | "long_press" | "toggle" | "dialog"
  * @returns {{ success: boolean, screenshot?: string }}
  */
 async function interact(opts) {
@@ -590,6 +592,192 @@ async function interact(opts) {
       }
       result.clicked = selector || (x + "," + y);
       break;
+
+    case "drag": {
+      const [sx, sy] = await resolvePoint(page, { selector: opts.selector || opts.fromSelector, x: opts.fromX, y: opts.fromY });
+      const [ex, ey] = await resolvePoint(page, { selector: opts.toSelector, x: opts.toX, y: opts.toY });
+      const steps = Math.max(1, Math.min(parseInt(opts.steps, 10) || 20, 200));
+      const stepDelay = Math.max(0, Math.min(parseInt(opts.stepDelay, 10) || 8, 100));
+      await page.mouse.move(sx, sy);
+      await page.mouse.down();
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        await page.mouse.move(sx + (ex - sx) * t, sy + (ey - sy) * t);
+        if (stepDelay) await new Promise((r) => setTimeout(r, stepDelay));
+      }
+      await page.mouse.up();
+      result.draggedFrom = { x: sx, y: sy };
+      result.draggedTo = { x: ex, y: ey };
+      break;
+    }
+
+    case "file_upload": {
+      if (!selector) throw new Error("selector required for file_upload action");
+      const files = Array.isArray(opts.files) ? opts.files : [];
+      if (!files.length) throw new Error("files array required for file_upload action");
+      const el = await page.$(selector);
+      if (!el) throw new Error("file input not found: " + selector);
+
+      if (typeof el.setInputFiles === "function") {
+        // Playwright
+        const payload = files.map((f) => ({
+          name: f.name || "upload.bin",
+          mimeType: f.mimeType || "application/octet-stream",
+          buffer: Buffer.from(f.base64 || "", "base64")
+        }));
+        await el.setInputFiles(payload);
+      } else if (typeof el.uploadFile === "function") {
+        // Puppeteer — needs filesystem paths
+        const os = require("os");
+        const crypto = require("crypto");
+        const tmpPaths = [];
+        for (const f of files) {
+          const base = (f.name || "upload.bin").replace(/[^a-zA-Z0-9._-]/g, "_");
+          const tmp = path.join(os.tmpdir(), "dv-upload-" + crypto.randomBytes(6).toString("hex") + "-" + base);
+          fs.writeFileSync(tmp, Buffer.from(f.base64 || "", "base64"));
+          tmpPaths.push(tmp);
+        }
+        await el.uploadFile(...tmpPaths);
+        // Cleanup after a short delay so the page has time to read them
+        setTimeout(() => { for (const p of tmpPaths) { try { fs.unlinkSync(p); } catch (_) {} } }, 15000);
+      } else {
+        throw new Error("File upload not supported by this browser driver");
+      }
+      result.uploaded = files.map((f) => f.name || "upload.bin");
+      result.into = selector;
+      break;
+    }
+
+    case "back":
+      if (typeof page.goBack === "function") {
+        await page.goBack({ waitUntil: waitUntilIdle(), timeout: 30000 }).catch(() => {});
+      }
+      result.navigated = "back";
+      break;
+
+    case "forward":
+      if (typeof page.goForward === "function") {
+        await page.goForward({ waitUntil: waitUntilIdle(), timeout: 30000 }).catch(() => {});
+      }
+      result.navigated = "forward";
+      break;
+
+    case "reload":
+      if (typeof page.reload === "function") {
+        await page.reload({ waitUntil: waitUntilIdle(), timeout: 30000 });
+      }
+      result.reloaded = true;
+      break;
+
+    case "key": {
+      if (!value) throw new Error("value required for key action (e.g. 'Enter', 'Escape', 'Tab')");
+      if (selector) {
+        try { await page.focus(selector); } catch (_) {}
+      }
+      if (page.keyboard && typeof page.keyboard.press === "function") {
+        await page.keyboard.press(value);
+      }
+      result.keyPressed = value;
+      if (selector) result.focused = selector;
+      break;
+    }
+
+    case "tap": {
+      const [tx, ty] = await resolvePoint(page, { selector, x, y });
+      if (typeof page.tap === "function" && selector) {
+        try { await page.tap(selector); break; } catch (_) { /* fall through */ }
+      }
+      // Emulate a touch tap via CDP touch events if available, otherwise click
+      await simulateTouchTap(page, tx, ty);
+      result.tappedAt = { x: tx, y: ty };
+      break;
+    }
+
+    case "swipe": {
+      const [sx, sy] = await resolvePoint(page, { selector: opts.fromSelector, x: opts.fromX, y: opts.fromY });
+      const [ex, ey] = await resolvePoint(page, { selector: opts.toSelector, x: opts.toX, y: opts.toY });
+      const steps = Math.max(2, Math.min(parseInt(opts.steps, 10) || 20, 200));
+      await simulateTouchSwipe(page, sx, sy, ex, ey, steps);
+      result.swipedFrom = { x: sx, y: sy };
+      result.swipedTo = { x: ex, y: ey };
+      break;
+    }
+
+    case "long_press": {
+      const [px, py] = await resolvePoint(page, { selector, x, y });
+      const duration = Math.max(100, Math.min(parseInt(value, 10) || 800, 10000));
+      await page.mouse.move(px, py);
+      await page.mouse.down();
+      await new Promise((r) => setTimeout(r, duration));
+      await page.mouse.up();
+      result.longPressedAt = { x: px, y: py };
+      result.holdMs = duration;
+      break;
+    }
+
+    case "toggle": {
+      if (!selector) throw new Error("selector required for toggle action");
+      // Toggles display:none on the matching element(s). Useful for A/B visual comparison.
+      const mode = value || "toggle"; // "hide" | "show" | "toggle"
+      const state = await page.evaluate((args) => {
+        const els = Array.from(document.querySelectorAll(args.sel));
+        if (!els.length) return { count: 0, visible: null };
+        let nowVisible;
+        for (const el of els) {
+          const currentlyHidden = el.style.display === "none" || getComputedStyle(el).display === "none";
+          if (args.mode === "hide") {
+            el.dataset.__dvPrevDisplay = el.dataset.__dvPrevDisplay || el.style.display || "";
+            el.style.display = "none";
+            nowVisible = false;
+          } else if (args.mode === "show") {
+            el.style.display = el.dataset.__dvPrevDisplay != null ? el.dataset.__dvPrevDisplay : "";
+            nowVisible = true;
+          } else {
+            if (currentlyHidden) {
+              el.style.display = el.dataset.__dvPrevDisplay != null ? el.dataset.__dvPrevDisplay : "";
+              nowVisible = true;
+            } else {
+              el.dataset.__dvPrevDisplay = el.dataset.__dvPrevDisplay || el.style.display || "";
+              el.style.display = "none";
+              nowVisible = false;
+            }
+          }
+        }
+        return { count: els.length, visible: nowVisible };
+      }, { sel: selector, mode });
+      result.toggled = selector;
+      result.count = state.count;
+      result.nowVisible = state.visible;
+      if (!state.count) throw new Error("toggle: no elements match " + selector);
+      break;
+    }
+
+    case "dialog": {
+      // Install a one-shot handler for the next dialog (alert / confirm / prompt / beforeunload)
+      if (typeof page.once !== "function") {
+        result.warning = "Dialog handling not supported by this browser driver";
+        break;
+      }
+      const accept = opts.accept !== false;
+      const promptText = typeof value === "string" ? value : undefined;
+      page.once("dialog", async (dialog) => {
+        try {
+          if (accept) {
+            if (promptText != null && typeof dialog.accept === "function") {
+              await dialog.accept(promptText);
+            } else {
+              await dialog.accept();
+            }
+          } else {
+            await dialog.dismiss();
+          }
+        } catch (_) {}
+      });
+      result.dialogHandlerInstalled = true;
+      result.accept = accept;
+      if (promptText != null) result.promptText = promptText;
+      break;
+    }
 
     case "type":
       if (!selector) throw new Error("selector required for type action");
@@ -1048,6 +1236,821 @@ async function runTest(opts) {
   }
 }
 
+// ── Shared helpers for interaction and measurement ──────────────────────────
+
+/**
+ * Resolve a point on the page from either a selector (center of bounding box)
+ * or explicit {x, y} coordinates. Used by drag/swipe/tap/long_press.
+ */
+async function resolvePoint(page, { selector, x, y }) {
+  if (selector) {
+    const el = await page.$(selector);
+    if (!el) throw new Error("Element not found: " + selector);
+    let box = null;
+    if (typeof el.boundingBox === "function") {
+      box = await el.boundingBox();
+    }
+    if (!box) {
+      box = await page.evaluate((sel) => {
+        const e = document.querySelector(sel);
+        if (!e) return null;
+        const r = e.getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };
+      }, selector);
+    }
+    if (!box) throw new Error("Could not compute bounding box for: " + selector);
+    return [box.x + box.width / 2, box.y + box.height / 2];
+  }
+  if (x != null && y != null) return [Number(x), Number(y)];
+  throw new Error("Either selector or {x,y} required");
+}
+
+/**
+ * Simulate a touch tap via the CDP touchscreen (Puppeteer/Playwright both expose it).
+ * Falls back to a mouse click if touch isn't available.
+ */
+async function simulateTouchTap(page, x, y) {
+  if (page.touchscreen && typeof page.touchscreen.tap === "function") {
+    try { await page.touchscreen.tap(x, y); return; } catch (_) {}
+  }
+  await page.mouse.click(x, y);
+}
+
+/**
+ * Simulate a touch swipe. Uses CDP touchscreen if available.
+ */
+async function simulateTouchSwipe(page, sx, sy, ex, ey, steps) {
+  const client = (typeof page.createCDPSession === "function")
+    ? await page.createCDPSession().catch(() => null)
+    : (page._client && typeof page._client === "function" ? page._client() : null);
+  if (client) {
+    try {
+      await client.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: sx, y: sy }] });
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        await client.send("Input.dispatchTouchEvent", {
+          type: "touchMove",
+          touchPoints: [{ x: sx + (ex - sx) * t, y: sy + (ey - sy) * t }]
+        });
+      }
+      await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      if (typeof client.detach === "function") await client.detach().catch(() => {});
+      return;
+    } catch (_) {
+      if (typeof client.detach === "function") client.detach().catch(() => {});
+    }
+  }
+  // Fallback: mouse drag
+  await page.mouse.move(sx, sy);
+  await page.mouse.down();
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    await page.mouse.move(sx + (ex - sx) * t, sy + (ey - sy) * t);
+  }
+  await page.mouse.up();
+}
+
+// ── Pixel color / element rect / measurement ────────────────────────────────
+
+const pngLite = require("./png-lite");
+
+/**
+ * Read the RGB(A) color of a single pixel in the current rendered page.
+ * Takes a 1×1 PNG clip to avoid decoding the full screenshot.
+ *
+ * @param {object} opts - { owner, repo, slug, x, y, deviceScaleFactor?, width?, height? }
+ */
+async function getPixelColor(opts) {
+  const { owner, repo, slug, width, height } = opts;
+  const x = Number(opts.x);
+  const y = Number(opts.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return { error: "x and y required" };
+  }
+
+  if (!hasPlaywright()) {
+    return { error: "No browser available — server is still setting one up, try again in a moment." };
+  }
+
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, owner, repo, slug, width, height);
+
+  // Clamp to viewport to avoid Playwright errors on out-of-bounds clips.
+  const vp = getViewport(page) || { width: 1280, height: 720 };
+  if (x < 0 || y < 0 || x >= vp.width || y >= vp.height) {
+    return { error: "point out of viewport", point: { x, y }, viewport: vp };
+  }
+
+  let buf;
+  try {
+    buf = await page.screenshot({ type: "png", clip: { x, y, width: 1, height: 1 } });
+  } catch (e) {
+    // Fallback: full-page screenshot and decode a single pixel
+    buf = await page.screenshot({ type: "png" });
+    const full = pngLite.decode(buf);
+    const pixel = pngLite.getPixel(full, x, y);
+    return { point: { x, y }, viewport: vp, url, ...pixel };
+  }
+  const img = pngLite.decode(buf);
+  const pixel = pngLite.getPixel(img, 0, 0);
+  return { point: { x, y }, viewport: vp, url, ...pixel };
+}
+
+/**
+ * Get the bounding rect + computed styles of a single element by selector.
+ * Structured data — no screenshot to squint at.
+ *
+ * @param {object} opts - { owner, repo, slug, selector, width?, height? }
+ */
+async function getElementRect(opts) {
+  const { owner, repo, slug, selector, width, height } = opts;
+  if (!selector) return { error: "selector required" };
+
+  if (!hasPlaywright()) {
+    return { error: "No browser available." };
+  }
+
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, owner, repo, slug, width, height);
+
+  const info = await page.evaluate((sel) => {
+    const els = Array.from(document.querySelectorAll(sel));
+    if (!els.length) return null;
+    return els.map((el) => {
+      const r = el.getBoundingClientRect();
+      const s = window.getComputedStyle(el);
+      return {
+        tagName: el.tagName.toLowerCase(),
+        id: el.id || null,
+        className: el.className || null,
+        rect: {
+          x: r.x, y: r.y,
+          top: r.top, left: r.left, right: r.right, bottom: r.bottom,
+          width: r.width, height: r.height,
+          centerX: r.x + r.width / 2,
+          centerY: r.y + r.height / 2
+        },
+        visible: !!(r.width && r.height) && s.visibility !== "hidden" && s.display !== "none" && parseFloat(s.opacity) > 0,
+        styles: {
+          display: s.display, position: s.position, visibility: s.visibility,
+          opacity: s.opacity, zIndex: s.zIndex,
+          width: s.width, height: s.height,
+          color: s.color, backgroundColor: s.backgroundColor,
+          font: s.font, fontSize: s.fontSize, fontWeight: s.fontWeight,
+          margin: s.margin, padding: s.padding, border: s.border,
+          transform: s.transform, transformOrigin: s.transformOrigin,
+          overflow: s.overflow,
+          boxShadow: s.boxShadow,
+          borderRadius: s.borderRadius
+        }
+      };
+    });
+  }, selector);
+
+  if (!info || !info.length) {
+    return { error: "no element matched", selector, url };
+  }
+  return {
+    selector,
+    count: info.length,
+    elements: info,
+    primary: info[0],
+    url
+  };
+}
+
+/**
+ * Measure distance / delta between two points, selectors, or a mix.
+ * Returns structured data (dx, dy, Euclidean distance) so Claude can do math
+ * directly instead of squinting at screenshots.
+ *
+ * @param {object} opts - { owner, repo, slug, a: {selector|x,y}, b: {selector|x,y} }
+ */
+async function measure(opts) {
+  const { owner, repo, slug, a, b, width, height } = opts;
+  if (!a || !b) return { error: "a and b required" };
+
+  if (!hasPlaywright()) return { error: "No browser available." };
+
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, owner, repo, slug, width, height);
+
+  const [ax, ay] = await resolvePoint(page, a);
+  const [bx, by] = await resolvePoint(page, b);
+  const dx = bx - ax;
+  const dy = by - ay;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  return {
+    a: { x: ax, y: ay, selector: a.selector || null },
+    b: { x: bx, y: by, selector: b.selector || null },
+    dx, dy,
+    distance,
+    manhattan: Math.abs(dx) + Math.abs(dy),
+    url
+  };
+}
+
+/**
+ * Compare two PNG screenshots pixel-by-pixel and return diff stats.
+ * Both inputs are required as base64 PNG buffers.
+ *
+ * Typical flow:
+ *   1) take a screenshot, save the base64
+ *   2) make a change
+ *   3) take another screenshot
+ *   4) call screenshot_diff with both base64 strings
+ *
+ * @param {object} opts - { before, after, threshold? }
+ */
+async function screenshotDiff(opts) {
+  if (!opts || !opts.before || !opts.after) {
+    return { error: "before and after (base64 PNGs) are required" };
+  }
+  let a, b;
+  try {
+    a = pngLite.decode(Buffer.from(opts.before, "base64"));
+  } catch (e) {
+    return { error: "failed to decode 'before' PNG: " + e.message };
+  }
+  try {
+    b = pngLite.decode(Buffer.from(opts.after, "base64"));
+  } catch (e) {
+    return { error: "failed to decode 'after' PNG: " + e.message };
+  }
+  const threshold = opts.threshold != null ? Number(opts.threshold) : 10;
+  return pngLite.diff(a, b, { threshold });
+}
+
+// ── Emulation (DPR, color scheme, geolocation, network throttling) ──────────
+
+/**
+ * Apply environment emulation to a persistent preview session.
+ * Resets are sticky for that session (cleared on session reset / close).
+ *
+ * @param {object} opts - {
+ *   owner, repo, slug,
+ *   deviceScaleFactor?, colorScheme?, reducedMotion?, touch?, geolocation?,
+ *   offline?, downloadThroughput?, uploadThroughput?, latency?, userAgent?
+ * }
+ */
+async function emulate(opts) {
+  const { owner, repo, slug } = opts;
+  if (!hasPlaywright()) return { error: "No browser available." };
+
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, owner, repo, slug, opts.width, opts.height);
+
+  const applied = {};
+
+  // devicePixelRatio / deviceScaleFactor
+  if (opts.deviceScaleFactor != null) {
+    const dpr = Math.max(0.5, Math.min(Number(opts.deviceScaleFactor), 4));
+    if (typeof page.setViewport === "function") {
+      // Puppeteer
+      const vp = getViewport(page) || { width: 1280, height: 720 };
+      await page.setViewport({ width: vp.width, height: vp.height, deviceScaleFactor: dpr });
+      applied.deviceScaleFactor = dpr;
+    } else {
+      // Playwright can't change DPR after context creation — emulate via CDP
+      try {
+        const client = await page.createCDPSession();
+        const vp = getViewport(page) || { width: 1280, height: 720 };
+        await client.send("Emulation.setDeviceMetricsOverride", {
+          width: vp.width, height: vp.height, deviceScaleFactor: dpr, mobile: false
+        });
+        applied.deviceScaleFactor = dpr;
+        await client.detach().catch(() => {});
+      } catch (e) {
+        applied.deviceScaleFactorError = e.message;
+      }
+    }
+  }
+
+  // Color scheme (dark / light / no-preference)
+  if (opts.colorScheme) {
+    try {
+      if (typeof page.emulateMediaFeatures === "function") {
+        await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value: opts.colorScheme }]);
+      } else if (typeof page.emulateMedia === "function") {
+        await page.emulateMedia({ colorScheme: opts.colorScheme });
+      }
+      applied.colorScheme = opts.colorScheme;
+    } catch (e) {
+      applied.colorSchemeError = e.message;
+    }
+  }
+
+  // Reduced motion
+  if (opts.reducedMotion) {
+    try {
+      if (typeof page.emulateMediaFeatures === "function") {
+        await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: opts.reducedMotion }]);
+      } else if (typeof page.emulateMedia === "function") {
+        await page.emulateMedia({ reducedMotion: opts.reducedMotion });
+      }
+      applied.reducedMotion = opts.reducedMotion;
+    } catch (e) {
+      applied.reducedMotionError = e.message;
+    }
+  }
+
+  // Touch
+  if (opts.touch != null) {
+    try {
+      if (typeof page.setViewport === "function") {
+        const vp = getViewport(page) || { width: 1280, height: 720 };
+        await page.setViewport({ ...vp, hasTouch: !!opts.touch, isMobile: !!opts.touch });
+      }
+      applied.touch = !!opts.touch;
+    } catch (e) {
+      applied.touchError = e.message;
+    }
+  }
+
+  // Geolocation (Puppeteer: page.setGeolocation; Playwright: context.setGeolocation)
+  if (opts.geolocation && typeof opts.geolocation === "object") {
+    try {
+      const geo = {
+        latitude:  Number(opts.geolocation.latitude),
+        longitude: Number(opts.geolocation.longitude),
+        accuracy:  Number(opts.geolocation.accuracy) || 50
+      };
+      if (typeof page.setGeolocation === "function") {
+        await page.setGeolocation(geo);
+      } else if (page.context && typeof page.context === "function") {
+        const ctx = page.context();
+        if (ctx && typeof ctx.setGeolocation === "function") {
+          await ctx.setGeolocation(geo);
+          await ctx.grantPermissions(["geolocation"]).catch(() => {});
+        }
+      }
+      applied.geolocation = geo;
+    } catch (e) {
+      applied.geolocationError = e.message;
+    }
+  }
+
+  // Network throttling / offline mode (via CDP)
+  if (opts.offline != null || opts.downloadThroughput != null || opts.latency != null) {
+    try {
+      const client = typeof page.createCDPSession === "function"
+        ? await page.createCDPSession()
+        : null;
+      if (client) {
+        await client.send("Network.enable");
+        await client.send("Network.emulateNetworkConditions", {
+          offline: !!opts.offline,
+          latency: opts.latency != null ? Number(opts.latency) : 0,
+          downloadThroughput: opts.downloadThroughput != null ? Number(opts.downloadThroughput) : -1,
+          uploadThroughput:   opts.uploadThroughput   != null ? Number(opts.uploadThroughput)   : -1
+        });
+        applied.network = {
+          offline: !!opts.offline,
+          latency: opts.latency != null ? Number(opts.latency) : 0,
+          downloadThroughput: opts.downloadThroughput != null ? Number(opts.downloadThroughput) : -1,
+          uploadThroughput: opts.uploadThroughput != null ? Number(opts.uploadThroughput) : -1
+        };
+        await client.detach().catch(() => {});
+      }
+    } catch (e) {
+      applied.networkError = e.message;
+    }
+  }
+
+  // Custom User-Agent
+  if (opts.userAgent) {
+    try {
+      if (typeof page.setUserAgent === "function") {
+        await page.setUserAgent(opts.userAgent);
+      } else if (typeof page.setExtraHTTPHeaders === "function") {
+        await page.setExtraHTTPHeaders({ "User-Agent": opts.userAgent });
+      }
+      applied.userAgent = opts.userAgent;
+    } catch (e) {
+      applied.userAgentError = e.message;
+    }
+  }
+
+  return { applied, url };
+}
+
+// ── Storage: cookies, localStorage, sessionStorage ─────────────────────────
+
+/**
+ * Read or write cookies, localStorage, or sessionStorage on a preview session.
+ *
+ * @param {object} opts - {
+ *   owner, repo, slug,
+ *   store: "cookies" | "localStorage" | "sessionStorage",
+ *   op: "get" | "set" | "delete" | "list" | "clear",
+ *   key?, value?, cookie?: { name, value, domain?, path?, expires? }
+ * }
+ */
+async function storage(opts) {
+  const { owner, repo, slug } = opts;
+  const store = opts.store || "localStorage";
+  const op = opts.op || "list";
+
+  if (!hasPlaywright()) return { error: "No browser available." };
+
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, owner, repo, slug, opts.width, opts.height);
+
+  if (store === "cookies") {
+    if (op === "list" || op === "get") {
+      let cookies = [];
+      try {
+        if (typeof page.cookies === "function") {
+          cookies = await page.cookies();
+        } else if (page.context && typeof page.context === "function") {
+          cookies = await page.context().cookies();
+        }
+      } catch (e) { return { error: "cookies read failed: " + e.message, url }; }
+      if (op === "get" && opts.key) {
+        return { cookie: cookies.find((c) => c.name === opts.key) || null, url };
+      }
+      return { cookies, url };
+    }
+    if (op === "set") {
+      const c = opts.cookie || { name: opts.key, value: opts.value };
+      if (!c.name) return { error: "cookie name required", url };
+      try {
+        if (typeof page.setCookie === "function") {
+          await page.setCookie(c);
+        } else if (page.context && typeof page.context === "function") {
+          await page.context().addCookies([{
+            name: c.name, value: String(c.value || ""),
+            domain: c.domain, path: c.path || "/",
+            expires: c.expires, url: (!c.domain ? url : undefined)
+          }]);
+        }
+      } catch (e) { return { error: "cookie set failed: " + e.message, url }; }
+      return { set: c.name, url };
+    }
+    if (op === "delete") {
+      try {
+        if (typeof page.deleteCookie === "function") {
+          await page.deleteCookie({ name: opts.key });
+        } else if (page.context && typeof page.context === "function") {
+          const ctx = page.context();
+          const cookies = await ctx.cookies();
+          await ctx.clearCookies();
+          // Re-add everything except the deleted one
+          const keep = cookies.filter((c) => c.name !== opts.key);
+          if (keep.length) await ctx.addCookies(keep);
+        }
+      } catch (e) { return { error: "cookie delete failed: " + e.message, url }; }
+      return { deleted: opts.key, url };
+    }
+    if (op === "clear") {
+      try {
+        if (page.context && typeof page.context === "function") {
+          await page.context().clearCookies();
+        } else if (typeof page.deleteCookie === "function") {
+          const cookies = await page.cookies();
+          for (const c of cookies) await page.deleteCookie({ name: c.name });
+        }
+      } catch (e) { return { error: "cookie clear failed: " + e.message, url }; }
+      return { cleared: true, url };
+    }
+  }
+
+  // localStorage / sessionStorage via page.evaluate
+  if (store === "localStorage" || store === "sessionStorage") {
+    const result = await page.evaluate((args) => {
+      const s = args.store === "sessionStorage" ? window.sessionStorage : window.localStorage;
+      switch (args.op) {
+        case "list": {
+          const out = {};
+          for (let i = 0; i < s.length; i++) {
+            const k = s.key(i);
+            out[k] = s.getItem(k);
+          }
+          return { items: out, count: s.length };
+        }
+        case "get":
+          return { key: args.key, value: s.getItem(args.key) };
+        case "set":
+          s.setItem(args.key, args.value == null ? "" : String(args.value));
+          return { set: args.key };
+        case "delete":
+          s.removeItem(args.key);
+          return { deleted: args.key };
+        case "clear":
+          s.clear();
+          return { cleared: true };
+        default:
+          return { error: "unknown op: " + args.op };
+      }
+    }, { store, op, key: opts.key, value: opts.value });
+    return { store, ...result, url };
+  }
+
+  return { error: "unknown store: " + store };
+}
+
+// ── Performance metrics ────────────────────────────────────────────────────
+
+/**
+ * Collect performance metrics for a preview: navigation timing, resource count,
+ * and paint timings. Optionally reloads to get a clean measurement.
+ */
+async function performanceMetrics(opts) {
+  const { owner, repo, slug } = opts;
+  if (!hasPlaywright()) return { error: "No browser available." };
+
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, owner, repo, slug, opts.width, opts.height);
+
+  if (opts.reload) {
+    try { await page.reload({ waitUntil: waitUntilIdle(), timeout: 30000 }); } catch (_) {}
+  }
+
+  const metrics = await page.evaluate(() => {
+    const out = {};
+    const nav = performance.getEntriesByType && performance.getEntriesByType("navigation")[0];
+    if (nav) {
+      out.navigation = {
+        type: nav.type,
+        duration: Math.round(nav.duration),
+        domContentLoaded: Math.round(nav.domContentLoadedEventEnd),
+        load: Math.round(nav.loadEventEnd),
+        ttfb: Math.round(nav.responseStart),
+        domInteractive: Math.round(nav.domInteractive),
+        transferSize: nav.transferSize,
+        encodedBodySize: nav.encodedBodySize,
+        decodedBodySize: nav.decodedBodySize
+      };
+    }
+    const paint = performance.getEntriesByType && performance.getEntriesByType("paint") || [];
+    out.paint = {};
+    for (const p of paint) out.paint[p.name] = Math.round(p.startTime);
+
+    const resources = performance.getEntriesByType && performance.getEntriesByType("resource") || [];
+    out.resourceCount = resources.length;
+    out.totalTransfer = resources.reduce((acc, r) => acc + (r.transferSize || 0), 0);
+    out.resourcesByType = resources.reduce((acc, r) => {
+      const t = r.initiatorType || "other";
+      acc[t] = (acc[t] || 0) + 1;
+      return acc;
+    }, {});
+
+    out.memory = performance.memory ? {
+      usedJSHeapSize: performance.memory.usedJSHeapSize,
+      totalJSHeapSize: performance.memory.totalJSHeapSize,
+      jsHeapSizeLimit: performance.memory.jsHeapSizeLimit
+    } : null;
+
+    return out;
+  });
+
+  return { metrics, url };
+}
+
+// ── Network request capture for a preview ─────────────────────────────────
+
+/**
+ * Attach network capture to the preview session and collect requests for a duration.
+ * Useful for spotting lazy-loaded assets or XHR calls without using web_fetch.
+ */
+async function capturePreviewRequests(opts) {
+  const { owner, repo, slug } = opts;
+  if (!hasPlaywright()) return { error: "No browser available." };
+
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, owner, repo, slug, opts.width, opts.height);
+
+  const duration = Math.max(1, Math.min(Number(opts.duration) || 5, 60)) * 1000;
+  const maxRequests = Math.max(10, Math.min(Number(opts.maxRequests) || 500, 2000));
+  const requests = [];
+  let truncated = false;
+
+  const onResponse = (resp) => {
+    try {
+      if (requests.length >= maxRequests) { truncated = true; return; }
+      const req = resp.request ? resp.request() : null;
+      const rurl = typeof resp.url === "function" ? resp.url() : "";
+      if (!rurl) return;
+      const rtype = (req && typeof req.resourceType === "function") ? req.resourceType() : "other";
+      const headers = typeof resp.headers === "function" ? (resp.headers() || {}) : {};
+      requests.push({
+        url: rurl,
+        method: (req && typeof req.method === "function") ? req.method() : "GET",
+        resourceType: rtype,
+        status: typeof resp.status === "function" ? resp.status() : 0,
+        contentType: (headers["content-type"] || "").split(";")[0].trim(),
+        size: headers["content-length"] ? parseInt(headers["content-length"], 10) : null
+      });
+    } catch (_) {}
+  };
+  page.on("response", onResponse);
+
+  if (opts.reload) {
+    try { await page.reload({ waitUntil: waitUntilIdle(), timeout: 30000 }); } catch (_) {}
+  }
+  await new Promise((r) => setTimeout(r, duration));
+  try { page.off("response", onResponse); } catch (_) {}
+
+  const byType = {};
+  for (const r of requests) byType[r.resourceType] = (byType[r.resourceType] || 0) + 1;
+
+  return {
+    url, duration: duration / 1000,
+    requestCount: requests.length,
+    truncated,
+    requestsByType: byType,
+    requests
+  };
+}
+
+// ── File download capture ──────────────────────────────────────────────────
+
+/**
+ * Trigger a download (via click or evaluate) and return the downloaded file
+ * as base64. Works by subscribing to the browser's download events.
+ *
+ * @param {object} opts - {
+ *   owner, repo, slug,
+ *   trigger: "click" | "evaluate",
+ *   selector?, code?, timeout?
+ * }
+ */
+async function captureDownload(opts) {
+  const { owner, repo, slug } = opts;
+  if (!hasPlaywright()) return { error: "No browser available." };
+
+  const browser = await getBrowser();
+  const { page, url } = await getSessionPage(browser, owner, repo, slug, opts.width, opts.height);
+
+  const timeout = Math.max(1000, Math.min(Number(opts.timeout) || 30000, 120000));
+
+  // ── Playwright path ──
+  if (typeof page.waitForEvent === "function") {
+    try {
+      const downloadPromise = page.waitForEvent("download", { timeout });
+      if (opts.trigger === "evaluate" && opts.code) {
+        await page.evaluate("(async () => { " + opts.code + " })()");
+      } else if (opts.selector) {
+        await page.click(opts.selector).catch(() => {});
+      } else {
+        throw new Error("trigger requires selector or code");
+      }
+      const download = await downloadPromise;
+      const fsp = fs.promises;
+      const os = require("os");
+      const crypto = require("crypto");
+      const tmp = path.join(os.tmpdir(), "dv-download-" + crypto.randomBytes(6).toString("hex"));
+      await download.saveAs(tmp);
+      const buf = await fsp.readFile(tmp);
+      await fsp.unlink(tmp).catch(() => {});
+      return {
+        suggestedFilename: download.suggestedFilename ? download.suggestedFilename() : null,
+        byteLength: buf.length,
+        base64: buf.toString("base64"),
+        url
+      };
+    } catch (e) {
+      return { error: "download capture failed: " + e.message, url };
+    }
+  }
+
+  // ── Puppeteer path ──
+  // Set download behaviour to a temp dir via CDP
+  try {
+    const os = require("os");
+    const crypto = require("crypto");
+    const downloadDir = path.join(os.tmpdir(), "dv-download-" + crypto.randomBytes(6).toString("hex"));
+    fs.mkdirSync(downloadDir, { recursive: true });
+    const client = await page._client().send
+      ? page._client()
+      : (typeof page.target === "function" ? await page.target().createCDPSession() : null);
+    if (client) {
+      await client.send("Page.setDownloadBehavior", {
+        behavior: "allow",
+        downloadPath: downloadDir
+      });
+    }
+    if (opts.trigger === "evaluate" && opts.code) {
+      await page.evaluate("(async () => { " + opts.code + " })()");
+    } else if (opts.selector) {
+      await page.click(opts.selector).catch(() => {});
+    } else {
+      return { error: "trigger requires selector or code", url };
+    }
+    // Poll downloadDir for a non-crdownload file
+    const deadline = Date.now() + timeout;
+    let fileName = null;
+    while (Date.now() < deadline) {
+      const files = fs.readdirSync(downloadDir).filter((f) => !f.endsWith(".crdownload"));
+      if (files.length) { fileName = files[0]; break; }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    if (!fileName) return { error: "download timed out", url };
+    const full = path.join(downloadDir, fileName);
+    const buf = fs.readFileSync(full);
+    try { fs.unlinkSync(full); fs.rmdirSync(downloadDir); } catch (_) {}
+    return {
+      suggestedFilename: fileName,
+      byteLength: buf.length,
+      base64: buf.toString("base64"),
+      url
+    };
+  } catch (e) {
+    return { error: "download capture failed: " + e.message, url };
+  }
+}
+
+// ── Deploy + verify one-shot ───────────────────────────────────────────────
+
+/**
+ * One-call build-and-verify. Triggers a deploy, waits for it to become ready,
+ * then returns a screenshot, console capture, and brief page metadata.
+ * Replaces the common 5-call flow: trigger_build → build_status (x3) → screenshot.
+ *
+ * @param {object} opts - { owner, repo, slug, wait?, width?, height?, duration? }
+ */
+async function deployAndVerify(opts) {
+  const { owner, repo, slug } = opts;
+  if (!owner || !repo || !slug) return { error: "owner, repo, slug required" };
+
+  const { getConfig } = require("./config");
+  const { branchSlug, buildStatus: bs, deployBranch } = require("./build");
+
+  const config = getConfig();
+  const repoConfig = config.repos.find((r) => r.owner === owner && r.repo === repo);
+  if (!repoConfig) return { error: "Repository not found: " + owner + "/" + repo };
+  const bc = repoConfig.activeBranches.find((b) => branchSlug(b) === slug);
+  if (!bc) return { error: "Branch config not found for slug: " + slug };
+
+  const key = owner + "/" + repo + ":" + slug;
+  const startTs = Date.now();
+
+  // Close the existing session so we get a fresh page on the new build
+  try { closeSession(owner, repo, slug); } catch (_) {}
+
+  // Kick off the deploy
+  deployBranch(repoConfig, bc);
+
+  // Wait for ready (or running). Polls buildStatus.
+  const waitMs = Math.max(5000, Math.min(Number(opts.wait) || 180000, 600000));
+  const pollInterval = 1000;
+  let status;
+  while (Date.now() - startTs < waitMs) {
+    status = bs[key];
+    if (status && (status.status === "ready" || status.status === "running")) break;
+    if (status && status.status === "failed") break;
+    await new Promise((r) => setTimeout(r, pollInterval));
+  }
+
+  const deployDuration = Date.now() - startTs;
+
+  if (!status || (status.status !== "ready" && status.status !== "running")) {
+    return {
+      error: "deploy did not become ready within " + (waitMs / 1000) + "s",
+      status: status ? status.status : "unknown",
+      log: status && status.log ? String(status.log).slice(-4000) : null,
+      duration: deployDuration
+    };
+  }
+
+  // Give the server a moment to settle, then screenshot + capture logs briefly
+  await new Promise((r) => setTimeout(r, 800));
+
+  let screenshot = null;
+  let screenshotError = null;
+  try {
+    const shot = await takeScreenshot({
+      owner, repo, slug,
+      width: opts.width, height: opts.height,
+      fullPage: !!opts.fullPage
+    });
+    if (shot.error) screenshotError = shot.error;
+    else screenshot = shot;
+  } catch (e) {
+    screenshotError = e.message;
+  }
+
+  // Capture console for a short duration (default 2s)
+  let consoleResult = null;
+  try {
+    const duration = opts.duration != null ? Number(opts.duration) : 2;
+    consoleResult = await captureConsole({ owner, repo, slug, duration });
+  } catch (e) {
+    consoleResult = { error: e.message };
+  }
+
+  return {
+    key,
+    status: status.status,
+    commitSha: status.commitSha,
+    deployDuration,
+    screenshot,
+    screenshotError,
+    console: consoleResult,
+    previewUrl: "/preview/" + owner + "/" + repo + "/" + slug + "/"
+  };
+}
+
 module.exports = {
   takeScreenshot,
   inspectDOM,
@@ -1059,5 +2062,16 @@ module.exports = {
   closeSession,
   closeAllSessions,
   hasPlaywright,
-  browseUrl
+  browseUrl,
+  // New primitives
+  getPixelColor,
+  getElementRect,
+  measure,
+  screenshotDiff,
+  emulate,
+  storage,
+  performanceMetrics,
+  capturePreviewRequests,
+  captureDownload,
+  deployAndVerify
 };

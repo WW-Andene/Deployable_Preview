@@ -139,11 +139,24 @@ npm start
 | `list_previews` | List all deployed app previews with status and URLs |
 | `screenshot` | Take a PNG screenshot of a deployed preview |
 | `inspect` | Get accessibility tree, DOM structure, and element details |
-| `interact` | Click, type, select, scroll, hover, or navigate in a preview |
+| `interact` | Click, type, drag, file-upload, tap/swipe, back/forward, key, toggle, dialog — single tool for all interactions |
 | `console_logs` | Capture console output and errors for a duration |
 | `build_status` | Get build/server status for a deployment |
 | `trigger_build` | Trigger a rebuild or server restart |
 | `get_build_log` | Retrieve the full build log |
+| `reset_session` | Reset the persistent browser session (clear state) |
+| `run_test` | Run the automated test harness and return results |
+| `get_pixel_color` | Read the RGB(A) colour of a single pixel in the rendered page — exact colour verification |
+| `get_element_rect` | Bounding box + computed styles for a selector (structured, not a screenshot) |
+| `measure` | Distance / delta between two points or elements (dx, dy, Euclidean) |
+| `screenshot_diff` | Pixel-compare two base64 PNGs — diff count, percent, bounding box |
+| `emulate` | DPR, dark/light mode, reduced-motion, touch, geolocation, network throttle, UA |
+| `storage` | Read/write cookies, localStorage, sessionStorage |
+| `performance` | Navigation timing, paint timings, resource counts, heap memory |
+| `capture_requests` | Duration-based network-request recorder for a preview |
+| `download` | Trigger + capture a file download, returned as base64 |
+| `deploy_and_verify` | One-shot: trigger build → wait for ready → screenshot + console (replaces 5 separate calls) |
+| `web_fetch` | Universal URL fetcher / scraper (HTML, JSON, RSS, binaries) with optional JS rendering |
 
 ### MCP HTTP API
 
@@ -157,7 +170,16 @@ When the HTTP server is running, MCP tools are also available via REST:
 | `/api/mcp/screenshot/:owner/:repo/:slug` | GET | Take a screenshot |
 | `/api/mcp/inspect/:owner/:repo/:slug` | GET | Inspect DOM / a11y tree |
 | `/api/mcp/console/:owner/:repo/:slug` | GET | Capture console logs |
-| `/api/mcp/interact/:owner/:repo/:slug` | POST | Click, type, scroll, etc. |
+| `/api/mcp/interact/:owner/:repo/:slug` | POST | Click, type, drag, upload, tap, etc. |
+| `/api/mcp/pixel/:owner/:repo/:slug?x=&y=` | GET | RGB(A) colour of a single pixel |
+| `/api/mcp/rect/:owner/:repo/:slug?selector=` | GET | Element bounding box + computed styles |
+| `/api/mcp/measure/:owner/:repo/:slug` | POST | Distance between two points/selectors |
+| `/api/mcp/screenshot-diff` | POST | Pixel-diff two base64 PNGs |
+| `/api/mcp/emulate/:owner/:repo/:slug` | POST | DPR, dark mode, geolocation, throttling |
+| `/api/mcp/storage/:owner/:repo/:slug` | POST | Cookies / localStorage / sessionStorage CRUD |
+| `/api/mcp/perf/:owner/:repo/:slug` | GET | Performance metrics |
+| `/api/mcp/requests/:owner/:repo/:slug?duration=` | GET | Network request capture |
+| `/api/mcp/deploy-and-verify/:owner/:repo/:slug` | POST | Build + wait + screenshot in one call |
 | `/api/mcp/previews` | GET | List active previews |
 | `/api/health` | GET | Health check / uptime |
 

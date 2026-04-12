@@ -573,6 +573,146 @@ router.get("/mcp/previews", (req, res) => {
   res.json(mcpBrowser.listPreviews());
 });
 
+// ── New MCP primitives (HTTP shortcuts) ───────────────────────────────────
+
+// Pixel color at (x, y)
+router.get("/mcp/pixel/:owner/:repo/:slug", async (req, res) => {
+  try {
+    const result = await mcpBrowser.getPixelColor({
+      owner: req.params.owner,
+      repo:  req.params.repo,
+      slug:  req.params.slug,
+      x: parseFloat(req.query.x),
+      y: parseFloat(req.query.y),
+      width:  parseInt(req.query.width, 10) || undefined,
+      height: parseInt(req.query.height, 10) || undefined
+    });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Element rect + computed styles
+router.get("/mcp/rect/:owner/:repo/:slug", async (req, res) => {
+  try {
+    const result = await mcpBrowser.getElementRect({
+      owner: req.params.owner,
+      repo:  req.params.repo,
+      slug:  req.params.slug,
+      selector: req.query.selector,
+      width:  parseInt(req.query.width, 10) || undefined,
+      height: parseInt(req.query.height, 10) || undefined
+    });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Measure distance between two points/selectors
+router.post("/mcp/measure/:owner/:repo/:slug", async (req, res) => {
+  try {
+    const result = await mcpBrowser.measure({
+      owner: req.params.owner,
+      repo:  req.params.repo,
+      slug:  req.params.slug,
+      ...req.body
+    });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Screenshot diff — accepts { before, after, threshold? } as JSON
+router.post("/mcp/screenshot-diff", async (req, res) => {
+  try {
+    const result = await mcpBrowser.screenshotDiff(req.body || {});
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Emulate environment (DPR, dark mode, geolocation, network throttle…)
+router.post("/mcp/emulate/:owner/:repo/:slug", async (req, res) => {
+  try {
+    const result = await mcpBrowser.emulate({
+      owner: req.params.owner,
+      repo:  req.params.repo,
+      slug:  req.params.slug,
+      ...req.body
+    });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Storage CRUD (cookies / localStorage / sessionStorage)
+router.post("/mcp/storage/:owner/:repo/:slug", async (req, res) => {
+  try {
+    const result = await mcpBrowser.storage({
+      owner: req.params.owner,
+      repo:  req.params.repo,
+      slug:  req.params.slug,
+      ...req.body
+    });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Performance metrics
+router.get("/mcp/perf/:owner/:repo/:slug", async (req, res) => {
+  try {
+    const result = await mcpBrowser.performanceMetrics({
+      owner: req.params.owner,
+      repo:  req.params.repo,
+      slug:  req.params.slug,
+      reload: req.query.reload === "true"
+    });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Network request capture (duration-based)
+router.get("/mcp/requests/:owner/:repo/:slug", async (req, res) => {
+  try {
+    const result = await mcpBrowser.capturePreviewRequests({
+      owner: req.params.owner,
+      repo:  req.params.repo,
+      slug:  req.params.slug,
+      duration: parseFloat(req.query.duration) || 5,
+      maxRequests: parseInt(req.query.maxRequests, 10) || undefined,
+      reload: req.query.reload === "true"
+    });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Deploy + verify one-shot
+router.post("/mcp/deploy-and-verify/:owner/:repo/:slug", async (req, res) => {
+  try {
+    const result = await mcpBrowser.deployAndVerify({
+      owner: req.params.owner,
+      repo:  req.params.repo,
+      slug:  req.params.slug,
+      ...req.body
+    });
+    if (result.error) return res.status(500).json(result);
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Web Fetch tool (HTTP API) ──────────────────────────────────────────────
 
 const { webFetch } = require("../web-fetch");
