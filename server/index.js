@@ -269,6 +269,44 @@ httpServer = app.listen(PORT, () => {
   } else {
     console.log("  Browser tools: off (enable in Settings)");
   }
+
+  // ── Background: auto-install missing MCP enrichment libraries ──
+  //
+  // Without blocking startup, check whether any of the ~30 optional
+  // library-backed MCP tools are missing their npm package and trigger
+  // a background `npm install` for whatever's absent. Libraries are
+  // lazy-loaded inside the tools so anything that finishes installing
+  // becomes available immediately on the next tool call.
+  if (process.env.DEPLOYVIEW_SKIP_ENRICHMENTS !== "1") {
+    try {
+      const { LIBS, isInstalled } = require("../scripts/install-enrichments");
+      const missing = LIBS.filter((lib) => !isInstalled(lib));
+      if (missing.length) {
+        console.log("  Enrichments: " + missing.length + " missing — installing in background");
+        const { spawn } = require("child_process");
+        const child = spawn(
+          "node",
+          [path.join(__dirname, "..", "scripts", "install-enrichments.js"), "--quiet"],
+          {
+            cwd: path.join(__dirname, ".."),
+            stdio: ["ignore", "pipe", "pipe"],
+            detached: false
+          }
+        );
+        child.stdout.on("data", (d) => process.stdout.write("[enrichments] " + d.toString()));
+        child.stderr.on("data", (d) => process.stderr.write("[enrichments] " + d.toString()));
+        child.on("exit", (code) => {
+          if (code === 0) console.log("  Enrichments: install finished, tools now available");
+          else console.warn("  Enrichments: installer exited with code " + code);
+        });
+        child.on("error", (e) => console.warn("  Enrichments: spawn error: " + e.message));
+      } else {
+        console.log("  Enrichments: all libraries present");
+      }
+    } catch (e) {
+      console.warn("  Enrichments: check failed: " + e.message);
+    }
+  }
   // this makes all modes (static, server, MCP, web fetch) run simultaneously.
   // Use --no-mcp to disable stdio MCP if stdin is not a terminal / not needed.
   if (!process.argv.includes("--no-mcp")) {

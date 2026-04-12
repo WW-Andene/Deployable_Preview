@@ -154,4 +154,42 @@ if (nodeMajor < 18) {
   ok("Node.js v" + process.versions.node + " — OK.");
 }
 
+// ── Step 4: Enrichment libraries (optional, library-backed MCP tools) ──
+//
+// The MCP tool suite uses ~30 optional npm libraries (pixelmatch, sharp,
+// axe-core, tesseract.js, lighthouse, css-tree, colorthief, cheerio,
+// natural, linkinator, etc.) — all listed as optionalDependencies so
+// they're installed automatically by npm, but a native build failure
+// on one (sharp / canvas / tesseract) must not block the rest.
+//
+// We delegate to scripts/install-enrichments.js which:
+//   • checks each library via require.resolve()
+//   • batches the install for speed
+//   • falls back to one-at-a-time retries when the batch fails
+//   • never fails hard
+//
+// Flag DEPLOYVIEW_SKIP_ENRICHMENTS=1 to skip entirely.
+
+if (process.env.DEPLOYVIEW_SKIP_ENRICHMENTS === "1") {
+  log("DEPLOYVIEW_SKIP_ENRICHMENTS=1 — skipping enrichment library setup.");
+} else {
+  log("Verifying enrichment libraries...");
+  try {
+    const installerPath = path.join(__dirname, "install-enrichments.js");
+    const r = spawnSync("node", [installerPath], {
+      cwd: ROOT,
+      stdio: "inherit",
+      timeout: 15 * 60 * 1000
+    });
+    if (r.status === 0) {
+      ok("Enrichment libraries verified.");
+    } else {
+      warn("Enrichment installer exited with code " + r.status + " — some libraries may be missing.");
+      warn("  Affected MCP tools will return a clean 'install X' error when invoked.");
+    }
+  } catch (e) {
+    warn("Enrichment installer failed: " + e.message);
+  }
+}
+
 log("Setup complete.");

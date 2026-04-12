@@ -1,0 +1,204 @@
+#!/usr/bin/env node
+/**
+ * scripts/install-enrichments.js
+ *
+ * Auto-install the optional enrichment libraries that power the MCP
+ * library-backed tools (pixelmatch, sharp, axe-core, tesseract.js,
+ * lighthouse, css-tree, colorthief, cheerio, natural, linkinator, etc.)
+ *
+ * Usage:
+ *   node scripts/install-enrichments.js              # install everything missing
+ *   node scripts/install-enrichments.js --check      # just report which are present
+ *   node scripts/install-enrichments.js --quiet      # suppress per-lib logs
+ *
+ * Behaviour:
+ *   • Each library is checked via require.resolve() — already-installed
+ *     libraries are skipped.
+ *   • Missing libraries are installed in a single batched `npm install`
+ *     call with --no-save and --no-audit --no-fund for speed.
+ *   • Native modules that fail to build (sharp, canvas, tesseract on
+ *     some hosts) do NOT abort the run — they're marked as failed and
+ *     the rest still install.
+ *   • This script is called by scripts/postinstall.js and can also be
+ *     triggered at server startup in the background.
+ *
+ * Environment flags:
+ *   DEPLOYVIEW_SKIP_ENRICHMENTS=1   — skip entirely
+ *   DEPLOYVIEW_ENRICHMENT_TIMEOUT   — per-install timeout in ms (default: 10 min)
+ */
+
+"use strict";
+
+const { spawnSync } = require("child_process");
+const { createRequire } = require("module");
+const path = require("path");
+
+const ROOT = path.join(__dirname, "..");
+const TAG = "[enrichments]";
+
+// Resolve modules as if from the project root so ROOT/node_modules is walked.
+const projectRequire = createRequire(path.join(ROOT, "package.json"));
+
+function log(msg)  { if (!QUIET) console.log(TAG + " " + msg); }
+function warn(msg) { console.warn(TAG + " ⚠  " + msg); }
+function ok(msg)   { if (!QUIET) console.log(TAG + " ✓  " + msg); }
+
+const CHECK_ONLY = process.argv.includes("--check");
+const QUIET      = process.argv.includes("--quiet");
+
+// The full list of enrichment libraries. Keep this in sync with the
+// optionalDependencies block in package.json.
+const LIBS = [
+  // Image / visual diffing
+  "pixelmatch",
+  "pngjs",
+  "sharp",
+  "ssim.js",
+  "looks-same",
+  "canvas",
+  "image-size",
+  "exifreader",
+  "colorthief",
+  "get-image-colors",
+  // Accessibility / audit / OCR
+  "axe-core",
+  "tesseract.js",
+  "lighthouse",
+  // CSS / DOM parsing
+  "css-tree",
+  "cheerio",
+  "css-select",
+  "specificity",
+  "html-validator",
+  // Performance
+  "web-vitals",
+  "gzip-size",
+  // Text
+  "diff",
+  "natural",
+  "linkinator",
+  // Runtime debugging
+  "error-stack-parser",
+  "source-map",
+  "v8-to-istanbul",
+  // Security / cookies / robots
+  "retire",
+  "csp-parse",
+  "set-cookie-parser",
+  "tough-cookie",
+  "robots-parser"
+];
+
+function isInstalled(name) {
+  try {
+    projectRequire.resolve(name);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function runNpmInstall(packages) {
+  const timeout = parseInt(process.env.DEPLOYVIEW_ENRICHMENT_TIMEOUT, 10) || (10 * 60 * 1000);
+  const args = [
+    "install",
+    "--no-save",
+    "--no-audit",
+    "--no-fund",
+    "--loglevel=error",
+    ...packages
+  ];
+  log("Running: npm " + args.join(" "));
+  const r = spawnSync("npm", args, {
+    cwd: ROOT,
+    stdio: QUIET ? ["ignore", "pipe", "pipe"] : "inherit",
+    timeout,
+    shell: process.platform === "win32"
+  });
+  return r.status === 0;
+}
+
+function installOneAtATime(packages) {
+  // When batched install fails (typically because ONE native dep failed to
+  // build), fall back to one-by-one so every other library still lands.
+  const succeeded = [];
+  const failed = [];
+  for (const pkg of packages) {
+    const ok = runNpmInstall([pkg]);
+    if (ok) succeeded.push(pkg);
+    else {
+      failed.push(pkg);
+      warn("  ✗ " + pkg + " — install failed (native build?)");
+    }
+  }
+  return { succeeded, failed };
+}
+
+function main() {
+  if (process.env.DEPLOYVIEW_SKIP_ENRICHMENTS === "1") {
+    log("DEPLOYVIEW_SKIP_ENRICHMENTS=1 — skipping.");
+    return 0;
+  }
+
+  const missing = [];
+  const present = [];
+  for (const lib of LIBS) {
+    if (isInstalled(lib)) present.push(lib);
+    else missing.push(lib);
+  }
+
+  log("Enrichment libraries: " + present.length + "/" + LIBS.length + " installed");
+  if (present.length) log("  Installed: " + present.join(", "));
+  if (missing.length) log("  Missing:   " + missing.join(", "));
+
+  if (CHECK_ONLY) {
+    return missing.length === 0 ? 0 : 1;
+  }
+
+  if (!missing.length) {
+    ok("All enrichment libraries are present.");
+    return 0;
+  }
+
+  log("Installing " + missing.length + " missing libraries...");
+
+  // Try a single batched install first — much faster.
+  const batchOk = runNpmInstall(missing);
+  if (batchOk) {
+    // Re-verify — some libs may have failed silently
+    const stillMissing = missing.filter((m) => !isInstalled(m));
+    if (!stillMissing.length) {
+      ok("All " + missing.length + " libraries installed.");
+      return 0;
+    }
+    warn(stillMissing.length + " libraries still missing after batch install — retrying individually.");
+    const { succeeded, failed } = installOneAtATime(stillMissing);
+    ok("Installed individually: " + (succeeded.length || 0));
+    if (failed.length) {
+      warn("Failed to install: " + failed.join(", "));
+      warn("  (Tools depending on these libraries will report 'install X' errors.)");
+    }
+    return 0;
+  }
+
+  // Batch failed — retry one-by-one so a single bad native build doesn't block everything
+  warn("Batch install failed. Retrying one-at-a-time...");
+  const { succeeded, failed } = installOneAtATime(missing);
+  ok("Installed: " + succeeded.length + " / " + missing.length);
+  if (failed.length) {
+    warn("Failed: " + failed.join(", "));
+    warn("  (Tools depending on these libraries will report 'install X' errors — the rest still work.)");
+  }
+  return 0;
+}
+
+if (require.main === module) {
+  try {
+    process.exit(main() || 0);
+  } catch (e) {
+    warn("Unexpected error: " + e.message);
+    process.exit(0); // never fail hard — enrichments are optional
+  }
+}
+
+module.exports = { LIBS, isInstalled, runNpmInstall };
