@@ -410,15 +410,35 @@ async function buildBranch(repoConfig, branchConfig) {
         const PREFIX = process.env.PREFIX || "/data/data/com.termux/files/usr";
         const libgccPath = path.join(PREFIX, "lib", "libgcc_s.so.1");
         if (!fs.existsSync(libgccPath)) {
-          const libunwindPath = path.join(PREFIX, "lib", "libunwind.so");
-          if (fs.existsSync(libunwindPath)) {
-            addLog("ARM Android: creating libgcc_s.so.1 symlink -> libunwind.so");
-            try { fs.symlinkSync(libunwindPath, libgccPath); }
-            catch (e) {
-              addLog("WARNING: could not create libgcc_s.so.1 symlink: " + e.message);
-            }
-          } else {
-            addLog("WARNING: neither libgcc_s.so.1 nor libunwind.so found in " + PREFIX + "/lib");
+          // Termux uses LLVM/clang — no libgcc_s.so.1 exists anywhere.
+          // The musl SWC binary references it (for _Unwind_* symbols) but
+          // Rust binaries compiled with panic=abort never actually call the
+          // unwinder. Compile a minimal stub .so so dlopen succeeds.
+          addLog("ARM Android: compiling libgcc_s.so.1 stub (Termux has no GCC runtime)");
+          try {
+            const stubSrc = [
+              "void _Unwind_Resume(void) {}",
+              "void _Unwind_Backtrace(void) {}",
+              "void _Unwind_GetIP(void) {}",
+              "void _Unwind_GetRegionStart(void) {}",
+              "void _Unwind_GetLanguageSpecificData(void) {}",
+              "void _Unwind_RaiseException(void) {}",
+              "void _Unwind_DeleteException(void) {}",
+              "void _Unwind_SetGR(void) {}",
+              "void _Unwind_SetIP(void) {}",
+              "void __register_frame(void) {}",
+              "void __deregister_frame(void) {}",
+              "void __register_frame_info(void) {}",
+              "void __deregister_frame_info(void) {}"
+            ].join("\n");
+            const stubC = path.join(PREFIX, "tmp", "gcc_s_stub.c");
+            fs.mkdirSync(path.dirname(stubC), { recursive: true });
+            fs.writeFileSync(stubC, stubSrc);
+            execSync("clang -shared -o " + JSON.stringify(libgccPath) + " " + JSON.stringify(stubC), { timeout: 30000 });
+            fs.unlinkSync(stubC);
+            addLog("ARM Android: libgcc_s.so.1 stub compiled and installed");
+          } catch (e) {
+            addLog("WARNING: could not compile libgcc_s.so.1 stub: " + e.message);
           }
         }
         if (!userEnv.LD_LIBRARY_PATH) {
