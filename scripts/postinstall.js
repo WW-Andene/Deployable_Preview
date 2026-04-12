@@ -123,7 +123,44 @@ if (process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD === "1") {
   }
 }
 
-// ── Step 3: Runtime prerequisite checks ──────────────────────────────────────
+// ── Step 3: Termux native libraries ─────────────────────────────────────────
+//
+// On Termux, native npm modules (sharp, canvas, puppeteer) need system
+// libraries that don't exist by default. Install them via `pkg` so the
+// enrichment libraries can build/run correctly.
+
+if (isTermux) {
+  log("Termux detected — ensuring native libraries for enrichments...");
+
+  // Libraries needed by:
+  //   canvas (node-canvas): libcairo, pango, libjpeg-turbo, giflib, librsvg
+  //   sharp:                libvips (pkg has it as vips)
+  //   puppeteer/chromium:   chromium (for the browser binary)
+  const pkgs = [
+    "libcairo", "pango", "libjpeg-turbo", "giflib", "librsvg",  // for canvas
+    "vips",                                                       // for sharp
+    "chromium"                                                    // for browser tools
+  ];
+
+  for (const pkg of pkgs) {
+    try {
+      // Check if already installed via dpkg
+      execSync("dpkg -s " + pkg + " 2>/dev/null", { stdio: "pipe", timeout: 5000 });
+    } catch (_) {
+      // Not installed — try to install
+      log("  Installing " + pkg + "...");
+      try {
+        execSync("pkg install " + pkg + " -y", { stdio: "inherit", timeout: 3 * 60 * 1000 });
+        ok(pkg + " installed.");
+      } catch (e) {
+        warn(pkg + " install failed: " + (e.message || "").split("\n")[0]);
+        warn("  Some enrichment tools may not work. Install manually: pkg install " + pkg);
+      }
+    }
+  }
+}
+
+// ── Step 4: Runtime prerequisite checks ──────────────────────────────────────
 
 log("Checking runtime prerequisites...");
 
@@ -145,7 +182,7 @@ try {
   }
 }
 
-// Node version check (postinstall runs in the same Node, so this is advisory)
+// Node version check
 const nodeMajor = parseInt(process.versions.node.split(".")[0], 10);
 if (nodeMajor < 18) {
   warn("Node.js v" + process.versions.node + " detected. DeployView requires Node 18+.");

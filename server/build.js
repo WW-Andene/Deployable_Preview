@@ -229,6 +229,24 @@ async function installDeps(workDir, addLog, language) {
   if (hasPnpmLock) await runCmd("pnpm install", workDir);
   else if (hasYarnLock) await runCmd("yarn install", workDir);
   else await runCmd("npm install", workDir);
+
+  // Fix Next.js SWC on ARM (Termux / Android / aarch64): the WASM fallback
+  // crashes on ARM, so install the correct native SWC binary for the platform.
+  const isARM = process.arch === "arm64" || process.arch === "arm";
+  const hasNext = fs.existsSync(path.join(workDir, "node_modules", "next"));
+  if (isARM && hasNext) {
+    const swcPkg = process.arch === "arm64" ? "@next/swc-linux-arm64-gnu" : "@next/swc-linux-arm-gnueabihf";
+    const hasSwc = fs.existsSync(path.join(workDir, "node_modules", "@next", swcPkg.split("/")[1]));
+    if (!hasSwc) {
+      addLog("ARM detected with Next.js — installing native SWC binary: " + swcPkg);
+      try {
+        await runCmd("npm install " + swcPkg + " --no-save --no-audit", workDir);
+        addLog("SWC native binary installed for ARM");
+      } catch (e) {
+        addLog("WARNING: SWC native binary install failed (" + e.message.split("\n")[0] + ") — Next.js may fall back to WASM");
+      }
+    }
+  }
 }
 
 // ── Default build commands per language ──

@@ -127,30 +127,36 @@ function installPuppeteer() {
 async function setupTermux() {
   log("Termux / Android detected.");
   const chromePath = await ensureSystemChromium();
-  if (!chromePath) { warn("No system Chromium. Browser tools unavailable."); return; }
+  if (!chromePath) { warn("No system Chromium. Browser tools unavailable. Fix: pkg install chromium"); return; }
 
   process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH = chromePath;
   process.env.PUPPETEER_EXECUTABLE_PATH           = chromePath;
 
-  log("Testing Playwright with system Chromium...");
-  const hasPw = (() => { try { require.resolve("playwright"); return true; } catch (_) { return false; } })();
-  if (!hasPw) { try { npmInstall("playwright"); } catch (_) {} }
+  // On Termux, use puppeteer-core directly with system Chromium.
+  // Full puppeteer tries to download its own Chrome binary (which doesn't
+  // exist for Android ARM and crashes during install.mjs). Playwright also
+  // ships no ARM Android binary. puppeteer-core + system Chromium is the
+  // only path that works reliably on Termux.
+  log("Setting up puppeteer-core with system Chromium at " + chromePath + "...");
+  const hasPptrCore = (() => { try { require.resolve("puppeteer-core"); return true; } catch (_) { return false; } })();
+  if (!hasPptrCore) {
+    try { npmInstall("puppeteer-core"); } catch (e) { warn("puppeteer-core install failed: " + e.message); return; }
+  }
 
+  if (await tryPuppeteer(chromePath)) {
+    log("\u2713 Puppeteer-core working with system Chromium.");
+    activeBrowser = "puppeteer"; return;
+  }
+
+  // Fallback: try Playwright in case the user manually installed it with ARM support
+  log("Puppeteer-core failed, trying Playwright as fallback...");
   if (await tryPlaywright(chromePath)) {
     log("\u2713 Playwright working with system Chromium.");
     activeBrowser = "playwright"; return;
   }
 
-  warn("Playwright failed. Trying Puppeteer...");
-  const hasPptr = (() => { try { require.resolve("puppeteer"); return true; } catch (_) { return false; } })();
-  if (!hasPptr) installPuppeteer();
-
-  if (await tryPuppeteer(chromePath)) {
-    log("\u2713 Puppeteer working with system Chromium.");
-    activeBrowser = "puppeteer"; return;
-  }
-
-  warn("Neither Playwright nor Puppeteer could launch system Chromium. Browser tools unavailable.");
+  warn("Could not launch system Chromium with any driver. Browser tools unavailable.");
+  warn("  Ensure chromium is installed and working: chromium-browser --version");
 }
 
 // ── Auto-detect Chrome binary from Playwright installs ──────────────────────
