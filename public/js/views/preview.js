@@ -197,11 +197,42 @@ DV.views.preview = function(app) {
     var pixelH = S.rotated ? preset.w : preset.h;
     var sc = preset.scale || 1;
     var f = el("div", { c: "preview-frame" + (S.isFullscreen ? " fullscreen" : "") });
+
+    // Pop-out button: opens the preview in a separate window sized to match
+    // the exact device pixel dimensions of this frame. Useful on PC where
+    // the inline scaled preview is too cramped to interact with.
+    var popBtn = null;
+    if (src && (bs.status === "ready" || bs.status === "running")) {
+      popBtn = el("button", {
+        c: "frame-popout-btn",
+        attr: { title: "Open in window — " + pixelW + "\u00d7" + pixelH },
+        on: { click: function(evt) {
+          evt.stopPropagation(); evt.preventDefault();
+          var winName = "dv-" + presetKey + "-" + Date.now();
+          // Add the window chrome height so the iframe content matches the device exactly.
+          // Browsers add ~80–100px for title bar / address bar; we approximate.
+          var chromeH = 90;
+          var features = [
+            "width=" + pixelW,
+            "height=" + (pixelH + chromeH),
+            "menubar=no",
+            "toolbar=no",
+            "location=no",
+            "status=no",
+            "resizable=yes",
+            "scrollbars=yes"
+          ].join(",");
+          window.open(src + "?_r=" + S.refreshKey, winName, features);
+        } }
+      }, "\u2197");  // ↗ pop-out arrow
+    }
+
     f.appendChild(el("div", { c: "frame-label" }, [
       el("span", { c: statusClass(src ? "ready" : "idle") }),
       el("span", { c: colorClass || "" }, label),
-      el("span", { c: "frame-info-badge ml-auto" }, preset.res)
-    ]));
+      el("span", { c: "frame-info-badge ml-auto" }, preset.res),
+      popBtn
+    ].filter(Boolean)));
     var body = el("div", { c: "frame-body", s: { width: pixelW + "px", height: pixelH + "px", transform: sc !== 1 ? "scale(" + sc + ")" : "none", transformOrigin: "top left" } });
     if (src && (bs.status === "ready" || bs.status === "running")) {
       var iframe = document.createElement("iframe");
