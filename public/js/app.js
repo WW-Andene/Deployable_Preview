@@ -25,7 +25,6 @@ var S = {
   activeRepo: null, activeBranch: "", compareBranch: "", compareMode: false,
   activeViews: ["13t"],
   refreshKey: 0,
-  pollTimer: null,
   showBranchDropdown: false,
   availableBranches: [],
   branchFilter: "",
@@ -84,45 +83,6 @@ function loadRepos() {
   });
 }
 
-function startStatusPoll() {
-  if (S.pollTimer) clearInterval(S.pollTimer);
-  S.pollTimer = null;
-  var interval = (S.preferences && S.preferences.pollInterval != null) ? S.preferences.pollInterval : 0;
-  if (!interval || interval < 2000) return; // OFF by default
-  S.pollTimer = setInterval(function() {
-    api("GET", "/api/repos").then(function(repos) {
-      var changed = false;
-      for (var i = 0; i < repos.length; i++) {
-        var old = S.repos.find(function(r) { return r.id === repos[i].id; });
-        if (old) {
-          var bs = repos[i].branchStatuses;
-          for (var b in bs) {
-            var oldS = old.branchStatuses && old.branchStatuses[b];
-            if (!oldS) continue;
-            if (oldS.status === "building" && bs[b].status === "ready") {
-              changed = true;
-              var dur = bs[b].duration ? " in " + bs[b].duration + "s" : "";
-              showToast((oldS.branch || b) + " build succeeded" + dur, "success");
-            } else if (oldS.status === "building" && bs[b].status === "running") {
-              changed = true;
-              showToast((oldS.branch || b) + " server started", "success");
-            } else if (oldS.status === "building" && bs[b].status === "error") {
-              changed = true;
-              showToast((oldS.branch || b) + " build failed", "error");
-            }
-          }
-        }
-      }
-      S.repos = repos;
-      if (S.activeRepo) {
-        var updated = S.repos.find(function(r) { return r.id === S.activeRepo.id; });
-        if (updated) S.activeRepo = updated;
-      }
-      if (changed) { S.refreshKey++; render(); }
-    }).catch(function() { /* ignore poll errors */ });
-  }, interval);
-}
-
 function fetchAvailableBranches() {
   if (!S.activeRepo) return;
   S.availableBranches = [];
@@ -177,8 +137,6 @@ function render() {
 
   if (S.view === "setup" && views.setup) { views.setup(app); return; }
 
-  startStatusPoll();
-
   if (S.view === "dashboard" && views.dashboard) { views.dashboard(app); if (views.modals) views.modals(app); return; }
   if (S.view === "addRepo" && views.addRepo) { views.addRepo(app); return; }
   if (S.view === "mcp" && views.mcp) { views.mcp(app); return; }
@@ -218,7 +176,7 @@ function showToast(message, type) {
 // Expose globals for view modules
 window.DV = {
   S: S, el: el, api: api, statusClass: statusClass, render: render,
-  loadRepos: loadRepos, startStatusPoll: startStatusPoll,
+  loadRepos: loadRepos,
   fetchAvailableBranches: fetchAvailableBranches, addBranchToRepo: addBranchToRepo,
   loadMcpTools: loadMcpTools, showToast: showToast,
   views: views, VIEW_PRESETS: VIEW_PRESETS,

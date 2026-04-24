@@ -130,10 +130,6 @@ router.post("/preferences", (req, res) => {
     config.preferences[key] = updates[key];
   }
   saveConfig();
-  // Restart polling if pollInterval changed (supports live toggle)
-  if ("pollInterval" in updates) {
-    try { if (global._dvRestartPolling) global._dvRestartPolling(); } catch (_) {}
-  }
   res.json({ ok: true, preferences: config.preferences });
 });
 

@@ -10,7 +10,7 @@ DV.views.setup = function(app) {
       if (r.ok) {
         // Also save to secrets store so it appears in Settings
         fetch("/api/secrets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "GITHUB_TOKEN", value: t }) }).catch(function(){});
-        S.hasToken = true; S.view = "dashboard"; DV.loadRepos(); DV.startStatusPoll();
+        S.hasToken = true; S.view = "dashboard"; DV.loadRepos();
       }
       else { err.classList.remove("hidden"); btn.textContent = "Connect"; }
     }).catch(function() { err.classList.remove("hidden"); btn.textContent = "Connect"; });
