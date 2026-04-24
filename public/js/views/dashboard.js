@@ -1,6 +1,49 @@
 (function(){
 var S = DV.S, el = DV.el, api = DV.api, statusClass = DV.statusClass;
 
+// ── Multi-select helpers (exposed on DV for the keyboard handler) ──
+function rowKey(owner, repo, slug) { return owner + "/" + repo + ":" + slug; }
+function selectedKeys() { return Object.keys(S.selectedRows || {}).filter(function(k){ return S.selectedRows[k]; }); }
+function clearSelection() { S.selectedRows = {}; }
+
+DV._selectAllBranches = function() {
+  var any = false;
+  for (var i = 0; i < (S.repos || []).length; i++) {
+    var r = S.repos[i], slugs = Object.keys(r.branchStatuses || {});
+    for (var j = 0; j < slugs.length; j++) {
+      var k = rowKey(r.owner, r.repo, slugs[j]);
+      if (!S.selectedRows[k]) { S.selectedRows[k] = true; any = true; }
+    }
+  }
+  if (!any) clearSelection(); // toggle off if everything was already selected
+  DV.render();
+};
+DV._rebuildSelectedBranches = function() {
+  var keys = selectedKeys();
+  if (!keys.length) { DV.showToast("Nothing selected", "info"); return; }
+  if (!confirm("Rebuild " + keys.length + " selected branch" + (keys.length === 1 ? "" : "es") + "?")) return;
+  for (var i = 0; i < keys.length; i++) {
+    var parts = keys[i].split(":");
+    var ownerRepo = parts[0].split("/");
+    api("POST", "/api/build/" + ownerRepo[0] + "/" + ownerRepo[1] + "?slug=" + encodeURIComponent(parts[1]));
+  }
+  DV.showToast("Rebuilding " + keys.length + " branch" + (keys.length === 1 ? "" : "es") + "…", "info");
+  clearSelection();
+  DV.loadRepos();
+};
+DV._stopSelectedBranches = function() {
+  var keys = selectedKeys();
+  if (!keys.length) return;
+  for (var i = 0; i < keys.length; i++) {
+    var parts = keys[i].split(":");
+    var ownerRepo = parts[0].split("/");
+    api("POST", "/api/stop/" + ownerRepo[0] + "/" + ownerRepo[1] + "?slug=" + encodeURIComponent(parts[1]));
+  }
+  DV.showToast("Stopping " + keys.length + "…", "info");
+  clearSelection();
+  DV.loadRepos();
+};
+
 function timeAgo(ts) {
   if (!ts) return "";
   var diff = Math.floor((Date.now() - ts) / 1000);
@@ -67,6 +110,19 @@ DV.views.dashboard = function(app) {
     if (errorCount) statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num color-err" }, errorCount), el("span", { c: "stat-label" }, "Failed")]));
     ct.appendChild(statsBar);
 
+    // Bulk action bar — appears when 1+ branches selected
+    var selCount = selectedKeys().length;
+    if (selCount > 0) {
+      var bar = el("div", { c: "bulk-bar" }, [
+        el("span", {}, selCount + " selected"),
+        el("span", { c: "bulk-bar-sep" }),
+        el("button", { c: "bg bs", on: { click: DV._rebuildSelectedBranches } }, "Rebuild (b)"),
+        el("button", { c: "bg bs", on: { click: DV._stopSelectedBranches } }, "Stop"),
+        el("button", { c: "bg bs", on: { click: function(){ clearSelection(); DV.render(); } } }, "Clear")
+      ]);
+      ct.appendChild(bar);
+    }
+
     var filteredRepos = S.repos;
     if (S.dashboardFilter) {
       var q = S.dashboardFilter.toLowerCase();
@@ -110,6 +166,19 @@ DV.views.dashboard = function(app) {
             if (bs.status === "building") {
               row.appendChild(el("div", { c: "dv-loading branch-loading" }));
             }
+
+            // Checkbox for multi-select
+            var rk = rowKey(repo.owner, repo.repo, slug);
+            var checked = !!S.selectedRows[rk];
+            row.appendChild(el("div", {
+              c: "branch-check" + (checked ? " on" : ""),
+              attr: { title: "Select for bulk action", role: "checkbox", tabindex: "0" },
+              on: { click: function(e) {
+                e.stopPropagation();
+                if (S.selectedRows[rk]) delete S.selectedRows[rk]; else S.selectedRows[rk] = true;
+                DV.render();
+              } }
+            }));
 
             row.appendChild(el("div", { c: "branch-info" }, [
               el("span", { c: statusClass(bs.status) }),

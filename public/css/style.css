@@ -2113,3 +2113,72 @@ button:disabled, button[disabled] {
   .toast-container { left: 10px; right: 10px; }
   .toast { max-width: none; }
 }
+
+/* ── Command palette ───────────────────────────────────────────────── */
+.palette-bg { align-items: flex-start; padding-top: 12vh; }
+.palette-modal {
+  max-width: 640px; padding: 0; overflow: hidden; width: 100%;
+}
+.palette-input {
+  width: 100%; box-sizing: border-box; border: 0; outline: none;
+  background: transparent; color: var(--tx1);
+  font-size: 16px; padding: 18px 20px;
+  border-bottom: 1px solid var(--border-h);
+}
+.palette-input::placeholder { color: var(--tx3); }
+.palette-list { max-height: 56vh; overflow-y: auto; padding: 6px; }
+.palette-empty { padding: 32px 20px; text-align: center; color: var(--tx3); font-size: 13px; }
+.palette-section {
+  padding: 10px 14px 4px; font-size: 10px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--tx3);
+}
+.palette-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 10px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid transparent;
+}
+.palette-row-active, .palette-row:hover {
+  background: var(--accent-dim); border-color: var(--accent-mid);
+}
+.palette-row-label { color: var(--tx1); font-size: 14px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-row-hint  { color: var(--tx3); font-size: 11px; font-family: var(--font-mono); }
+.palette-footer {
+  padding: 10px 16px; border-top: 1px solid var(--border-h);
+  color: var(--tx3); font-size: 11px; font-family: var(--font-mono);
+}
+
+/* ── Shortcuts overlay ─────────────────────────────────────────────── */
+.shortcuts-grid {
+  display: grid; grid-template-columns: auto 1fr; gap: 10px 16px;
+  margin: 8px 0 4px;
+}
+.shortcut-key {
+  font-family: var(--font-mono); font-size: 11px;
+  background: var(--sf2); color: var(--tx1);
+  padding: 3px 8px; border-radius: 4px;
+  border: 1px solid var(--border-h);
+  justify-self: start;
+}
+.shortcut-desc { color: var(--tx2); font-size: 13px; align-self: center; }
+
+/* ── Dashboard multi-select ────────────────────────────────────────── */
+.branch-check {
+  width: 16px; height: 16px; border: 1px solid var(--border-h);
+  border-radius: 3px; background: var(--bg-deep); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 16px;
+}
+.branch-check.on {
+  background: var(--accent-dim); border-color: var(--accent);
+  color: var(--accent);
+}
+.branch-check.on::after { content: "✓"; font-size: 11px; }
+.bulk-bar {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; margin: 0 0 12px;
+  background: var(--accent-dim); border: 1px solid var(--accent-mid);
+  border-radius: var(--r-modal); color: var(--accent);
+  font-size: 13px; font-weight: 500;
+}
+.bulk-bar-sep { flex: 1; }

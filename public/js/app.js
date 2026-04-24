@@ -38,7 +38,12 @@ var S = {
   mcpAction: null,
   mcpResult: null,
   dashboardFilter: "",
-  preferences: {}
+  preferences: {},
+  selectedRows: {},   // key: "owner/repo:slug" → true
+  paletteOpen: false,
+  paletteQuery: "",
+  paletteIndex: 0,
+  shortcutsOpen: false
 };
 
 var _dropdownCloseHandler = null;
@@ -132,16 +137,23 @@ function render() {
       el("div", { c: "loading-spinner" }),
       el("div", { c: "loading-text" }, "INITIALIZING...")
     ]));
-    return;
+  } else if (S.view === "setup" && views.setup) {
+    views.setup(app);
+  } else if (S.view === "dashboard" && views.dashboard) {
+    views.dashboard(app); if (views.modals) views.modals(app);
+  } else if (S.view === "addRepo" && views.addRepo) {
+    views.addRepo(app);
+  } else if (S.view === "mcp" && views.mcp) {
+    views.mcp(app);
+  } else if (S.view === "settings" && views.settings) {
+    views.settings(app);
+  } else if (S.view === "preview" && views.preview) {
+    views.preview(app); if (views.modals) views.modals(app);
   }
 
-  if (S.view === "setup" && views.setup) { views.setup(app); return; }
-
-  if (S.view === "dashboard" && views.dashboard) { views.dashboard(app); if (views.modals) views.modals(app); return; }
-  if (S.view === "addRepo" && views.addRepo) { views.addRepo(app); return; }
-  if (S.view === "mcp" && views.mcp) { views.mcp(app); return; }
-  if (S.view === "settings" && views.settings) { views.settings(app); return; }
-  if (S.view === "preview" && views.preview) { views.preview(app); if (views.modals) views.modals(app); }
+  // Global overlays — rendered on top of every view when open
+  if (DV.renderPalette) DV.renderPalette(app);
+  if (DV.renderShortcuts) DV.renderShortcuts(app);
 }
 
 // Init
