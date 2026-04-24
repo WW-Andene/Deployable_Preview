@@ -31,7 +31,7 @@ const zlib = require("zlib");
 
 const MAX_RESPONSE_BYTES = 100 * 1024 * 1024;   // 100 MB default max response body
 const MAX_RESPONSE_BYTES_HARD = 1024 * 1024 * 1024; // 1 GB absolute hard cap
-const DEFAULT_TIMEOUT_MS = 60000;               // 60 second default timeout
+const DEFAULT_TIMEOUT_MS = 300000;              // 5 minute default timeout
 const MAX_TIMEOUT_MS = 600000;                  // 10 minute absolute max
 const MIN_TIMEOUT_MS = 5000;                     // Minimum allowed timeout
 const MAX_REDIRECTS = 8;
@@ -72,7 +72,7 @@ function isBlockedHost(hostname) {
  * @param {object}  [opts.headers]        - Custom request headers (override defaults)
  * @param {string|object} [opts.body]     - Request body (string, object → JSON, or form)
  * @param {string}  [opts.bodyType]       - "json" | "form" | "text" (default: auto-detect)
- * @param {number}  [opts.timeout]        - Timeout in ms (default: 60000, max: 600000)
+ * @param {number}  [opts.timeout]        - Timeout in ms (default: 300000, max: 600000)
  * @param {number}  [opts.maxRedirects]   - Max redirects to follow (default: 8)
  * @param {number}  [opts.maxSize]        - Max response bytes (default: 100MB, hard cap: 1GB)
  * @param {number}  [opts.retries]        - Retries on 429/503/network errors (default: 2)
