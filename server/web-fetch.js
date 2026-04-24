@@ -29,20 +29,20 @@ const zlib = require("zlib");
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;    // 5 MB default max response body
-const MAX_RESPONSE_BYTES_HARD = 20 * 1024 * 1024; // 20 MB absolute hard cap
-const DEFAULT_TIMEOUT_MS = 20000;               // 20 second default timeout
-const MAX_TIMEOUT_MS = 60000;                   // 60 second absolute max
+const MAX_RESPONSE_BYTES = 100 * 1024 * 1024;   // 100 MB default max response body
+const MAX_RESPONSE_BYTES_HARD = 1024 * 1024 * 1024; // 1 GB absolute hard cap
+const DEFAULT_TIMEOUT_MS = 60000;               // 60 second default timeout
+const MAX_TIMEOUT_MS = 600000;                  // 10 minute absolute max
 const MIN_TIMEOUT_MS = 5000;                     // Minimum allowed timeout
 const MAX_REDIRECTS = 8;
 const MAX_RETRIES = 3;                           // Max retries on 429/503/network errors
 const DEFAULT_MAX_TEXT_CHARS = 50000;            // Default text extraction length
-const MAX_TEXT_CHARS_LIMIT = 400000;             // Absolute max text extraction length
-const MAX_BODY_CHARS = 200000;                   // Max plain-text body length
-const MAX_EXTRACTED_LINKS = 500;                 // Max links to extract from HTML
-const MAX_EXTRACTED_IMAGES = 200;                // Max images to extract from HTML
+const MAX_TEXT_CHARS_LIMIT = 5000000;            // Absolute max text extraction length
+const MAX_BODY_CHARS = 5000000;                  // Max plain-text body length
+const MAX_EXTRACTED_LINKS = 5000;                // Max links to extract from HTML
+const MAX_EXTRACTED_IMAGES = 2000;               // Max images to extract from HTML
 const MAX_TAG_SEARCH_DEPTH = 5000;              // Max iterations when searching for closing tags
-const MAX_BASE64_BYTES = 2 * 1024 * 1024;       // Max binary size to base64-encode (2 MB)
+const MAX_BASE64_BYTES = 200 * 1024 * 1024;     // Max binary size to base64-encode (200 MB)
 
 // Modern Chrome User-Agent — many sites reject unfamiliar UAs with 403.
 // Kept current-ish so we look like a real browser.
@@ -72,9 +72,9 @@ function isBlockedHost(hostname) {
  * @param {object}  [opts.headers]        - Custom request headers (override defaults)
  * @param {string|object} [opts.body]     - Request body (string, object → JSON, or form)
  * @param {string}  [opts.bodyType]       - "json" | "form" | "text" (default: auto-detect)
- * @param {number}  [opts.timeout]        - Timeout in ms (default: 20000, max: 60000)
+ * @param {number}  [opts.timeout]        - Timeout in ms (default: 60000, max: 600000)
  * @param {number}  [opts.maxRedirects]   - Max redirects to follow (default: 8)
- * @param {number}  [opts.maxSize]        - Max response bytes (default: 5MB, hard cap: 20MB)
+ * @param {number}  [opts.maxSize]        - Max response bytes (default: 100MB, hard cap: 1GB)
  * @param {number}  [opts.retries]        - Retries on 429/503/network errors (default: 2)
  * @param {string}  [opts.userAgent]      - Override User-Agent (default: modern Chrome)
  * @param {string}  [opts.acceptLanguage] - Accept-Language header (default: en-US)
