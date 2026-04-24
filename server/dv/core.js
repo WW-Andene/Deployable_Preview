@@ -135,6 +135,26 @@ function fail(message, details) {
   return makeResult([{ type: "text", text: body }], true);
 }
 
+/**
+ * Structured error for Claude: always returns a JSON object with
+ * { error: true, code, message, hint?, ...details } so the model can
+ * branch on the code instead of regex-parsing strings.
+ *
+ * Stable codes used by dv tools:
+ *   REPO_NOT_FOUND, BRANCH_NOT_FOUND, SLUG_NOT_FOUND,
+ *   BUILD_FAILED, BUILD_TIMEOUT, BUILD_IN_PROGRESS, NO_LOG,
+ *   PORT_COLLISION, SERVER_NOT_RUNNING,
+ *   BROWSER_UNAVAILABLE, LIBRARY_MISSING, GROQ_UNAUTHORIZED,
+ *   BAD_ARGS, NOT_IMPLEMENTED
+ */
+function failCode(code, message, extra) {
+  const body = Object.assign(
+    { error: true, code: String(code), message: String(message) },
+    (extra && typeof extra === "object") ? extra : {}
+  );
+  return makeResult([{ type: "text", text: JSON.stringify(body, null, 2) }], true);
+}
+
 // ── Capability gates ──────────────────────────────────────────────────────
 
 /**
@@ -264,6 +284,7 @@ module.exports = {
   imageWithJson,
   ok,
   fail,
+  failCode,
   // capability
   checkRequirement,
   // introspection

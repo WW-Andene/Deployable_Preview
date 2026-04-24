@@ -20,7 +20,7 @@ const SLUG  = { type: "string" };
 dv.defineTool({
   name: "capture_requests",
   category: "network",
-  description: "Attach a network recorder to the preview session and collect responses for a duration. Good for spotting lazy-loaded assets, XHR, and websocket upgrades.",
+  description: "Attach a network recorder to the preview session and collect responses for a duration. Good for spotting lazy-loaded assets, XHR, and websocket upgrades. Set summaryOnly:true for just counts + top URLs (token-efficient).",
   requires: [{ kind: "browser" }],
   schema: {
     type: "object",
@@ -28,14 +28,16 @@ dv.defineTool({
       owner: OWNER, repo: REPO, slug: SLUG,
       duration: { type: "number" },
       maxRequests: { type: "number" },
-      reload: { type: "boolean" }
+      reload: { type: "boolean" },
+      summaryOnly: { type: "boolean", description: "Return only counts + top 20 failing/slow URLs — drops full request list" },
+      filter: { type: "string", enum: ["all", "failing", "slow", "thirdParty"], description: "Post-filter the request list" }
     },
     required: ["owner", "repo", "slug"]
   },
   async handler(args) {
     const result = await browser.capturePreviewRequests(args);
     if (result.error) return dv.fail(result.error);
-    return dv.ok(result);
+    return dv.ok(summarizeNetwork(result, args));
   }
 });
 
@@ -44,7 +46,7 @@ dv.defineTool({
 dv.defineTool({
   name: "har_capture",
   category: "network",
-  description: "Capture a full HAR-like log (requests, responses, headers, sizes, TLS details) for a duration. Richer than capture_requests — includes request headers, post data, and response security details.",
+  description: "Capture a full HAR-like log (requests, responses, headers, sizes, TLS details) for a duration. Richer than capture_requests — includes request headers, post data, and response security details. Set summaryOnly:true to skip headers/TLS and drop most requests.",
   requires: [{ kind: "browser" }],
   schema: {
     type: "object",
@@ -52,14 +54,16 @@ dv.defineTool({
       owner: OWNER, repo: REPO, slug: SLUG,
       duration: { type: "number" },
       maxEntries: { type: "number" },
-      reload: { type: "boolean" }
+      reload: { type: "boolean" },
+      summaryOnly: { type: "boolean", description: "Drop headers + TLS + post data, return top 20 by duration" },
+      filter: { type: "string", enum: ["all", "failing", "slow", "thirdParty"] }
     },
     required: ["owner", "repo", "slug"]
   },
   async handler(args) {
     const result = await browser.captureHar(args);
     if (result.error) return dv.fail(result.error);
-    return dv.ok(result);
+    return dv.ok(summarizeNetwork(result, args));
   }
 });
 
@@ -68,7 +72,7 @@ dv.defineTool({
 dv.defineTool({
   name: "download",
   category: "network",
-  description: "Trigger a file download in a preview and return the bytes as base64. Use 'click' with a selector for a download button, or 'evaluate' with JS that triggers a download.",
+  description: "Trigger a file download in a preview and return the bytes as base64. Use 'click' with a selector for a download button, or 'evaluate' with JS that triggers a download. Set summaryOnly:true to skip the base64 body and only return filename + size.",
   requires: [{ kind: "browser" }],
   schema: {
     type: "object",
@@ -77,21 +81,76 @@ dv.defineTool({
       trigger: { type: "string", enum: ["click", "evaluate"] },
       selector: { type: "string" },
       code: { type: "string" },
-      timeout: { type: "number" }
+      timeout: { type: "number" },
+      summaryOnly: { type: "boolean", description: "Omit base64 body — return only filename, size, url" }
     },
     required: ["owner", "repo", "slug", "trigger"]
   },
   async handler(args) {
     const result = await browser.captureDownload(args);
     if (result.error) return dv.fail(result.error);
-    return dv.ok({
+    const out = {
       suggestedFilename: result.suggestedFilename,
       byteLength: result.byteLength,
-      url: result.url,
-      base64: result.base64
-    });
+      url: result.url
+    };
+    if (!args.summaryOnly) out.base64 = result.base64;
+    return dv.ok(out);
   }
 });
+
+// ── helpers ───────────────────────────────────────────────────────────────
+
+function summarizeNetwork(result, args) {
+  const list = Array.isArray(result.requests) ? result.requests.slice() :
+               Array.isArray(result.entries)  ? result.entries.slice()  : null;
+  if (!list) return result;
+
+  let filtered = list;
+  const filter = args && args.filter;
+  if (filter && filter !== "all") {
+    if (filter === "failing")    filtered = list.filter((r) => (r.status || r.response && r.response.status || 0) >= 400 || r.failed || r.error);
+    else if (filter === "slow")  filtered = list.filter((r) => (r.duration || r.time || 0) > 500);
+    else if (filter === "thirdParty") {
+      const origin = (result.url || result.pageUrl || "");
+      let host = "";
+      try { host = new URL(origin).host; } catch (_) {}
+      filtered = list.filter((r) => {
+        const u = r.url || (r.request && r.request.url) || "";
+        try { return new URL(u).host !== host; } catch (_) { return false; }
+      });
+    }
+  }
+
+  const summary = {
+    url: result.url || result.pageUrl,
+    total: list.length,
+    shown: filtered.length,
+    byType: result.requestsByType || null,
+    truncated: !!(result.truncated || result.requestsTruncated),
+    duration: result.duration || null
+  };
+
+  if (args && args.summaryOnly) {
+    // Top 20 by duration/size — drop headers, post data, security, response bodies
+    const ranked = filtered
+      .map((r) => ({
+        url: r.url || (r.request && r.request.url),
+        method: r.method || (r.request && r.request.method) || "GET",
+        status: r.status || (r.response && r.response.status) || null,
+        duration: r.duration || r.time || 0,
+        size: r.size || (r.response && (r.response.bodySize || r.response.size)) || 0,
+        type: r.resourceType || r.type || null
+      }))
+      .sort((a, b) => (b.duration || 0) - (a.duration || 0))
+      .slice(0, 20);
+    summary.top = ranked;
+    return summary;
+  }
+
+  summary.requests = filtered;
+  return summary;
+}
 
 // ── robots ────────────────────────────────────────────────────────────────
 

@@ -19,3 +19,4 @@ require("./content");
 require("./ai");
 require("./pages");
 require("./engine");
+require("./aggregate");

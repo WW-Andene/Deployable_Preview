@@ -85,9 +85,19 @@ dv.defineTool({
   async handler(args) {
     const config = getConfig();
     const repoConfig = config.repos.find((r) => r.owner === args.owner && r.repo === args.repo);
-    if (!repoConfig) return dv.fail("Repository not found: " + args.owner + "/" + args.repo);
+    if (!repoConfig) {
+      return dv.failCode("REPO_NOT_FOUND", "Repository not found: " + args.owner + "/" + args.repo, {
+        hint: "Call list_previews to see available repos.",
+        availableRepos: config.repos.map((r) => r.owner + "/" + r.repo)
+      });
+    }
     const bc = repoConfig.activeBranches.find((b) => branchSlug(b) === args.slug);
-    if (!bc) return dv.fail("Branch config not found for slug: " + args.slug);
+    if (!bc) {
+      return dv.failCode("SLUG_NOT_FOUND", "Branch config not found for slug: " + args.slug, {
+        hint: "Call list_previews to see slugs for this repo.",
+        availableSlugs: (repoConfig.activeBranches || []).map(branchSlug)
+      });
+    }
     deployBranch(repoConfig, bc);
     return dv.text(
       (bc.mode === "server" ? "Server restart" : "Build") +
@@ -112,7 +122,13 @@ dv.defineTool({
     const key = args.owner + "/" + args.repo + ":" + args.slug;
     const status = buildStatus[key];
     const log = (status && status.log) ? status.log : loadLog(key);
-    return dv.text(log || "No build log available for " + key);
+    if (!log) {
+      return dv.failCode("NO_LOG", "No build log available for " + key, {
+        hint: "Trigger a build first with trigger_build, then poll build_status.",
+        key
+      });
+    }
+    return dv.text(log);
   }
 });
 
