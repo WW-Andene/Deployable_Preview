@@ -105,4 +105,19 @@ router.get("/log/:owner/:repo", (req, res) => {
   res.type("text/plain").send(log || "No build log.");
 });
 
+// Thumbnail — PNG screenshot captured after the last successful build.
+// 404s if no thumb exists yet (e.g. first build, no browser, still building).
+router.get("/thumb/:owner/:repo", (req, res) => {
+  const slug = req.query.slug || req.query.branch || "";
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  const s = buildStatus[key];
+  if (!s || !s.thumb) { res.status(404).end(); return; }
+  const buf = Buffer.from(s.thumb, "base64");
+  res.type("image/png");
+  res.setHeader("Cache-Control", "public, max-age=30");
+  res.setHeader("ETag", '"' + (s.thumbAt || 0) + '"');
+  if (req.headers["if-none-match"] === '"' + (s.thumbAt || 0) + '"') { res.status(304).end(); return; }
+  res.end(buf);
+});
+
 module.exports = router;

@@ -171,6 +171,33 @@ router.get("/github/:owner/:repo/branches", async (req, res) => {
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// ── Framework detection ──────────────────────────────────────────────────────
+// Peek at a repo's package.json on a given branch and suggest sensible
+// build / output / start defaults. Best-effort — errors are reported inline
+// so the client can still render the form.
+router.get("/github/:owner/:repo/detect", async (req, res) => {
+  const branch = req.query.branch || "";
+  const baseDir = req.query.baseDir || "";
+  const pkgPath = (baseDir ? baseDir.replace(/^\/|\/$/g, "") + "/" : "") + "package.json";
+  const { detect } = require("../../framework-detect");
+  try {
+    const config = getConfig();
+    const url = "/repos/" + req.params.owner + "/" + req.params.repo +
+                "/contents/" + encodeURI(pkgPath) +
+                (branch ? "?ref=" + encodeURIComponent(branch) : "");
+    const meta = await ghApi(url, config.token);
+    if (!meta || !meta.content) return res.json({ framework: "unknown", confidence: "none", reason: "no package.json" });
+    const raw = Buffer.from(meta.content, meta.encoding || "base64").toString("utf8");
+    let pkg;
+    try { pkg = JSON.parse(raw); } catch (e) { return res.json({ framework: "unknown", confidence: "none", reason: "invalid package.json: " + e.message }); }
+    res.json(detect(pkg));
+  } catch (e) {
+    // package.json missing on this branch → let the client treat it as "no hint"
+    if (/Not Found/i.test(e.message)) { res.json({ framework: "none", confidence: "none", reason: "no package.json on this branch" }); return; }
+    res.status(400).json({ error: e.message });
+  }
+});
+
 // ── Repos CRUD ───────────────────────────────────────────────────────────────
 router.get("/repos", (req, res) => {
   const config = getConfig();
@@ -178,8 +205,27 @@ router.get("/repos", (req, res) => {
     const branchStatuses = {};
     for (const bc of r.activeBranches || []) {
       const slug = branchSlug(bc);
-      const srv = runningServers[buildKey(r.owner, r.repo, bc)];
-      branchStatuses[slug] = { ...(buildStatus[buildKey(r.owner, r.repo, bc)] || { status: "idle" }), branch: bc.branch, baseDir: bc.baseDir || "", buildCommand: bc.buildCommand || "", outputDir: bc.outputDir || "", mode: bc.mode || "static", startCommand: bc.startCommand || "", envVars: bc.envVars || "", language: bc.language || "auto", serverPort: srv ? srv.port : null };
+      const bk = buildKey(r.owner, r.repo, bc);
+      const srv = runningServers[bk];
+      // Strip heavy fields (thumb base64, full log) from the broadcast shape —
+      // expose them on dedicated endpoints instead.
+      const raw = buildStatus[bk] || { status: "idle" };
+      // eslint-disable-next-line no-unused-vars
+      const { thumb, log, ...lean } = raw;
+      branchStatuses[slug] = {
+        ...lean,
+        hasThumb: !!raw.thumb,
+        thumbAt: raw.thumbAt || null,
+        branch: bc.branch,
+        baseDir: bc.baseDir || "",
+        buildCommand: bc.buildCommand || "",
+        outputDir: bc.outputDir || "",
+        mode: bc.mode || "static",
+        startCommand: bc.startCommand || "",
+        envVars: bc.envVars || "",
+        language: bc.language || "auto",
+        serverPort: srv ? srv.port : null
+      };
     }
     return { ...r, branchStatuses };
   });

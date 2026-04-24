@@ -2182,3 +2182,26 @@ button:disabled, button[disabled] {
   font-size: 13px; font-weight: 500;
 }
 .bulk-bar-sep { flex: 1; }
+
+/* ── Branch thumbnail (auto-captured after successful build) ───────── */
+.branch-thumb {
+  width: 72px; height: 48px; object-fit: cover;
+  border: 1px solid var(--border-h); border-radius: 4px;
+  background: var(--bg-deep); cursor: pointer;
+  transition: transform 0.12s var(--ease-fast), border-color 0.12s;
+  flex: 0 0 auto;
+}
+.branch-thumb:hover {
+  border-color: var(--accent); transform: scale(1.03);
+}
+
+/* ── Framework detection badge ─────────────────────────────────────── */
+.detect-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 6px;
+  background: var(--accent-dim); border: 1px solid var(--accent-mid);
+  color: var(--accent); font-size: 12px;
+}
+.detect-badge strong { color: var(--tx1); font-weight: 600; }
+.detect-badge-icon { font-size: 13px; }
+.detect-badge-meta { color: var(--tx3); font-size: 11px; font-family: var(--font-mono); }

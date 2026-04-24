@@ -18,6 +18,29 @@ const buildStatus = {};
 const buildLocks = {};   // prevents concurrent builds for the same key
 const MAX_CONCURRENT_BUILDS = parseInt(process.env.MAX_CONCURRENT_BUILDS, 10) || 4;
 
+// ── Thumbnail capture ────────────────────────────────────────────────────
+// Fire-and-forget screenshot of the preview after a successful build.
+// Stored as base64 on buildStatus[key].thumb (≈30–60 KB per branch).
+// Skipped silently if the browser isn't available.
+function captureThumbAsync(owner, repo, slug, delayMs) {
+  setTimeout(async () => {
+    try {
+      const browser = require("./browser");
+      if (!browser.hasPlaywright || !browser.hasPlaywright()) return;
+      const shot = await browser.takeScreenshot({
+        owner, repo, slug, width: 1024, height: 640, fullPage: false
+      });
+      if (shot && shot.base64 && !shot.error) {
+        const key = owner + "/" + repo + ":" + slug;
+        if (buildStatus[key]) {
+          buildStatus[key].thumb = shot.base64;
+          buildStatus[key].thumbAt = Date.now();
+        }
+      }
+    } catch (_) { /* silent — thumbs are nice-to-have */ }
+  }, delayMs || 1500);
+}
+
 function countActiveBuilds() {
   let count = 0;
   for (const k in buildLocks) { if (buildLocks[k]) count++; }
@@ -491,6 +514,7 @@ async function buildBranch(repoConfig, branchConfig) {
     buildStatus[key].buildCommand = cmd;
     buildStatus[key].outputDir = outName;
     saveLog(key, addLog.getLog());
+    captureThumbAsync(repoConfig.owner, repoConfig.repo, branchSlug(branchConfig));
   } catch (e) {
     addLog("BUILD FAILED: " + e.message);
     buildStatus[key].status = "error";
@@ -581,6 +605,8 @@ async function startServer(repoConfig, branchConfig, isRestart) {
     buildStatus[key].serverPort = port;
     buildStatus[key].restarts = 0;
     saveLog(key, addLog.getLog());
+    // Give the app a moment to finish rendering before grabbing a thumb
+    captureThumbAsync(repoConfig.owner, repoConfig.repo, branchSlug(branchConfig), 3000);
   } catch (e) {
     addLog("SERVER FAILED: " + e.message);
     killServer(key);

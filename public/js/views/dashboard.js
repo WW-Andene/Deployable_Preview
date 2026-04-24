@@ -180,10 +180,22 @@ DV.views.dashboard = function(app) {
               } }
             }));
 
-            row.appendChild(el("div", { c: "branch-info" }, [
+            var info = el("div", { c: "branch-info" }, [
               el("span", { c: statusClass(bs.status) }),
               el("span", { c: btagClass(bs.status) }, label)
-            ]));
+            ]);
+            if (bs.hasThumb) {
+              var thumb = document.createElement("img");
+              thumb.className = "branch-thumb";
+              thumb.src = "/api/thumb/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug) + "&t=" + (bs.thumbAt || 0);
+              thumb.alt = "preview of " + label;
+              thumb.title = "Latest preview — click to open";
+              thumb.addEventListener("click", (function(r2, s2){ return function(){
+                S.activeRepo = r2; S.activeBranch = s2; S.compareMode = false; S.compareBranch = ""; S.view = "preview"; DV.render();
+              }; })(repo, slug));
+              info.insertBefore(thumb, info.firstChild);
+            }
+            row.appendChild(info);
 
             var statusParts = [];
             if (bs.status === "cancelled") {
@@ -230,6 +242,18 @@ DV.views.dashboard = function(app) {
               actions.appendChild(el("button", { c: "bg bs", attr: { title: "New tab" }, on: { click: function() {
                 window.open(previewUrl, "_blank");
               } } }, "\u2197"));
+              actions.appendChild(el("button", { c: "bg bs", attr: { title: "Copy shareable URL (uses tunnel when active)" }, on: { click: function() {
+                var origin = (S._tunnelStatus && S._tunnelStatus.url) ? S._tunnelStatus.url : window.location.origin;
+                var full = origin.replace(/\/$/, "") + previewUrl;
+                var done = function(ok){ DV.showToast(ok ? "Copied: " + full : "Copy failed", ok ? "success" : "error"); };
+                if (navigator.clipboard) {
+                  navigator.clipboard.writeText(full).then(function(){ done(true); }, function(){ done(false); });
+                } else {
+                  var ta = document.createElement("textarea"); ta.value = full; document.body.appendChild(ta);
+                  ta.select(); try { done(document.execCommand("copy")); } catch (e) { done(false); }
+                  document.body.removeChild(ta);
+                }
+              } } }, "\ud83d\udd17"));
             }
 
             /* Secondary actions */
