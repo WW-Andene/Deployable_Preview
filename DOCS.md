@@ -847,3 +847,268 @@ deployview.json.tmp                           transient during write
 All paths under `workspace/` are guarded by `path.startsWith(WORKSPACE)`
 checks before any `rm -rf` to prevent traversal.
 
+
+---
+
+## §10 · Webhooks
+
+### §10.1 Incoming (GitHub → DV)
+
+`POST /api/webhook` accepts GitHub webhook events.
+**Required**: `WEBHOOK_SECRET` set in DV (else 403 fail-secure) AND
+configured as the secret on the GitHub webhook side.
+
+| Event | Action |
+|---|---|
+| `push` | If the ref matches a configured branch, kick off `deployBranch` |
+| `pull_request` (opened / reopened / synchronize) | If `repoConfig.autoPRPreviews=true`, ensure a `pr-<N>` branch (with `head.ref` as branch + `pr-N` as customSlug) exists and build it |
+| `pull_request` (closed) | If `autoPRPreviews=true`, remove the `pr-<N>` branch from `activeBranches` |
+| Anything else | `{ ok: true, skipped: true }` |
+
+**Setup on GitHub side**: Repo → Settings → Webhooks → Add:
+
+```
+Payload URL:  https://YOUR-DV-HOST/api/webhook
+Content type: application/json
+Secret:       <same as WEBHOOK_SECRET>
+Events:       Pushes + Pull requests
+```
+
+### §10.2 Outgoing (DV → Slack/Discord/custom)
+
+Subscribers in `config.webhooks[]`. Fired by `webhooks.emit(event, payload)`
+on every state transition.
+
+**Events** (any of these, or `["*"]` for all):
+
+- `build.queued` — slot enters queue
+- `build.started` — first time the slot flips to "building"
+- `build.ready` — successful static build / running server
+- `build.error` — failure OR self-monitor went broken OR secret-scan finding
+- `build.cancelled` — user-initiated cancel
+- `deploy.rolledback` — rollback applied
+
+**Formats**:
+
+| `format` | Body shape |
+|---|---|
+| `json` (default) | `{ event, timestamp, ...payload }` raw envelope |
+| `slack` | `{ text: "*DeployView · build.ready*\nrepo: …\nbranch: …\n…" }` |
+| `discord` | `{ embeds: [{ title, color, fields[…], timestamp }] }` (color per event type) |
+
+**HMAC**: when `secret` is set, `X-DV-Signature: sha256=<hex>` is sent
+over the JSON body. Receivers verify with their own HMAC.
+
+**Test**: `POST /api/webhooks/<id>/test` fires a synthetic
+`build.ready` event — useful for verifying receiver wiring without
+waiting for a real build.
+
+---
+
+## §11 · Security model
+
+DV is a **single-user, single-developer** preview platform by design.
+Multi-tenant is out of scope.
+
+### §11.1 Threat model
+
+| Adversary | Mitigation |
+|---|---|
+| Random internet via tunnel URL | Bearer-token auth on `/api/*`, per-branch password gate, `WEBHOOK_SECRET` mandatory |
+| Local user reading `ps` for the GitHub token | Token never appears in `git` argv — uses `credential.helper=store --file=` against a 0600 temp file |
+| Tunnel URL leaking via logs | Tunnel URL is **not printed** to console — only a SHA-prefix is. Operators see the URL in Settings |
+| Stack traces exposing $HOME / module layout | Never returned to clients; logged server-side only |
+| Bundle leaking secrets | Post-build `scanForSecrets` — 12 patterns, masked previews, optional auto-fail via `budgets.action: "fail"` |
+| SSRF via `web_fetch` | Blocklist covers RFC1918 + loopback + IPv6 ULA + link-local; DNS rebinding guard via custom `lookup` callback |
+| Path traversal in `read_deployed_file` | `path.resolve` + `startsWith(rootDir + sep)` check |
+| Path traversal in `customSlug` | Restricted to `^[a-zA-Z0-9_-]{1,64}$` |
+| Audit log tampering | Append-only JSONL with single rotation depth — historical entries rotated to `.audit.1.jsonl`, never modified in place |
+| CSP-stripping XSS in injected previews | Only `frame-ancestors` is stripped; `script-src` and friends preserved |
+| MCP tool runaway / OOM | Per-key result LRU (configurable cap), histogram caps, per-tool timeouts, recursion depth caps |
+
+### §11.2 Audit log
+
+Every mutating operator action is recorded to `workspace/.audit.jsonl`.
+Each entry:
+
+```jsonc
+{
+  "ts":     1714060800000,
+  "action": "secret.write",          // rollback, build.trigger, secret.write/delete, domain.add/remove, …
+  "target": "GITHUB_TOKEN",
+  "ip":     "127.0.0.1",
+  "ua":     "Mozilla/5.0 …",
+  "method": "POST",
+  "path":   "/secrets",
+  "detail": { "key": "GITHUB_TOKEN" } // /secret|password|token|key/i values auto-redacted
+}
+```
+
+Tail via `GET /api/audit?n=200` (newest-first). Rotated past 5 MiB to
+`.audit.1.jsonl`.
+
+### §11.3 Secret handling rules
+
+- Secrets are **never** echoed in API responses (only `hasValue: bool` + last-4 mask).
+- Secrets are **never** included in `/api/config/export` (stripped).
+- Secrets are exported to a build's environment **only if** `branchConfig.injectSecrets === true`.
+- Webhook subscribers' `secret` field is stripped from `GET /api/webhooks` (replaced with `hasSecret: bool`).
+- The audit log auto-redacts any field name matching `/secret|password|token|key/i`.
+
+---
+
+## §12 · Monitoring & observability
+
+### §12.1 Self-monitoring
+
+`server/monitor.js` runs every `DV_HEALTH_INTERVAL_MS` (default 60 s):
+
+1. **Health pings** — for every `ready`/`running` preview, GET its
+   loopback `/preview/.../` with a 5 s tight timeout. Update
+   `buildStatus[key].health` to `"ok"` / `"broken"` + `healthReason`.
+   Going `ok → broken` fires a `build.error` outgoing webhook.
+2. **Scheduled rebuilds** — for every branch with `bc.schedule` set,
+   either an integer (seconds between rebuilds) or a 5-field cron
+   expression, kick off `deployBranch` if the schedule says so.
+
+Dashboard SSE relays the health flips in real time so red-tinted
+"broken" pills appear without a page reload.
+
+Disable globally with `DV_DISABLE_HEALTH=1`.
+
+### §12.2 Metrics
+
+`server/metrics.js` records:
+
+- **Counters** — `tool.ok.<name>`, `tool.fail.<name>`, `tool.cachehit.<name>`
+- **Gauges** — `tools.count`, plus heap + uptime via `/api/metrics`
+- **Histograms** — `tool.latencyMs.<name>` with bucket counts
+
+Exposed at:
+
+- `GET /api/metrics` — JSON snapshot (used by the Analytics dashboard)
+- `GET /api/metrics/prometheus` — Prometheus text format for scraping
+
+### §12.3 Runtime errors
+
+Every preview HTML response gets a tiny inline collector injected by
+`proxy.js`. It captures `window.onerror` + `unhandledrejection` and
+POSTs to `/api/preview-errors/:owner/:repo/:slug` with `keepalive`
+(survives `beforeunload`).
+
+Server-side dedupe by SHA1(`msg|file|line|col`), capped 50 unique per
+branch. Dashboard polls `/api/preview-errors/.../summary` every 15 s
+and shows a `⚠ N` pill on rows with errors.
+
+### §12.4 Logs
+
+- **Build logs** — per-key file at `logs/<key>.log`, rotated past
+  `DV_MAX_LOG_BYTES` (5 MiB) to `<key>.log.1`. Live-streamed via SSE
+  at `/api/logs/stream?key=...`.
+- **Server logs** — stdout. The dashboard's Analytics view shows
+  in-process metrics; for long-term retention pipe stdout to a file
+  rotator (`pm2`, `systemd-journald`, etc.).
+
+---
+
+## §13 · Deployment
+
+### §13.1 Local dev
+
+```bash
+git clone https://github.com/WW-Andene/Deployable_Preview && cd Deployable_Preview
+npm install
+npm start                       # http://localhost:3000
+```
+
+### §13.2 With HTTPS (so claude.ai can connect without a tunnel)
+
+```bash
+openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes -subj '/CN=localhost'
+HTTPS_CERT=cert.pem HTTPS_KEY=key.pem npm start
+```
+
+### §13.3 Public tunnel
+
+```bash
+# cloudflared (preferred — no auth needed, auto-installed)
+# ngrok      (set NGROK_AUTHTOKEN)
+# localtunnel (always works as fallback)
+
+# In the dashboard: Settings → HTTPS Tunnel → Start
+# OR via API: POST /api/tunnel/start
+```
+
+### §13.4 systemd
+
+```ini
+# /etc/systemd/system/deployview.service
+[Unit]
+Description=DeployView
+After=network.target
+
+[Service]
+Type=simple
+User=deployview
+WorkingDirectory=/opt/deployview
+ExecStart=/usr/bin/node server/index.js
+Restart=always
+RestartSec=10
+EnvironmentFile=/opt/deployview/.env
+StandardOutput=append:/var/log/deployview.log
+StandardError=append:/var/log/deployview.err
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### §13.5 Docker
+
+```bash
+docker build -t deployview .
+docker run -d \
+  --name deployview \
+  -p 3000:3000 \
+  -v $(pwd)/deployview.json:/app/deployview.json \
+  -v $(pwd)/workspace:/app/workspace \
+  -v $(pwd)/logs:/app/logs \
+  -e WEBHOOK_SECRET=... \
+  deployview
+```
+
+### §13.6 Termux (Android)
+
+Works out of the box on ARM64 Android with Termux:
+
+```bash
+pkg install nodejs git
+git clone https://github.com/WW-Andene/Deployable_Preview && cd Deployable_Preview
+npm install --omit=optional   # skip Playwright + native libs that need Android NDK
+npm start
+```
+
+Browser-backed MCP tools degrade to "no browser available" cleanly;
+everything else works. Use `BROWSERLESS_API_KEY` for remote browser
+without local Playwright.
+
+### §13.7 Backups
+
+`deployview.json` is the only file that holds operator data (config,
+secrets, history pointer). Back it up regularly:
+
+```bash
+cp deployview.json ~/Dropbox/deployview-$(date +%F).json
+```
+
+Workspace + logs + snapshots are disposable — DV will re-clone and
+rebuild from GitHub on demand.
+
+---
+
+## §14 · See also
+
+- [README.md](README.md) — 30-second pitch + competitor comparison
+- [MCP-COOKBOOK.md](MCP-COOKBOOK.md) — concrete Claude usage patterns
+- [SETUP.md](SETUP.md) — production deployment guide
+- [CHANGELOG.md](CHANGELOG.md) — what changed and when
+- [AUDIT-app-2026-04-25.md](AUDIT-app-2026-04-25.md) — most recent full security + UX audit
