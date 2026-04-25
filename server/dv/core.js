@@ -302,8 +302,12 @@ async function callTool(name, args) {
   if (tool.cache) {
     cacheKey = _cacheKey(name, args);
     const hit = _cacheGet(cacheKey);
-    if (hit) return hit;
+    if (hit) {
+      try { require("../metrics").inc("tool.cachehit." + name); } catch (_) {}
+      return hit;
+    }
   }
+  const _tStart = Date.now();
 
   // Capability checks
   for (const req of tool.requires) {
@@ -334,6 +338,13 @@ async function callTool(name, args) {
   if (cacheKey && !normalized.isError) {
     _cachePut(cacheKey, normalized, tool.cache.ttlMs);
   }
+
+  // Metrics: per-tool latency + ok/fail counters
+  try {
+    const m = require("../metrics");
+    m.observe("tool.latencyMs." + name, Date.now() - _tStart);
+    m.inc("tool." + (normalized.isError ? "fail." : "ok.") + name);
+  } catch (_) {}
   return normalized;
 }
 

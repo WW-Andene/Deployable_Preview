@@ -18,6 +18,24 @@ const buildStatus = {};
 const buildLocks = {};   // prevents concurrent builds for the same key
 const MAX_CONCURRENT_BUILDS = parseInt(process.env.MAX_CONCURRENT_BUILDS, 10) || 4;
 
+// ── Thumb LRU ────────────────────────────────────────────────────────────
+// Keep at most MAX_THUMBS thumbs resident at any time. When a new thumb is
+// stored, drop the oldest-thumbAt thumbs until we're under budget.
+const MAX_THUMBS = parseInt(process.env.DV_MAX_THUMBS, 10) || 40;
+function evictThumbsIfNeeded() {
+  const withThumbs = [];
+  for (const k in buildStatus) { if (buildStatus[k] && buildStatus[k].thumb) withThumbs.push({ k, at: buildStatus[k].thumbAt || 0 }); }
+  if (withThumbs.length <= MAX_THUMBS) return;
+  withThumbs.sort(function(a, b) { return a.at - b.at; }); // oldest first
+  const evict = withThumbs.length - MAX_THUMBS;
+  for (let i = 0; i < evict; i++) {
+    const slot = buildStatus[withThumbs[i].k];
+    if (!slot) continue;
+    delete slot.thumb;
+    delete slot.diffThumb;
+  }
+}
+
 // ── Thumbnail capture + auto-diff ────────────────────────────────────────
 // Fire-and-forget screenshot of the preview after a successful build.
 // Stored as base64 on buildStatus[key].thumb (≈30–60 KB per branch).
@@ -41,6 +59,7 @@ function captureThumbAsync(owner, repo, slug, delayMs) {
       const previous = buildStatus[key].thumb;
       buildStatus[key].thumb = shot.base64;
       buildStatus[key].thumbAt = Date.now();
+      evictThumbsIfNeeded();
 
       // Run a quick pixel diff against the previous thumb, best-effort.
       if (previous && typeof browser.screenshotDiff === "function") {

@@ -201,6 +201,7 @@ router.get("/github/:owner/:repo/detect", async (req, res) => {
 // ── Repos CRUD ───────────────────────────────────────────────────────────────
 router.get("/repos", (req, res) => {
   const config = getConfig();
+  const crypto = require("crypto");
   const withStatus = config.repos.map((r) => {
     const branchStatuses = {};
     for (const bc of r.activeBranches || []) {
@@ -230,7 +231,14 @@ router.get("/repos", (req, res) => {
     }
     return { ...r, branchStatuses };
   });
-  res.json(withStatus);
+  // Stable hash → ETag. Lets clients short-circuit polling when nothing
+  // has actually changed (returns 304 with no body).
+  const body = JSON.stringify(withStatus);
+  const etag = '"' + crypto.createHash("sha1").update(body).digest("base64").slice(0, 16) + '"';
+  res.setHeader("ETag", etag);
+  res.setHeader("Cache-Control", "no-cache");
+  if (req.headers["if-none-match"] === etag) { res.status(304).end(); return; }
+  res.type("application/json").send(body);
 });
 
 router.post("/repos", (req, res) => {

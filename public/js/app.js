@@ -76,9 +76,17 @@ function api(method, path, body) {
 
 function statusClass(s) { return "status-dot status-" + (s || "idle"); }
 
-// Data loading
+// Data loading — uses ETag/If-None-Match so the server can 304 unchanged polls.
+var _reposEtag = null;
 function loadRepos() {
-  api("GET", "/api/repos").then(function(repos) {
+  var headers = { "Content-Type": "application/json" };
+  if (_reposEtag) headers["If-None-Match"] = _reposEtag;
+  fetch("/api/repos", { method: "GET", headers: headers }).then(function(res) {
+    if (res.status === 304) return null; // unchanged — keep current state
+    _reposEtag = res.headers.get("ETag") || _reposEtag;
+    return res.json();
+  }).then(function(repos) {
+    if (!repos) return; // nothing changed
     S.repos = repos;
     if (S.activeRepo) {
       var updated = S.repos.find(function(r) { return r.id === S.activeRepo.id; });
