@@ -97,6 +97,21 @@
   --sp-lg:  calc(var(--sp) * 3);     /* 21px */
   --sp-xl:  calc(var(--sp) * 4);     /* 28px */
   --sp-2xl: calc(var(--sp) * 6);     /* 42px */
+
+  /* Modal width scale (B3 — used by .modal + .modal-sm/md/lg/xl) */
+  --modal-w-sm: 380px;   /* share / errors / confirm */
+  --modal-w-md: 560px;   /* history / diff / log */
+  --modal-w-lg: 720px;   /* edit / APK / advanced */
+  --modal-w-xl: 920px;   /* full-page composers */
+
+  /* Z-index scale — single source of truth so layered overlays don't collide */
+  --z-base:    0;
+  --z-fab:     50;
+  --z-topbar:  100;
+  --z-popover: 200;
+  --z-modal:   500;
+  --z-toast:   900;
+  --z-palette: 1000;
 }
 
 /* ══════════════════════════════════════════════════
