@@ -27,13 +27,22 @@ async function interact(opts) {
   // actions (mouse, keyboard, tap, swipe, drag) stay on `page`.
   const target = opts.frame ? await session.resolveFrame(page, opts.frame) : page;
 
+  // Per-action timeout for selector-resolving operations. Default
+  // Playwright behaviour is 30s; callers who know the selector either
+  // exists immediately or doesn't can fail fast (e.g. actionTimeout:2000)
+  // instead of blocking 30s waiting for a stale selector.
+  const actionTimeoutOpt = Number.isFinite(Number(opts.actionTimeout)) && Number(opts.actionTimeout) >= 0
+    ? Number(opts.actionTimeout)
+    : null;
+  const _ato = actionTimeoutOpt != null ? { timeout: actionTimeoutOpt } : {};
+
   let result = { success: true, action, url };
   if (opts.frame) result.frame = opts.frame;
 
   switch (action) {
     case "click":
       if (selector) {
-        await target.click(selector);
+        await target.click(selector, _ato);
       } else if (x !== undefined && y !== undefined) {
         await page.mouse.click(x, y);
       }
@@ -228,12 +237,12 @@ async function interact(opts) {
 
     case "type":
       if (!selector) throw new Error("selector required for type action");
-      await target.click(selector);
+      await target.click(selector, _ato);
       if (typeof target.fill === "function") {
-        await target.fill(selector, value || "");
+        await target.fill(selector, value || "", _ato);
       } else {
         await target.evaluate(function(sel) { document.querySelector(sel).value = ""; }, selector);
-        await target.type(selector, value || "");
+        await target.type(selector, value || "", _ato);
       }
       result.typed = value;
       result.into = selector;
@@ -242,7 +251,7 @@ async function interact(opts) {
     case "select":
       if (!selector) throw new Error("selector required for select action");
       if (typeof target.selectOption === "function") {
-        await target.selectOption(selector, value || "");
+        await target.selectOption(selector, value || "", _ato);
       } else {
         await target.select(selector, value || "");
       }
@@ -259,7 +268,7 @@ async function interact(opts) {
 
     case "hover":
       if (selector) {
-        await target.hover(selector);
+        await target.hover(selector, _ato);
       } else if (x !== undefined && y !== undefined) {
         await page.mouse.move(x, y);
       }
