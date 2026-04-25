@@ -34,7 +34,8 @@ const {
   buildKey,
   createLogger,
   appendHistory,
-  snapshotBuildOutput
+  snapshotBuildOutput,
+  broadcastStatus
 } = require("./state");
 
 const {
@@ -63,6 +64,7 @@ async function buildBranch(repoConfig, branchConfig) {
   if (countActiveBuilds() >= MAX_CONCURRENT_BUILDS) {
     console.log("[" + key + "] Max concurrent builds (" + MAX_CONCURRENT_BUILDS + ") reached, queuing...");
     buildStatus[key] = { status: "queued", log: "Waiting for build slot...\n", lastBuild: null, commitSha: "", mode: "static" };
+    broadcastStatus(key, buildStatus[key]);
     setTimeout(() => {
       const slot = buildStatus[key];
       if (!slot || slot.status !== "queued") return;
@@ -77,6 +79,7 @@ async function buildBranch(repoConfig, branchConfig) {
 
   const branchDir = getBranchDir(owner, repo, branchConfig);
   buildStatus[key] = { status: "building", log: "", lastBuild: null, commitSha: "", mode: "static", startedAt: Date.now() };
+  broadcastStatus(key, buildStatus[key]);
   const addLog = createLogger(key);
 
   try {
@@ -250,6 +253,7 @@ async function buildBranch(repoConfig, branchConfig) {
     buildStatus[key].outputDir = outName;
     saveLog(key, addLog.getLog());
     captureThumbAsync(repoConfig.owner, repoConfig.repo, branchSlug(branchConfig));
+    broadcastStatus(key, buildStatus[key]);
 
     // Deployment history: snapshot the just-built output so future
     // rollbacks can restore it byte-for-byte. Best-effort — failure
@@ -283,6 +287,7 @@ async function buildBranch(repoConfig, branchConfig) {
     buildStatus[key].status = "error";
     buildStatus[key].lastBuild = Date.now();
     saveLog(key, addLog.getLog());
+    broadcastStatus(key, buildStatus[key]);
     try {
       require("../webhooks").emit("build.error", {
         repo: repoConfig.owner + "/" + repoConfig.repo,

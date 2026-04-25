@@ -73,6 +73,30 @@ router.get("/logs/stream", (req, res) => {
   req.on("close", () => { stream.closed = true; });
 });
 
+// H1: SSE status broadcast — pushes every buildStatus transition to the
+// dashboard so it can update without polling. One stream per client; an
+// initial "connected" event lets the client confirm wiring + a ping
+// every 25s keeps the connection alive through proxies.
+const { onStatusChange } = require("../../build");
+router.get("/status/stream", (req, res) => {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no"
+  });
+  res.write("data: " + JSON.stringify({ connected: true }) + "\n\n");
+  const off = onStatusChange(function(key, slot) {
+    if (res.writableEnded || res.destroyed) return;
+    try { res.write("data: " + JSON.stringify({ key, slot }) + "\n\n"); } catch (_) {}
+  });
+  const ping = setInterval(function() {
+    if (res.writableEnded || res.destroyed) return;
+    try { res.write(":ping\n\n"); } catch (_) {}
+  }, 25000);
+  req.on("close", function() { off(); clearInterval(ping); });
+});
+
 // Build trigger
 router.post("/build/:owner/:repo", (req, res) => {
   const slug = req.query.slug || req.query.branch;

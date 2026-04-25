@@ -214,9 +214,42 @@ api("GET", "/api/preferences").then(function(p) { S.preferences = p || {}; }).ca
 api("GET", "/api/token").then(function(r) {
   S.hasToken = r.hasToken;
   S.view = r.hasToken ? "dashboard" : "setup";
-  if (r.hasToken) loadRepos();
+  if (r.hasToken) { loadRepos(); installStatusStream(); }
   else render();
 });
+
+// H1: open the SSE status stream once and keep it open. Every push
+// patches S.repos[*].branchStatuses[slug] in-place and re-renders.
+// Auto-reconnects with a 5s back-off if the connection drops.
+function installStatusStream() {
+  if (S._statusES) return;
+  function open() {
+    var es = new EventSource("/api/status/stream");
+    S._statusES = es;
+    es.addEventListener("message", function(ev) {
+      var msg; try { msg = JSON.parse(ev.data); } catch (_) { return; }
+      if (!msg || !msg.key || !msg.slot) return;
+      var parts = msg.key.split(":");
+      if (parts.length < 2) return;
+      var ownerRepo = parts[0];           // owner/repo
+      var slug = parts.slice(1).join(":"); // re-join in case slug had a colon
+      var or = ownerRepo.split("/");
+      var repo = (S.repos || []).find(function(r) { return r.owner === or[0] && r.repo === or[1]; });
+      if (!repo) return;
+      if (!repo.branchStatuses) repo.branchStatuses = {};
+      // Merge — server already stripped heavy fields (thumb/log/diffThumb).
+      repo.branchStatuses[slug] = Object.assign({}, repo.branchStatuses[slug] || {}, msg.slot);
+      render();
+    });
+    es.addEventListener("error", function() {
+      try { es.close(); } catch (_) {}
+      S._statusES = null;
+      setTimeout(open, 5000);
+    });
+  }
+  open();
+}
+DV._installStatusStream = installStatusStream;
 
 function loadMcpTools() {
   api("GET", "/api/mcp/tools").then(function(r) {

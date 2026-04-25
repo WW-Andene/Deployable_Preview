@@ -77,6 +77,28 @@ function createLogger(key) {
   return addLog;
 }
 
+// ── Status broadcaster (H1: SSE dashboard updates) ──────────────────────────
+// Subscribers receive every buildStatus state change so the dashboard can
+// show ready/error/building transitions without polling. Listeners are
+// fire-and-forget; throwing in one doesn't affect the others.
+const _statusListeners = new Set();
+function onStatusChange(cb) { _statusListeners.add(cb); return () => _statusListeners.delete(cb); }
+function broadcastStatus(key, slot) {
+  for (const cb of _statusListeners) {
+    try { cb(key, slot); } catch (_) {}
+  }
+}
+// Wrap mutations to buildStatus[key].status with a Proxy-like setter.
+// Simpler approach: callers (executor/server) explicitly call markStatus
+// after each transition. Provide a helper they can use.
+function markStatus(key, patch) {
+  if (!buildStatus[key]) buildStatus[key] = {};
+  Object.assign(buildStatus[key], patch || {});
+  // Strip heavy fields from the broadcast payload.
+  const { thumb, diffThumb, log, ...lean } = buildStatus[key];
+  broadcastStatus(key, { ...lean, hasThumb: !!buildStatus[key].thumb });
+}
+
 // ── SSOT prune subscriber ───────────────────────────────────────────────────
 // When the config is saved, drop buildStatus entries for branches that no
 // longer exist in any repo. Otherwise removed branches keep stale state +
@@ -188,6 +210,10 @@ module.exports = {
   getBranchDir,
   buildKey,
   createLogger,
+  // ── status broadcaster ──
+  onStatusChange,
+  broadcastStatus,
+  markStatus,
   // ── deployment history ──
   getHistory,
   appendHistory,
