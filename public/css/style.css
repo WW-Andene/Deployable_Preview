@@ -2075,6 +2075,7 @@ button:disabled, button[disabled] {
 }
 .color-err { color: var(--err); }
 .color-ok  { color: var(--ok);  }
+.color-warn { color: var(--accent); }
 
 /* ══════════════════════════════════════════════════
    §APK-WD — APK working-directory input row

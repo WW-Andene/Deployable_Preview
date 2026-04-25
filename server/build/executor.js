@@ -35,7 +35,9 @@ const {
   createLogger,
   appendHistory,
   snapshotBuildOutput,
-  broadcastStatus
+  broadcastStatus,
+  getHistory,
+  getDirectorySize
 } = require("./state");
 
 const {
@@ -255,6 +257,30 @@ async function buildBranch(repoConfig, branchConfig) {
     captureThumbAsync(repoConfig.owner, repoConfig.repo, branchSlug(branchConfig));
     broadcastStatus(key, buildStatus[key]);
 
+    // I1: bundle-size insights. Walk the output dir, compare to the
+    // previous build's bytes, derive a delta + percentage so users see
+    // "+128 KB (4%)" or "−1.2 MB (-31%)" instead of guessing.
+    let bytes = 0, prevBytes = 0, delta = 0, deltaPct = null;
+    try {
+      bytes = getDirectorySize(finalOut);
+      const hist = getHistory(key);
+      // Skip rollback audit entries — only compare to real builds.
+      const prev = (hist || []).find((h) => h && h.by === "build" && typeof h.bytes === "number");
+      if (prev) {
+        prevBytes = prev.bytes;
+        delta = bytes - prevBytes;
+        if (prevBytes > 0) deltaPct = +((delta / prevBytes) * 100).toFixed(2);
+      }
+      buildStatus[key].outputBytes = bytes;
+      buildStatus[key].outputBytesDelta = delta;
+      buildStatus[key].outputBytesDeltaPct = deltaPct;
+      if (bytes) {
+        addLog("Output size: " + (bytes / 1024).toFixed(1) + " KB" +
+          (delta ? " (" + (delta > 0 ? "+" : "") + (delta / 1024).toFixed(1) + " KB" +
+            (deltaPct != null ? " · " + (deltaPct > 0 ? "+" : "") + deltaPct + "%" : "") + " vs previous)" : ""));
+      }
+    } catch (_) {}
+
     // Deployment history: snapshot the just-built output so future
     // rollbacks can restore it byte-for-byte. Best-effort — failure
     // doesn't break the build.
@@ -267,7 +293,10 @@ async function buildBranch(repoConfig, branchConfig) {
         outputPath: finalOut,
         snapshotDir: snap,
         mode: "static",
-        by: "build"
+        by: "build",
+        bytes: bytes,
+        bytesDelta: delta,
+        bytesDeltaPct: deltaPct
       });
     } catch (e) { addLog("WARNING: history append failed: " + e.message); }
 
@@ -279,6 +308,9 @@ async function buildBranch(repoConfig, branchConfig) {
         slug: branchSlug(branchConfig),
         commitSha: buildStatus[key].commitSha || "",
         duration: parseFloat(duration),
+        bytes: bytes,
+        bytesDelta: delta,
+        bytesDeltaPct: deltaPct,
         previewUrl: "/preview/" + repoConfig.owner + "/" + repoConfig.repo + "/" + branchSlug(branchConfig) + "/"
       });
     } catch (_) {}

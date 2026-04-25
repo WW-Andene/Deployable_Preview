@@ -245,6 +245,19 @@ DV.views.dashboard = function(app) {
             if (bs.duration && bs.status !== "building") {
               statusParts.push(el("span", { c: "duration-badge" }, bs.duration + "s"));
             }
+            // I1: bundle-size + delta vs previous build
+            if (bs.outputBytes && bs.status !== "building") {
+              var sizeStr = bs.outputBytes < 1024 ? bs.outputBytes + " B"
+                : bs.outputBytes < 1048576 ? (bs.outputBytes / 1024).toFixed(1) + " KB"
+                : (bs.outputBytes / 1048576).toFixed(2) + " MB";
+              statusParts.push(el("span", { c: "color-tx3 text-11 font-mono" }, sizeStr));
+              if (bs.outputBytesDeltaPct != null && Math.abs(bs.outputBytesDeltaPct) >= 0.1) {
+                var sign = bs.outputBytesDelta > 0 ? "▲" : "▼";
+                var cls  = bs.outputBytesDelta > 0 ? "color-warn" : "color-ok";
+                statusParts.push(el("span", { c: cls + " text-11 font-mono", attr: { title: "Bundle size vs previous build" } },
+                  sign + " " + Math.abs(bs.outputBytesDeltaPct) + "%"));
+              }
+            }
             if (bs.lastBuild && bs.status !== "building") {
               statusParts.push(el("span", { c: "color-tx3 text-10 font-mono" }, timeAgo(bs.lastBuild)));
             }

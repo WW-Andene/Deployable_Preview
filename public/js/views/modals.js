@@ -533,10 +533,21 @@ DV.views.modals = function(app) {
           var row = el("div", { c: "history-row" + (rolledBack ? " history-row-rollback" : "") });
 
           var meta = el("div", { c: "history-row-main" });
+          var sizePill = null;
+          if (entry.bytes) {
+            var sizeStr = entry.bytes < 1024 ? entry.bytes + " B"
+              : entry.bytes < 1048576 ? (entry.bytes / 1024).toFixed(1) + " KB"
+              : (entry.bytes / 1048576).toFixed(2) + " MB";
+            sizePill = el("span", { c: "color-tx3 text-11" }, " · " + sizeStr +
+              (entry.bytesDeltaPct != null && Math.abs(entry.bytesDeltaPct) >= 0.1
+                ? " (" + (entry.bytesDelta > 0 ? "+" : "") + entry.bytesDeltaPct + "%)"
+                : ""));
+          }
           meta.appendChild(el("div", { c: "history-row-label" }, [
             el("span", { c: "history-row-sha font-mono" }, entry.commitShort || "—"),
             el("span", { c: "color-tx3 text-11" }, " · " + (entry.timestamp ? new Date(entry.timestamp).toLocaleString() : "?")),
             entry.duration ? el("span", { c: "color-tx3 text-11" }, " · " + entry.duration + "s") : null,
+            sizePill,
             rolledBack ? el("span", { c: "pill pill-warn" }, "rollback") : null,
             entry.note ? el("span", { c: "pill pill-info" }, "note") : null
           ].filter(Boolean)));

@@ -206,6 +206,26 @@ function deleteHistoryComment(key, historyId, commentId) {
   return true;
 }
 
+// I1: walk the output dir and total its bytes. Used to compute
+// per-build bundle size + delta vs previous build. Best-effort:
+// returns 0 on any IO error rather than crashing the build flow.
+function getDirectorySize(dir) {
+  let total = 0;
+  function walk(d) {
+    let entries;
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch (_) { return; }
+    for (const e of entries) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.isFile()) {
+        try { total += fs.statSync(full).size; } catch (_) {}
+      }
+    }
+  }
+  walk(dir);
+  return total;
+}
+
 // snapshotBuildOutput copies the current outputPath into a versioned
 // directory under WORKSPACE/<owner__repo__slug>/.snapshots/<id>/. We copy
 // rather than move so the live preview keeps serving while history grows.
@@ -251,5 +271,6 @@ module.exports = {
   addHistoryComment,
   deleteHistoryComment,
   snapshotBuildOutput,
+  getDirectorySize,
   MAX_HISTORY_PER_KEY
 };
