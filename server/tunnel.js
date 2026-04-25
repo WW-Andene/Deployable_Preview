@@ -227,7 +227,7 @@ function tryNgrok(port, onUrl, onFail) {
     .then((listener) => {
       if (!listener) { onFail(new Error("ngrok returned no listener")); return; }
       // @ngrok/ngrok returns a Listener object; extract the URL string
-      var url = typeof listener === "string" ? listener
+      let url = typeof listener === "string" ? listener
         : (typeof listener.url === "function" ? listener.url() : listener.url);
       if (!url || typeof url !== "string") {
         onFail(new Error("ngrok returned unexpected type: " + typeof listener));

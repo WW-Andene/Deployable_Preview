@@ -2,8 +2,7 @@ const { execSync, spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-const { getConfig } = require("./config");
-const { parseEnvVars } = require("./config");
+const { getConfig, parseEnvVars } = require("./config");
 const { runCmd, findFreePort, waitForPort, runningServers, killServer } = require("./process");
 const { saveLog, broadcastLog } = require("./logs");
 const { scanApiRoutes } = require("./serverless");
@@ -99,7 +98,7 @@ function countActiveBuilds() {
 // ── Slug & path helpers ──
 function branchSlug(bc) {
   if (typeof bc === "string") return bc.replace(/\//g, "__");
-  var slug = bc.branch.replace(/\//g, "__");
+  let slug = bc.branch.replace(/\//g, "__");
   if (bc.baseDir) slug += "--" + bc.baseDir.replace(/\//g, "__");
   return slug;
 }
@@ -162,16 +161,16 @@ function detectLanguage(workDir, branchConfig) {
   if (fs.existsSync(path.join(workDir, "pom.xml")) || fs.existsSync(path.join(workDir, "build.gradle")) || fs.existsSync(path.join(workDir, "build.gradle.kts"))) return "java";
   if (fs.existsSync(path.join(workDir, "requirements.txt")) || fs.existsSync(path.join(workDir, "pyproject.toml")) || fs.existsSync(path.join(workDir, "setup.py")) || fs.existsSync(path.join(workDir, "Pipfile"))) return "python";
   // Check for .py files (no manifest but still a Python project)
-  try { var entries = fs.readdirSync(workDir); if (entries.some(function(f) { return f.endsWith(".py"); })) return "python"; } catch (e) {}
+  try { const entries = fs.readdirSync(workDir); if (entries.some(function(f) { return f.endsWith(".py"); })) return "python"; } catch (e) {}
   return "nodejs";
 }
 
 // ── Detect pygame in Python files ──
 function detectPygame(workDir) {
   try {
-    var files = fs.readdirSync(workDir).filter(function(f) { return f.endsWith(".py"); });
-    for (var i = 0; i < files.length; i++) {
-      var content = fs.readFileSync(path.join(workDir, files[i]), "utf8");
+    let files = fs.readdirSync(workDir).filter(function(f) { return f.endsWith(".py"); });
+    for (let i = 0; i < files.length; i++) {
+      let content = fs.readFileSync(path.join(workDir, files[i]), "utf8");
       if (/^\s*(import\s+pygame|from\s+pygame)/m.test(content)) return files[i];
     }
   } catch (e) {}
@@ -180,18 +179,18 @@ function detectPygame(workDir) {
 
 // ── Patch pygame game for async (required by pygbag/browser) ──
 function patchPygameForAsync(filePath, addLog) {
-  var code = fs.readFileSync(filePath, "utf8");
+  let code = fs.readFileSync(filePath, "utf8");
   // Already uses async — no patching needed
   if (/async\s+def/.test(code) && /await\s+asyncio/.test(code)) {
     addLog("Game already uses async — no patching needed");
     return;
   }
 
-  var lines = code.split("\n");
+  let lines = code.split("\n");
 
   // Find the main game loop: top-level "while" or "if __name__" containing a while
-  var loopStart = -1;
-  for (var i = 0; i < lines.length; i++) {
+  let loopStart = -1;
+  for (let i = 0; i < lines.length; i++) {
     if (/^while\s/.test(lines[i])) { loopStart = i; break; }
     if (/^if\s+__name__\s*==/.test(lines[i])) { loopStart = i; break; }
   }
@@ -202,19 +201,19 @@ function patchPygameForAsync(filePath, addLog) {
   }
 
   // Collect all top-level variable names assigned before the loop
-  var globals = [];
-  var seen = {};
-  for (var i = 0; i < loopStart; i++) {
-    var m = lines[i].match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=[^=]/);
+  let globals = [];
+  let seen = {};
+  for (let i = 0; i < loopStart; i++) {
+    let m = lines[i].match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=[^=]/);
     if (m && !seen[m[1]]) { globals.push(m[1]); seen[m[1]] = true; }
   }
 
-  var moduleLines = lines.slice(0, loopStart);
-  var gameLines = lines.slice(loopStart);
+  let moduleLines = lines.slice(0, loopStart);
+  let gameLines = lines.slice(loopStart);
 
-  var hasAsyncio = /^\s*import\s+asyncio/m.test(code);
+  let hasAsyncio = /^\s*import\s+asyncio/m.test(code);
 
-  var newLines = [];
+  let newLines = [];
   if (!hasAsyncio) newLines.push("import asyncio");
   // Keep all module-level code (imports, defs, setup) as-is
   newLines = newLines.concat(moduleLines);
@@ -227,9 +226,9 @@ function patchPygameForAsync(filePath, addLog) {
   }
 
   // Indent game loop code and inject await asyncio.sleep(0)
-  var hasContent = false;
-  for (var i = 0; i < gameLines.length; i++) {
-    var line = gameLines[i];
+  let hasContent = false;
+  for (let i = 0; i < gameLines.length; i++) {
+    let line = gameLines[i];
     if (line.trim() === "") {
       newLines.push("");
     } else {
@@ -238,7 +237,7 @@ function patchPygameForAsync(filePath, addLog) {
     }
     // Yield to browser after display update or clock tick
     if (/pygame\.display\.(flip|update)\s*\(/.test(line) || /\.tick\s*\(/.test(line)) {
-      var indent = line.match(/^(\s*)/)[1];
+      let indent = line.match(/^(\s*)/)[1];
       newLines.push("    " + indent + "await asyncio.sleep(0)");
     }
   }
@@ -256,11 +255,11 @@ function patchPygameForAsync(filePath, addLog) {
 function findMainPyFile(workDir) {
   if (fs.existsSync(path.join(workDir, "main.py"))) return "main.py";
   try {
-    var pyFiles = fs.readdirSync(workDir).filter(function(f) { return f.endsWith(".py") && f !== "__init__.py" && f !== "setup.py"; });
+    let pyFiles = fs.readdirSync(workDir).filter(function(f) { return f.endsWith(".py") && f !== "__init__.py" && f !== "setup.py"; });
     if (pyFiles.length === 1) return pyFiles[0];
     // Look for if __name__ == "__main__" pattern
-    for (var i = 0; i < pyFiles.length; i++) {
-      var content = fs.readFileSync(path.join(workDir, pyFiles[i]), "utf8");
+    for (let i = 0; i < pyFiles.length; i++) {
+      let content = fs.readFileSync(path.join(workDir, pyFiles[i]), "utf8");
       if (/__name__\s*==\s*['"]__main__['"]/.test(content)) return pyFiles[i];
     }
     return pyFiles[0] || "main.py";
@@ -275,7 +274,7 @@ async function installDeps(workDir, addLog, language) {
   }
   if (language === "python") {
     addLog("Installing Python dependencies...");
-    var pip = "python -m pip install --break-system-packages";
+    let pip = "python -m pip install --break-system-packages";
     if (fs.existsSync(path.join(workDir, "Pipfile"))) {
       await runCmd(pip + " pipenv && pipenv install --deploy --system", workDir);
     } else if (fs.existsSync(path.join(workDir, "pyproject.toml"))) {
@@ -286,7 +285,7 @@ async function installDeps(workDir, addLog, language) {
       addLog("No Python dependency file found — skipping install");
     }
     // Auto-detect pygame and install pygbag for web builds
-    var pygameFile = detectPygame(workDir);
+    let pygameFile = detectPygame(workDir);
     if (pygameFile) {
       addLog("Pygame detected in " + pygameFile + " — installing pygbag for web build...");
       await runCmd(pip + " pygbag", workDir);
@@ -399,9 +398,9 @@ async function buildBranch(repoConfig, branchConfig) {
     await installDeps(workDir, addLog, language);
 
     // Pygame auto-build: use pygbag to compile to WebAssembly
-    var pygameFile = (language === "python") ? detectPygame(workDir) : null;
-    var cmd, outName;
-    var userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
+    let pygameFile = (language === "python") ? detectPygame(workDir) : null;
+    let cmd, outName;
+    let userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
 
     // Fix Next.js SWC on ARM Android (Termux): Next.js detects the platform
     // as "android-arm64" and tries to download @next/swc-android-arm64 — but
@@ -532,7 +531,7 @@ async function buildBranch(repoConfig, branchConfig) {
     }
 
     if (pygameFile) {
-      var mainFile = findMainPyFile(workDir);
+      let mainFile = findMainPyFile(workDir);
       // pygbag expects main.py — copy if needed
       if (mainFile !== "main.py") {
         addLog("Copying " + mainFile + " -> main.py for pygbag...");
@@ -561,7 +560,7 @@ async function buildBranch(repoConfig, branchConfig) {
     const apiRoutes = scanApiRoutes(workDir, addLog);
     const userEnvForRuntime = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
 
-    var duration = ((Date.now() - buildStatus[key].startedAt) / 1000).toFixed(1);
+    let duration = ((Date.now() - buildStatus[key].startedAt) / 1000).toFixed(1);
     addLog("Build complete in " + duration + "s! Output: " + path.relative(WORKSPACE, finalOut));
     buildStatus[key].status = "ready";
     buildStatus[key].lastBuild = Date.now();
@@ -667,7 +666,7 @@ async function startServer(repoConfig, branchConfig, isRestart) {
     addLog("Waiting for port " + port + "...");
     await waitForPort(port, 60000);
 
-    var duration = ((Date.now() - buildStatus[key].startedAt) / 1000).toFixed(1);
+    let duration = ((Date.now() - buildStatus[key].startedAt) / 1000).toFixed(1);
     addLog("Server running on port " + port + " (started in " + duration + "s)");
     runningServers[key].status = "running";
     buildStatus[key].status = "running";
@@ -693,9 +692,9 @@ function deployBranch(repoConfig, branchConfig) {
   // Pygame projects always use static build (pygbag produces HTML/WASM)
   if (branchConfig.mode === "server") {
     // Quick-check: if language is python, peek for pygame and reroute to static
-    var baseDir = branchConfig.baseDir || repoConfig.baseDir || "";
-    var branchDir = getBranchDir(repoConfig.owner, repoConfig.repo, branchConfig);
-    var checkDir = baseDir ? path.join(branchDir, baseDir) : branchDir;
+    let baseDir = branchConfig.baseDir || repoConfig.baseDir || "";
+    let branchDir = getBranchDir(repoConfig.owner, repoConfig.repo, branchConfig);
+    let checkDir = baseDir ? path.join(branchDir, baseDir) : branchDir;
     if ((branchConfig.language === "python" || branchConfig.language === "auto") && fs.existsSync(checkDir) && detectPygame(checkDir)) {
       console.log("[" + repoConfig.owner + "/" + repoConfig.repo + "] Pygame detected — using static build with pygbag instead of server mode");
       buildBranch(repoConfig, branchConfig);
