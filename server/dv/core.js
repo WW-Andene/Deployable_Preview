@@ -58,7 +58,18 @@ function defineTool(def) {
   });
 }
 
-/** Get the full flat tool list in MCP shape. */
+/**
+ * Get the full flat tool list in MCP shape.
+ * @returns {Array<{
+ *   name: string,
+ *   description: string,
+ *   inputSchema: object,
+ *   category: string,
+ *   requires: Array<object>,
+ *   deprecatedFor?: string,
+ *   cached?: { ttlMs: number }
+ * }>}
+ */
 function listTools() {
   return Array.from(registry.values()).map((t) => ({
     name: t.name,
@@ -93,9 +104,20 @@ function toolCount() { return registry.size; }
 // ── Result helpers — every tool returns one of these ─────────────────────
 
 /**
+ * @typedef {{ type: "text", text: string }
+ *           | { type: "image", data: string, mimeType: string }} MCPContentBlock
+ *
+ * @typedef {{ content: MCPContentBlock[], isError?: boolean }} MCPResult
+ */
+
+/**
  * The universal tool-result shape: { content: [...], isError?: boolean }.
  * This is the MCP tool call response shape — the adapter can pass it
  * straight through.
+ *
+ * @param {MCPContentBlock[]} content
+ * @param {boolean} [isError]
+ * @returns {MCPResult}
  */
 function makeResult(content, isError) {
   const r = { content };
@@ -289,9 +311,15 @@ function checkRequirement(req) {
  *
  * Flow:
  *   1. Look up the tool. Unknown → fail.
- *   2. Run every requirement gate. First failure → fail.
- *   3. Invoke the handler. Thrown errors → fail.
- *   4. Normalize the return value.
+ *   2. Cache check (if the tool opted in via { cache: { ttlMs } }).
+ *   3. Run every requirement gate. First failure → fail.
+ *   4. Invoke the handler. Thrown errors → fail.
+ *   5. Normalize the return value, write-through to cache on success.
+ *   6. Record metrics.
+ *
+ * @param {string} name
+ * @param {object} [args]
+ * @returns {Promise<MCPResult>}
  */
 async function callTool(name, args) {
   const tool = registry.get(name);
