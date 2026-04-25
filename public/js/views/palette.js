@@ -83,7 +83,7 @@ function buildCommands() {
   // Global actions
   cmds.push({ id: "action.refresh", label: "Refresh repo list", hint: "action · r", section: "Actions",
               run: function() { DV.loadRepos(); } });
-  cmds.push({ id: "action.rebuildAll", label: "Rebuild ALL branches", hint: "action · destructive", section: "Actions",
+  cmds.push({ id: "action.rebuildAll", label: "Rebuild All branches", hint: "action · destructive", section: "Actions",
               run: function() {
                 if (!confirm("Rebuild every branch across every repo?")) return;
                 for (var i = 0; i < S.repos.length; i++) {

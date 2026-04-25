@@ -236,7 +236,9 @@ DV.views.dashboard = function(app) {
             } else if (bs.status === "ready") {
               statusParts.push(el("span", {}, "Ready"));
             } else if (bs.status === "error") {
+              // F2-003: surface "see Log" inline so users know how to recover.
               statusParts.push(el("span", {}, branchMode === "server" ? "Server failed" : "Build failed"));
+              statusParts.push(el("span", { c: "color-tx3 text-10" }, "— open Log for details"));
             } else {
               statusParts.push(el("span", {}, "Idle"));
             }
