@@ -129,12 +129,23 @@ function addBranchToRepo(branch, baseDir, mode, startCommand, language) {
 // View registry — populated by view files
 var views = {};
 
+// Close any open EventSource the previous view set up. Modals only clean up
+// when explicitly closed; navigating away (Esc, back-arrow, palette) was
+// leaving streams open against the server.
+function closeStaleStreams() {
+  // If the log modal is gone, drop its SSE.
+  if (!S.logModal && S._logSSE) { try { S._logSSE.close(); } catch (_) {} S._logSSE = null; }
+  // Same for APK modal.
+  if (!S.apkModal && S._apkSSE) { try { S._apkSSE.close(); } catch (_) {} S._apkSSE = null; }
+}
+
 // Main render
 function render() {
   if (_dropdownCloseHandler) {
     document.removeEventListener("click", _dropdownCloseHandler, true);
     _dropdownCloseHandler = null;
   }
+  closeStaleStreams();
   var app = document.getElementById("app"); app.innerHTML = "";
 
   // Topbar
