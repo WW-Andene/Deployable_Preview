@@ -543,11 +543,44 @@ DV.views.modals = function(app) {
           if (entry.note) {
             meta.appendChild(el("div", { c: "history-row-note" }, entry.note));
           }
-          // Inline note editor (+ button when none, edit icon when present)
-          meta.appendChild(el("button", {
-            c: "bg bs history-row-note-btn",
-            attr: { title: entry.note ? "Edit note" : "Add note" },
-            on: { click: function() {
+          // H5: comments thread
+          if (Array.isArray(entry.comments) && entry.comments.length) {
+            var cthread = el("div", { c: "history-row-comments" });
+            for (var ci = 0; ci < entry.comments.length; ci++) {
+              (function(c) {
+                cthread.appendChild(el("div", { c: "history-comment" }, [
+                  el("span", { c: "history-comment-by" }, c.by + " · " + new Date(c.at).toLocaleString()),
+                  el("div", { c: "history-comment-text" }, c.text),
+                  el("button", { c: "bg bs history-comment-del", attr: { title: "Delete comment", "aria-label": "Delete comment" }, on: { click: function() {
+                    if (!confirm("Delete this comment?")) return;
+                    fetch("/api/history/" + hm.owner + "/" + hm.repo + "/comment/" + encodeURIComponent(c.id) + "?slug=" + encodeURIComponent(hm.slug) + "&historyId=" + encodeURIComponent(entry.id), { method: "DELETE" })
+                      .then(function(r){ return r.json(); })
+                      .then(function(r){
+                        if (r.error) { DV.showToast(r.error, "error"); return; }
+                        entry.comments = entry.comments.filter(function(x){ return x.id !== c.id; });
+                        DV.render();
+                      });
+                  } } }, "×")
+                ]));
+              })(entry.comments[ci]);
+            }
+            meta.appendChild(cthread);
+          }
+          // Inline buttons: add comment, set/clear note
+          var actionRow = el("div", { c: "flex-row gap-6 history-row-actions" }, [
+            el("button", { c: "bg bs", on: { click: function() {
+              var text = prompt("New comment on " + (entry.commitShort || entry.id) + ":");
+              if (!text) return;
+              api("POST", "/api/history/" + hm.owner + "/" + hm.repo + "/comment", {
+                slug: hm.slug, historyId: entry.id, by: "you", text: text
+              }).then(function(r) {
+                if (r.error) { DV.showToast(r.error, "error"); return; }
+                if (!Array.isArray(entry.comments)) entry.comments = [];
+                entry.comments.push(r.comment);
+                DV.render();
+              });
+            } } }, "+ Comment"),
+            el("button", { c: "bg bs", attr: { title: entry.note ? "Edit note" : "Add note" }, on: { click: function() {
               var fresh = prompt("Note for " + (entry.commitShort || entry.id) + " (≤2000 chars, blank to clear):", entry.note || "");
               if (fresh === null) return;
               api("POST", "/api/history/" + hm.owner + "/" + hm.repo + "/note", {
@@ -557,8 +590,9 @@ DV.views.modals = function(app) {
                 entry.note = fresh ? fresh.slice(0, 2000) : undefined;
                 DV.render();
               });
-            } }
-          }, entry.note ? "✎ Note" : "+ Note"));
+            } } }, entry.note ? "✎ Note" : "+ Note")
+          ]);
+          meta.appendChild(actionRow);
           row.appendChild(meta);
 
           // Don't offer rollback to the row that's already a rollback

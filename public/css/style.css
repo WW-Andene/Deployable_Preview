@@ -1290,6 +1290,25 @@ button:disabled, button[disabled] {
   word-break: break-word;
 }
 .history-row-note-btn { margin-top: 6px; }
+.history-row-actions { margin-top: 8px; }
+.history-row-comments {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-left: 2px solid var(--accent);
+  padding-left: 10px;
+}
+.history-comment {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "by del" "text del";
+  gap: 2px 8px;
+  font-size: 12px;
+}
+.history-comment-by   { grid-area: by; color: var(--tx3); font-family: var(--font-mono); font-size: 11px; }
+.history-comment-text { grid-area: text; color: var(--tx2); white-space: pre-wrap; word-break: break-word; }
+.history-comment-del  { grid-area: del; align-self: start; padding: 2px 8px; font-size: 14px; line-height: 1; }
 
 /* ─── Pull-to-refresh indicator (app.js DV.installPullToRefresh) ─── */
 .ptr-indicator {

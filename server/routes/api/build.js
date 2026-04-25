@@ -165,6 +165,25 @@ router.post("/history/:owner/:repo/note", (req, res) => {
   res.json({ ok: true, entry: r.entry });
 });
 
+// H5: comments thread on a history entry.
+const { addHistoryComment, deleteHistoryComment } = require("../../build");
+router.post("/history/:owner/:repo/comment", (req, res) => {
+  const { slug, historyId, by, text } = req.body || {};
+  if (!slug || !historyId || !text) return res.status(400).json({ error: "slug, historyId, text required" });
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  const c = addHistoryComment(key, historyId, by || "anon", text);
+  if (!c) return res.status(404).json({ error: "history entry not found OR text empty" });
+  res.json({ ok: true, comment: c });
+});
+router.delete("/history/:owner/:repo/comment/:commentId", (req, res) => {
+  const { slug, historyId } = req.query;
+  if (!slug || !historyId) return res.status(400).json({ error: "slug + historyId query required" });
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  const ok = deleteHistoryComment(key, historyId, req.params.commentId);
+  if (!ok) return res.status(404).json({ error: "comment not found" });
+  res.json({ ok: true });
+});
+
 // ── Outgoing webhook subscribers ───────────────────────────────────────────
 const webhooks = require("../../webhooks");
 

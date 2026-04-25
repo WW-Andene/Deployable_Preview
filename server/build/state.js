@@ -157,9 +157,11 @@ function appendHistory(key, entry) {
   return arr;
 }
 
-// G2: attach a free-text note to a history entry. Notes are short
-// (capped 2000 chars), human- or AI-written, and optional. Useful for
-// "what changed", "demo for client X", "rollback before launch" etc.
+// G2 / H5: comments + notes on history entries.
+//   - `note`        — singular free-text (legacy; still settable for AI tools).
+//   - `comments[]`  — multiple authored comments. { id, by, text, at }
+// Both capped at 2000 chars per text. Comments are kept newest-last so
+// the list reads as a thread.
 const MAX_NOTE_CHARS = 2000;
 function setHistoryNote(key, historyId, note) {
   const arr = getHistory(key);
@@ -174,6 +176,34 @@ function setHistoryNote(key, historyId, note) {
   }
   try { fs.writeFileSync(_historyFile(key), JSON.stringify(arr, null, 2)); } catch (_) {}
   return entry;
+}
+
+function addHistoryComment(key, historyId, by, text) {
+  const arr = getHistory(key);
+  const entry = arr.find((h) => h.id === historyId);
+  if (!entry) return null;
+  if (!Array.isArray(entry.comments)) entry.comments = [];
+  const comment = {
+    id: Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6),
+    by: String(by || "anon").slice(0, 64),
+    text: String(text || "").slice(0, MAX_NOTE_CHARS),
+    at: Date.now()
+  };
+  if (!comment.text.trim()) return null;
+  entry.comments.push(comment);
+  try { fs.writeFileSync(_historyFile(key), JSON.stringify(arr, null, 2)); } catch (_) {}
+  return comment;
+}
+
+function deleteHistoryComment(key, historyId, commentId) {
+  const arr = getHistory(key);
+  const entry = arr.find((h) => h.id === historyId);
+  if (!entry || !Array.isArray(entry.comments)) return false;
+  const before = entry.comments.length;
+  entry.comments = entry.comments.filter((c) => c.id !== commentId);
+  if (entry.comments.length === before) return false;
+  try { fs.writeFileSync(_historyFile(key), JSON.stringify(arr, null, 2)); } catch (_) {}
+  return true;
 }
 
 // snapshotBuildOutput copies the current outputPath into a versioned
@@ -218,6 +248,8 @@ module.exports = {
   getHistory,
   appendHistory,
   setHistoryNote,
+  addHistoryComment,
+  deleteHistoryComment,
   snapshotBuildOutput,
   MAX_HISTORY_PER_KEY
 };
