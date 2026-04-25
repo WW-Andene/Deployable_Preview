@@ -63,7 +63,7 @@ router.get("/browser/test", async (req, res) => {
 router.get("/browser/status", (req, res) => {
   try {
     const { getActiveBrowser } = require("../../browser-setup");
-    const { hasPlaywright } = require("../../mcp-browser");
+    const { hasPlaywright } = require("../../browser");
     const preferred = (getConfig().preferences || {}).browser || "off";
     const active = getActiveBrowser();
     res.json({
@@ -96,7 +96,7 @@ router.post("/browser/disable", (req, res) => {
   config.preferences.browser = "off";
   saveConfig();
   try {
-    const mcpBrowser = require("../../mcp-browser");
+    const mcpBrowser = require("../../browser");
     mcpBrowser.closeBrowser().catch(() => {});
   } catch (_) {}
   res.json({ ok: true });

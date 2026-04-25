@@ -6,7 +6,7 @@ const router = express.Router();
 
 const { webFetch } = require("../../web-fetch");
 const { extractFromHtml } = require("../../web-fetch");
-const mcpBrowser = require("../../mcp-browser");
+const mcpBrowser = require("../../browser");
 
 // Unified dispatcher: plain fetch, JS-rendered, or JS-rendered + network capture
 async function dispatchWebFetch(opts) {
