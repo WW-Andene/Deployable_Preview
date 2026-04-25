@@ -211,10 +211,11 @@ router.get("/repos", (req, res) => {
       // expose them on dedicated endpoints instead.
       const raw = buildStatus[bk] || { status: "idle" };
       // eslint-disable-next-line no-unused-vars
-      const { thumb, log, ...lean } = raw;
+      const { thumb, diffThumb, log, ...lean } = raw;
       branchStatuses[slug] = {
         ...lean,
         hasThumb: !!raw.thumb,
+        hasDiffThumb: !!raw.diffThumb,
         thumbAt: raw.thumbAt || null,
         branch: bc.branch,
         baseDir: bc.baseDir || "",

@@ -120,4 +120,18 @@ router.get("/thumb/:owner/:repo", (req, res) => {
   res.end(buf);
 });
 
+// Diff heatmap — PNG showing pixel changes vs. the previous build's thumb.
+// 404s when no prior thumb existed or pixelmatch isn't installed.
+router.get("/thumb-diff/:owner/:repo", (req, res) => {
+  const slug = req.query.slug || req.query.branch || "";
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  const s = buildStatus[key];
+  if (!s || !s.diffThumb) { res.status(404).end(); return; }
+  const buf = Buffer.from(s.diffThumb, "base64");
+  res.type("image/png");
+  res.setHeader("Cache-Control", "public, max-age=30");
+  res.setHeader("ETag", '"diff-' + (s.thumbAt || 0) + '"');
+  res.end(buf);
+});
+
 module.exports = router;

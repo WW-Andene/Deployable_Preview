@@ -2230,6 +2230,18 @@ button:disabled, button[disabled] {
   font-size: 11px; padding: 4px 8px;
 }
 
+/* ── Auto-diff pill (delta vs. previous build) ─────────────────────── */
+.diff-badge {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  padding: 2px 7px; border-radius: var(--r-pill);
+  border: 1px solid var(--border); cursor: pointer;
+  margin-left: 4px; white-space: nowrap;
+}
+.diff-badge-none   { color: var(--tx3); border-color: var(--border); }
+.diff-badge-small  { color: var(--ok);  border-color: var(--ok-dim); background: var(--ok-dim); }
+.diff-badge-medium { color: var(--accent); border-color: var(--accent-mid); background: var(--accent-dim); }
+.diff-badge-large  { color: var(--err); border-color: var(--err-dim); background: var(--err-dim); }
+
 /* ── Framework detection badge ─────────────────────────────────────── */
 .detect-badge {
   display: inline-flex; align-items: center; gap: 6px;

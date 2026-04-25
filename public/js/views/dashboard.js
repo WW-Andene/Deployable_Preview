@@ -195,6 +195,23 @@ DV.views.dashboard = function(app) {
               }; })(repo, slug));
               info.insertBefore(thumb, info.firstChild);
             }
+            // Auto-diff pill: shows pixel change vs. previous build's thumb.
+            if (bs.diff && typeof bs.diff.percent === "number") {
+              var pct = bs.diff.percent;
+              var diffCls = pct < 0.5 ? "diff-badge diff-badge-none"
+                          : pct < 5  ? "diff-badge diff-badge-small"
+                          : pct < 20 ? "diff-badge diff-badge-medium"
+                                     : "diff-badge diff-badge-large";
+              var diffPill = el("span", {
+                c: diffCls,
+                attr: { title: "Pixel change vs. previous build — click for heatmap" },
+                on: { click: (function(r2, s2){ return function(ev) {
+                  ev.stopPropagation();
+                  window.open("/api/thumb-diff/" + r2.owner + "/" + r2.repo + "?slug=" + encodeURIComponent(s2), "_blank");
+                }; })(repo, slug) }
+              }, "Δ " + pct.toFixed(1) + "%");
+              info.appendChild(diffPill);
+            }
             row.appendChild(info);
 
             var statusParts = [];

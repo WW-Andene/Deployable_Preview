@@ -226,6 +226,80 @@ dv.defineTool({
   }
 });
 
+// ── cross_viewport ───────────────────────────────────────────────────────────
+
+dv.defineTool({
+  name: "cross_viewport",
+  category: "browse",
+  description:
+    "Screenshot a preview at three common viewports in one call: mobile (390×844), " +
+    "tablet (820×1180), desktop (1440×900). Returns all three images plus JSON with " +
+    "per-viewport URLs + sizes. Replaces the common 3-screenshot workflow.",
+  requires: [{ kind: "browser" }],
+  schema: {
+    type: "object",
+    properties: {
+      owner: { type: "string" },
+      repo:  { type: "string" },
+      slug:  { type: "string" },
+      path:     { type: "string",  description: "Path inside the preview (default /)" },
+      fullPage: { type: "boolean" },
+      viewports: {
+        type: "array",
+        description: "Optional custom viewport list [{width,height,label}]. Overrides the built-in mobile/tablet/desktop.",
+        items: {
+          type: "object",
+          properties: {
+            width: { type: "number" }, height: { type: "number" }, label: { type: "string" }
+          }
+        }
+      }
+    },
+    required: ["owner", "repo", "slug"]
+  },
+  async handler(args) {
+    const vps = (Array.isArray(args.viewports) && args.viewports.length)
+      ? args.viewports
+      : [
+          { label: "mobile",  width: 390,  height: 844 },
+          { label: "tablet",  width: 820,  height: 1180 },
+          { label: "desktop", width: 1440, height: 900 }
+        ];
+    const shots = await Promise.all(vps.map(function(vp) {
+      return browser.takeScreenshot({
+        owner: args.owner, repo: args.repo, slug: args.slug,
+        width: vp.width, height: vp.height,
+        path: args.path, fullPage: !!args.fullPage
+      }).then(function(s) { return { vp, s }; });
+    }));
+
+    const content = [];
+    const index = [];
+    for (const { vp, s } of shots) {
+      if (s.error) {
+        index.push({ viewport: vp, ok: false, error: s.error });
+        continue;
+      }
+      index.push({
+        viewport: vp,
+        ok: true,
+        url: s.url,
+        bytes: s.base64.length,
+        width: s.width,
+        height: s.height
+      });
+      content.push({ type: "image", data: s.base64, mimeType: s.mimeType || "image/png" });
+      content.push({ type: "text", text: (vp.label || (vp.width + "x" + vp.height)) + "  " + (s.width + "×" + s.height) });
+    }
+    content.push({ type: "text", text: JSON.stringify({
+      target: { owner: args.owner, repo: args.repo, slug: args.slug, path: args.path || "/" },
+      viewports: vps.length,
+      results: index
+    }, null, 2) });
+    return dv.makeResult(content);
+  }
+});
+
 // ── compare_branches ─────────────────────────────────────────────────────────
 
 dv.defineTool({

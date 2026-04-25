@@ -18,10 +18,13 @@ const buildStatus = {};
 const buildLocks = {};   // prevents concurrent builds for the same key
 const MAX_CONCURRENT_BUILDS = parseInt(process.env.MAX_CONCURRENT_BUILDS, 10) || 4;
 
-// ── Thumbnail capture ────────────────────────────────────────────────────
+// ── Thumbnail capture + auto-diff ────────────────────────────────────────
 // Fire-and-forget screenshot of the preview after a successful build.
 // Stored as base64 on buildStatus[key].thumb (≈30–60 KB per branch).
-// Skipped silently if the browser isn't available.
+// Also diffs the new thumb against the previous one (if pixelmatch is
+// available) and stores a summary on buildStatus[key].diff so the dashboard
+// can show 'this build changed X% of pixels vs. the previous build'.
+// Silent when the browser is unavailable.
 function captureThumbAsync(owner, repo, slug, delayMs) {
   setTimeout(async () => {
     try {
@@ -30,13 +33,38 @@ function captureThumbAsync(owner, repo, slug, delayMs) {
       const shot = await browser.takeScreenshot({
         owner, repo, slug, width: 1024, height: 640, fullPage: false
       });
-      if (shot && shot.base64 && !shot.error) {
-        const key = owner + "/" + repo + ":" + slug;
-        if (buildStatus[key]) {
-          buildStatus[key].thumb = shot.base64;
-          buildStatus[key].thumbAt = Date.now();
-        }
+      if (!shot || !shot.base64 || shot.error) return;
+
+      const key = owner + "/" + repo + ":" + slug;
+      if (!buildStatus[key]) return;
+
+      const previous = buildStatus[key].thumb;
+      buildStatus[key].thumb = shot.base64;
+      buildStatus[key].thumbAt = Date.now();
+
+      // Run a quick pixel diff against the previous thumb, best-effort.
+      if (previous && typeof browser.screenshotDiff === "function") {
+        try {
+          const diff = await browser.screenshotDiff({
+            before: previous,
+            after: shot.base64,
+            threshold: 10
+          });
+          if (diff && !diff.error) {
+            buildStatus[key].diff = {
+              diffCount: diff.diffCount,
+              percent: diff.percent,
+              bbox: diff.bbox,
+              engine: diff.engine || null,
+              previousThumbAt: buildStatus[key].previousThumbAt || null,
+              at: Date.now()
+            };
+            // Store the diff heatmap alongside the thumb for later retrieval
+            if (diff.base64) buildStatus[key].diffThumb = diff.base64;
+          }
+        } catch (_) { /* diffing is best-effort */ }
       }
+      buildStatus[key].previousThumbAt = buildStatus[key].thumbAt;
     } catch (_) { /* silent — thumbs are nice-to-have */ }
   }, delayMs || 1500);
 }
