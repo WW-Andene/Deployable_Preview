@@ -74,11 +74,13 @@ DV.views.modals = function(app) {
     var fields = [
       { label: "Language", key: "language", type: "chips", options: ["auto", "nodejs", "java", "python"] },
       { label: "Mode", key: "mode", type: "chips", options: ["static", "server"] },
+      { label: "Custom URL slug (optional)", key: "customSlug", placeholder: "letters, numbers, - or _ — leave blank for auto", hint: "Defaults to the branch name. Used in /preview/owner/repo/<slug>/" },
       { label: "Base directory", key: "baseDir", placeholder: "repo root" },
       { label: "Build command", key: "buildCommand", placeholder: lp.build, show: function() { return m.mode !== "server"; } },
       { label: "Output directory", key: "outputDir", placeholder: lp.output, show: function() { return m.mode !== "server"; } },
       { label: "Start command", key: "startCommand", placeholder: lp.start, show: function() { return m.mode === "server"; } },
-      { label: "Environment variables", key: "envVars", type: "textarea", placeholder: "KEY=value" }
+      { label: "Environment variables", key: "envVars", type: "textarea", placeholder: "KEY=value" },
+      { label: "Preview password (optional)", key: "previewPassword", type: "password", placeholder: "leave blank for public preview", hint: "Visitors must enter this before the preview loads. Stored on this server only." }
     ];
 
     for (var fi = 0; fi < fields.length; fi++) {
@@ -100,9 +102,11 @@ DV.views.modals = function(app) {
           wrap.appendChild(ta);
         } else {
           var inp = document.createElement("input"); inp.value = m[f.key] || ""; inp.placeholder = f.placeholder || "";
+          if (f.type === "password") { inp.type = "password"; inp.autocomplete = "new-password"; }
           inp.addEventListener("input", function(e) { m[f.key] = e.target.value; });
           wrap.appendChild(inp);
         }
+        if (f.hint) wrap.appendChild(el("p", { c: "label-hint" }, f.hint));
         box.appendChild(wrap);
       })(fields[fi]);
     }
@@ -112,7 +116,8 @@ DV.views.modals = function(app) {
       el("button", { c: "bp flex-1", on: { click: function() {
         api("PUT", "/api/repos/" + m.owner + "/" + m.repo + "/branch", {
           slug: m.slug, baseDir: m.baseDir, buildCommand: m.buildCommand, outputDir: m.outputDir,
-          mode: m.mode, startCommand: m.startCommand, envVars: m.envVars, language: m.language
+          mode: m.mode, startCommand: m.startCommand, envVars: m.envVars, language: m.language,
+          customSlug: m.customSlug, previewPassword: m.previewPassword
         }).then(function() { S.editModal = null; DV.loadRepos(); });
       } } }, "Save")
     ]));

@@ -7,6 +7,15 @@ const { buildStatus } = require("../build");
 const { runningServers } = require("../process");
 const { proxyTo, serveIndex } = require("../proxy");
 const { executeHandler } = require("../serverless");
+const { previewAuthMiddleware, previewAuthLogin } = require("../preview-auth");
+
+// Login form POST handler — must be registered before the catch-all
+// preview routes so __auth doesn't get proxied to the user's app.
+router.post("/preview/:owner/:repo/:branchSlug/__auth", express.urlencoded({ extended: false }), previewAuthLogin);
+
+// Password gate — runs in front of every other preview route. No-op for
+// branches without a previewPassword set.
+router.use("/preview/:owner/:repo/:branchSlug", previewAuthMiddleware);
 
 function findOutputDir(owner, repo, slug) {
   const key = owner + "/" + repo + ":" + slug;

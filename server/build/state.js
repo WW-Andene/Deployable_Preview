@@ -39,6 +39,13 @@ function countActiveBuilds() {
 
 function branchSlug(bc) {
   if (typeof bc === "string") return bc.replace(/\//g, "__");
+  // D3: customSlug overrides the auto-generated one when set + valid.
+  // Routing, history files, snapshots, build keys all key off this, so
+  // the custom alias becomes the canonical identifier — preview URLs,
+  // file paths, MCP results all use it consistently.
+  if (bc.customSlug && /^[a-zA-Z0-9_-]{1,64}$/.test(bc.customSlug)) {
+    return bc.customSlug;
+  }
   let slug = bc.branch.replace(/\//g, "__");
   if (bc.baseDir) slug += "--" + bc.baseDir.replace(/\//g, "__");
   return slug;

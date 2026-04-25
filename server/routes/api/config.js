@@ -388,9 +388,12 @@ router.delete("/repos/:owner/:repo/branch", (req, res) => {
 });
 
 // Edit branch config
+// D3: customSlug must be unique per repo and a-zA-Z0-9_- only.
+const CUSTOM_SLUG_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+
 router.put("/repos/:owner/:repo/branch", (req, res) => {
   const config = getConfig();
-  const { slug, baseDir, buildCommand, outputDir, mode, startCommand, envVars, language } = req.body;
+  const { slug, baseDir, buildCommand, outputDir, mode, startCommand, envVars, language, customSlug, previewPassword } = req.body;
   if (!slug) return res.status(400).json({ error: "slug required" });
   const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
   if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
@@ -403,6 +406,28 @@ router.put("/repos/:owner/:repo/branch", (req, res) => {
   if (startCommand !== undefined) bc.startCommand = startCommand;
   if (envVars !== undefined) bc.envVars = envVars;
   if (language !== undefined) bc.language = language;
+  if (previewPassword !== undefined) bc.previewPassword = String(previewPassword || "");
+  if (customSlug !== undefined) {
+    const cs = String(customSlug || "").trim();
+    if (cs === "") {
+      bc.customSlug = "";
+    } else {
+      if (!CUSTOM_SLUG_RE.test(cs)) {
+        return res.status(400).json({ error: "Invalid customSlug — letters, numbers, _ and - only (1–64 chars)" });
+      }
+      // Uniqueness check across this repo's branches (excluding self)
+      const collision = (repoConfig.activeBranches || []).some(function(other) {
+        if (other === bc) return false;
+        if (other.customSlug && other.customSlug === cs) return true;
+        // Also reject if the alias would collide with another branch's
+        // auto-slug, since both resolve through the same routing key.
+        if (!other.customSlug && branchSlug(other) === cs) return true;
+        return false;
+      });
+      if (collision) return res.status(409).json({ error: "customSlug already in use by another branch in this repo" });
+      bc.customSlug = cs;
+    }
+  }
   saveConfig();
   res.json({ ok: true, branch: bc });
 });
