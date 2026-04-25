@@ -43,7 +43,14 @@ var S = {
   paletteOpen: false,
   paletteQuery: "",
   paletteIndex: 0,
-  shortcutsOpen: false
+  shortcutsOpen: false,
+
+  // GitHub repo picker (addRepo view)
+  ghRepos: null,             // null = not fetched, [] = empty, [{...}] = loaded
+  ghReposError: "",
+  ghReposLoading: false,
+  ghReposFilter: "",
+  ghReposType: "all"         // all | owner | member
 };
 
 var _dropdownCloseHandler = null;
@@ -103,6 +110,27 @@ function fetchAvailableBranches() {
   api("GET", "/api/github/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/branches").then(function(r) {
     if (r.branches) { S.availableBranches = r.branches; render(); }
   }).catch(function() {});
+}
+
+// Fetch the user's GitHub repositories. Cached server-side for 5 min;
+// pass force=true to bust the cache.
+function fetchGhRepos(force) {
+  if (S.ghReposLoading) return;
+  S.ghReposLoading = true; S.ghReposError = "";
+  if (force) S.ghRepos = null;
+  render();
+  var url = "/api/github/repos?type=" + encodeURIComponent(S.ghReposType || "all") + (force ? "&refresh=1" : "");
+  api("GET", url).then(function(r) {
+    S.ghReposLoading = false;
+    if (r.error) { S.ghReposError = r.error; S.ghRepos = []; render(); return; }
+    S.ghRepos = Array.isArray(r.repos) ? r.repos : [];
+    render();
+  }).catch(function(e) {
+    S.ghReposLoading = false;
+    S.ghReposError = e.message || "Failed to load repositories";
+    S.ghRepos = [];
+    render();
+  });
 }
 
 function addBranchToRepo(branch, baseDir, mode, startCommand, language) {
@@ -229,6 +257,7 @@ window.DV = {
   S: S, el: el, api: api, statusClass: statusClass, render: render,
   loadRepos: loadRepos,
   fetchAvailableBranches: fetchAvailableBranches, addBranchToRepo: addBranchToRepo,
+  fetchGhRepos: fetchGhRepos,
   loadMcpTools: loadMcpTools, showToast: showToast, iconBtn: iconBtn,
   views: views, VIEW_PRESETS: VIEW_PRESETS,
   getDropdownHandler: function() { return _dropdownCloseHandler; },

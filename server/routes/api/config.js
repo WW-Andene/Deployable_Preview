@@ -165,6 +165,53 @@ function _cachePutDate(sha, date) {
   _commitDateCache.set(sha, date);
 }
 
+// ── User's GitHub repositories ──────────────────────────────────────────────
+// GET /api/github/repos?type=all|owner|member&search=foo
+// Returns the authenticated user's repos (own + collaborator + org member),
+// sorted by recent activity. 5-minute cache so polling the picker stays cheap.
+let _reposCache = null; // { fetchedAt, type, data }
+const REPOS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+router.get("/github/repos", async (req, res) => {
+  try {
+    const config = getConfig();
+    if (!config.token) return res.status(401).json({ error: "GitHub token not set" });
+    const type = (req.query.type || "all").toLowerCase();
+    const force = req.query.refresh === "1";
+    const now = Date.now();
+    if (!force && _reposCache && _reposCache.type === type && (now - _reposCache.fetchedAt) < REPOS_CACHE_TTL_MS) {
+      return res.json({ repos: _reposCache.data, cached: true, ageMs: now - _reposCache.fetchedAt });
+    }
+    // Pull up to 3 pages (300 repos). GitHub caps per_page at 100.
+    // sort=updated puts recently-touched repos first.
+    const all = [];
+    for (let page = 1; page <= 3; page++) {
+      const path = "/user/repos?per_page=100&sort=updated&type=" + encodeURIComponent(type) + "&page=" + page;
+      const batch = await ghApi(path, config.token);
+      if (!Array.isArray(batch) || batch.length === 0) break;
+      for (const r of batch) {
+        all.push({
+          owner: r.owner && r.owner.login,
+          repo: r.name,
+          fullName: r.full_name,
+          description: r.description || "",
+          private: !!r.private,
+          fork: !!r.fork,
+          archived: !!r.archived,
+          defaultBranch: r.default_branch,
+          updatedAt: r.updated_at,
+          pushedAt: r.pushed_at,
+          stars: r.stargazers_count || 0,
+          language: r.language || null
+        });
+      }
+      if (batch.length < 100) break;
+    }
+    _reposCache = { fetchedAt: now, type, data: all };
+    res.json({ repos: all, cached: false, count: all.length });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 router.get("/github/:owner/:repo/branches", async (req, res) => {
   try {
     const config = getConfig();
