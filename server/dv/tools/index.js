@@ -20,3 +20,5 @@ require("./ai");
 require("./pages");
 require("./engine");
 require("./aggregate");
+require("./devtools");
+require("./codec");
