@@ -104,6 +104,13 @@ DV.views.topbar = function(app) {
   if (S.view === "preview") {
     right.appendChild(el("button", { c: "bg bs", on: { click: function() { S.compareMode = !S.compareMode; S.compareBranch = ""; DV.render(); } } }, S.compareMode ? "Single" : "Compare"));
     right.appendChild(el("button", { c: "bg bs", on: { click: function() { S.refreshKey++; DV.render(); } } }, "Refresh"));
+    // Share button — uses native share sheet on mobile, QR + clipboard
+    // modal on desktop. Especially useful for opening a desktop preview
+    // on a phone via QR scan.
+    right.appendChild(el("button", { c: "bg bs", attr: { title: "Share preview", "aria-label": "Share preview URL" }, on: { click: function() {
+      var url = "/preview/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/" + S.activeBranch + "/";
+      DV.openShare(url, S.activeRepo.owner + "/" + S.activeRepo.repo + " · " + S.activeBranch);
+    } } }, "Share"));
     right.appendChild(el("button", { c: "bg bs", on: { click: function() {
       window.open("/test/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/" + S.activeBranch, "_blank");
     } } }, "Test"));
@@ -120,6 +127,10 @@ DV.views.topbar = function(app) {
     right.appendChild(el("button", { c: "topbar-icon" + (S.view === "mcp" ? " topbar-icon-active" : ""), attr: { title: "MCP Tools" }, on: { click: function() {
       S.mcpAction = null; S.mcpResult = null; DV.loadMcpTools(); S.view = "mcp"; DV.render();
     } } }, DV.iconEl("plug")));
+
+    right.appendChild(el("button", { c: "topbar-icon" + (S.view === "analytics" ? " topbar-icon-active" : ""), attr: { title: "Analytics" }, on: { click: function() {
+      S.view = "analytics"; DV.render();
+    } } }, DV.iconEl("chart")));
 
     right.appendChild(el("button", { c: "topbar-icon" + (S.view === "settings" ? " topbar-icon-active" : ""), attr: { title: "Settings (,)" }, on: { click: function() {
       S.view = "settings"; DV.render();

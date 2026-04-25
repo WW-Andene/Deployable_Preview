@@ -30,7 +30,10 @@
     clipboard:  '<path d="M4 3 H10 V11 H4 Z M5.5 3 V2 H8.5 V3" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linejoin="round"/>',
 
     // Brand-y
-    plug:       '<path d="M5 2 V4 M9 2 V4 M3 4 H11 V7 A4 4 0 0 1 7 11 A4 4 0 0 1 3 7 Z M7 11 V13" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+    plug:       '<path d="M5 2 V4 M9 2 V4 M3 4 H11 V7 A4 4 0 0 1 7 11 A4 4 0 0 1 3 7 Z M7 11 V13" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+
+    // Three-bar mini chart for the Analytics tab
+    chart:      '<rect x="2.5" y="8.5" width="2.5" height="3" fill="currentColor"/><rect x="6"   y="5.5" width="2.5" height="6" fill="currentColor"/><rect x="9.5" y="3"   width="2.5" height="8.5" fill="currentColor"/>'
   };
 
   /**

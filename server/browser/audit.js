@@ -4,6 +4,14 @@ const path = require("path");
 const session = require("../dv/session");
 const enrich = require("../mcp-enrichments");
 
+// F-NEW-B003: read web-vitals source once at module load, not on every
+// audit call. Avoids a sync disk read on the hot path.
+let _webVitalsSrc = null;
+try {
+  const wvPath = require.resolve("web-vitals/dist/web-vitals.iife.js");
+  _webVitalsSrc = fs.readFileSync(wvPath, "utf8");
+} catch (_) { /* web-vitals not installed — getWebVitals will report */ }
+
 // ── Performance metrics ────────────────────────────────────────────────────
 
 /**
@@ -18,7 +26,12 @@ async function performanceMetrics(opts) {
   const { page, url } = await session.getSessionPage(browser, owner, repo, slug, opts.width, opts.height);
 
   if (opts.reload) {
-    try { await page.reload({ waitUntil: session.waitUntilIdle(), timeout: 30000 }); } catch (_) {}
+    try {
+      const _t = session.navTimeout(opts);
+      const _r = { waitUntil: session.waitUntilIdle() };
+      if (_t != null) _r.timeout = _t;
+      await page.reload(_r);
+    } catch (_) {}
   }
 
   const metrics = await page.evaluate(() => {
@@ -247,11 +260,8 @@ async function getWebVitals(opts) {
   const { page, url } = await session.getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
 
   // Prefer bundled web-vitals if installed, otherwise load from CDN
-  let source = null;
-  try {
-    const wvPath = require.resolve("web-vitals/dist/web-vitals.iife.js");
-    source = fs.readFileSync(wvPath, "utf8");
-  } catch (_) {}
+  // (cached at module load — see _webVitalsSrc above).
+  const source = _webVitalsSrc;
 
   if (source) {
     try {
@@ -332,7 +342,12 @@ async function getCodeCoverage(opts) {
     }
 
     if (opts.reload) {
-      try { await page.reload({ waitUntil: session.waitUntilIdle(), timeout: 30000 }); } catch (_) {}
+      try {
+      const _t = session.navTimeout(opts);
+      const _r = { waitUntil: session.waitUntilIdle() };
+      if (_t != null) _r.timeout = _t;
+      await page.reload(_r);
+    } catch (_) {}
     }
     await new Promise((r) => setTimeout(r, waitMs));
 

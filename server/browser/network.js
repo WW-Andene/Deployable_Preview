@@ -17,13 +17,17 @@ async function capturePreviewRequests(opts) {
   const { page, url } = await session.getSessionPage(browser, owner, repo, slug, opts.width, opts.height);
 
   const duration = Math.max(1, Number(opts.duration) || 5) * 1000;
-  const maxRequests = Math.max(10, Math.min(Number(opts.maxRequests) || 500, 2000));
+  // F-NEW-S001: raised default 500 → 1000 and lifted upper cap (was 2000).
+  // Heavily-instrumented SPAs (analytics + ads + fonts + tracking) easily
+  // hit 2000 in 30s of capture.
+  const maxRequests = Math.max(10, Number(opts.maxRequests) || 1000);
   const requests = [];
   let truncated = false;
+  let droppedCount = 0;     // F-NEW-A002: report how many were dropped
 
   const onResponse = (resp) => {
     try {
-      if (requests.length >= maxRequests) { truncated = true; return; }
+      if (requests.length >= maxRequests) { truncated = true; droppedCount++; return; }
       const req = resp.request ? resp.request() : null;
       const rurl = typeof resp.url === "function" ? resp.url() : "";
       if (!rurl) return;
@@ -42,7 +46,7 @@ async function capturePreviewRequests(opts) {
   page.on("response", onResponse);
 
   if (opts.reload) {
-    try { await page.reload({ waitUntil: session.waitUntilIdle(), timeout: 30000 }); } catch (_) {}
+    try { await page.reload(Object.assign({ waitUntil: session.waitUntilIdle() }, session.navTimeout(opts) != null ? { timeout: session.navTimeout(opts) } : {})); } catch (_) {}
   }
   await new Promise((r) => setTimeout(r, duration));
   try { page.off("response", onResponse); } catch (_) {}
@@ -54,6 +58,7 @@ async function capturePreviewRequests(opts) {
     url, duration: duration / 1000,
     requestCount: requests.length,
     truncated,
+    droppedCount,                               // F-NEW-A002: visible to caller
     requestsByType: byType,
     requests
   };
@@ -78,7 +83,28 @@ async function captureDownload(opts) {
   const browser = await session.getBrowser();
   const { page, url } = await session.getSessionPage(browser, owner, repo, slug, opts.width, opts.height);
 
-  const timeout = Math.max(1000, Math.min(Number(opts.timeout) || 30000, 120000));
+  // No upper cap — let the caller decide how long to wait. Pass 0 to wait
+  // forever (clamped to 24h to avoid genuinely-stuck Playwright handles).
+  const rawTimeout = Number(opts.timeout);
+  const timeout = (Number.isFinite(rawTimeout) && rawTimeout > 0)
+    ? rawTimeout
+    : (rawTimeout === 0 ? 24 * 60 * 60 * 1000 : 30000);
+
+  // Heartbeat: emit a progress notification every 5s so the MCP client
+  // doesn't 60-second-timeout the call. No-op if onProgress wasn't supplied.
+  const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : null;
+  let _heartbeat = null;
+  let _ticks = 0;
+  if (onProgress) {
+    onProgress(0, null, "download: waiting");
+    _heartbeat = setInterval(() => {
+      _ticks++;
+      try { onProgress(_ticks, null, "download: waiting (" + (_ticks * 5) + "s)"); } catch (_) {}
+    }, 5000);
+  }
+  function stopHeartbeat() {
+    if (_heartbeat) { clearInterval(_heartbeat); _heartbeat = null; }
+  }
 
   // ── Playwright path ──
   if (typeof page.waitForEvent === "function") {
@@ -89,6 +115,7 @@ async function captureDownload(opts) {
       } else if (opts.selector) {
         await page.click(opts.selector).catch(() => {});
       } else {
+        stopHeartbeat();
         throw new Error("trigger requires selector or code");
       }
       const download = await downloadPromise;
@@ -96,9 +123,12 @@ async function captureDownload(opts) {
       const os = require("os");
       const crypto = require("crypto");
       const tmp = path.join(os.tmpdir(), "dv-download-" + crypto.randomBytes(6).toString("hex"));
+      if (onProgress) onProgress(_ticks, null, "download: saving");
       await download.saveAs(tmp);
       const buf = await fsp.readFile(tmp);
       await fsp.unlink(tmp).catch(() => {});
+      stopHeartbeat();
+      if (onProgress) onProgress(_ticks, _ticks, "download: complete (" + buf.length + " B)");
       return {
         suggestedFilename: download.suggestedFilename ? download.suggestedFilename() : null,
         byteLength: buf.length,
@@ -106,6 +136,7 @@ async function captureDownload(opts) {
         url
       };
     } catch (e) {
+      stopHeartbeat();
       return { error: "download capture failed: " + e.message, url };
     }
   }
@@ -131,6 +162,7 @@ async function captureDownload(opts) {
     } else if (opts.selector) {
       await page.click(opts.selector).catch(() => {});
     } else {
+      stopHeartbeat();
       return { error: "trigger requires selector or code", url };
     }
     // Poll downloadDir for a non-crdownload file
@@ -141,10 +173,12 @@ async function captureDownload(opts) {
       if (files.length) { fileName = files[0]; break; }
       await new Promise((r) => setTimeout(r, 250));
     }
-    if (!fileName) return { error: "download timed out", url };
+    if (!fileName) { stopHeartbeat(); return { error: "download timed out", url }; }
     const full = path.join(downloadDir, fileName);
     const buf = fs.readFileSync(full);
     try { fs.unlinkSync(full); fs.rmdirSync(downloadDir); } catch (_) {}
+    stopHeartbeat();
+    if (onProgress) onProgress(_ticks, _ticks, "download: complete (" + buf.length + " B)");
     return {
       suggestedFilename: fileName,
       byteLength: buf.length,
@@ -152,6 +186,7 @@ async function captureDownload(opts) {
       url
     };
   } catch (e) {
+    stopHeartbeat();
     return { error: "download capture failed: " + e.message, url };
   }
 }
@@ -201,7 +236,8 @@ async function browseUrl(opts) {
   const width  = Math.min(Math.max(parseInt(opts.width, 10)  || 1280, 200), 3840);
   const height = Math.min(Math.max(parseInt(opts.height, 10) || 720,  200), 2160);
   const waitMs = Math.min(Math.max(parseInt(opts.waitMs, 10) || 2000, 0), 30000);
-  const maxReq = Math.min(Math.max(parseInt(opts.maxRequests, 10) || 500, 1), 2000);
+  // F-NEW-S001: lifted upper cap (was 2000); raised default to 1000.
+  const maxReq = Math.max(parseInt(opts.maxRequests, 10) || 1000, 1);
 
   // Parse filter options
   const resourceTypesFilter = (opts.filter && Array.isArray(opts.filter.resourceTypes) && opts.filter.resourceTypes.length)
@@ -249,9 +285,10 @@ async function browseUrl(opts) {
     }
 
     // Response listener — capture every network response
+    let _droppedBrowse = 0;
     page.on("response", (resp) => {
       try {
-        if (requests.length >= maxReq) { truncated = true; return; }
+        if (requests.length >= maxReq) { truncated = true; _droppedBrowse++; return; }
         const req = resp.request ? resp.request() : null;
         const rurl = typeof resp.url === "function" ? resp.url() : "";
         if (!rurl || seenUrls.has(rurl)) return;
@@ -312,7 +349,11 @@ async function browseUrl(opts) {
     const navWaitUntil = opts.waitUntil || (session.waitUntilIdle() === "networkidle2" ? "networkidle2" : "networkidle");
     const navStart = Date.now();
     try {
-      await page.goto(parsed.href, { waitUntil: navWaitUntil, timeout: 45000 });
+      // F-NEW-T001: 45s default lifted; caller can pass navTimeout (0 = none).
+      const _t = session.navTimeout(opts);
+      const _go = { waitUntil: navWaitUntil };
+      if (_t != null) _go.timeout = _t;
+      await page.goto(parsed.href, _go);
     } catch (navErr) {
       // Navigation errors (timeouts) are common on heavy pages — keep whatever we captured
       errors.push({ type: "navigation", message: navErr.message });
@@ -345,7 +386,8 @@ async function browseUrl(opts) {
       requests,
       consoleLogs,
       errors,
-      truncated
+      truncated,
+      droppedCount: _droppedBrowse                    // F-NEW-A002
     };
 
     if (opts.returnHtml) {
@@ -373,13 +415,15 @@ async function captureHar(opts) {
   const { page, url } = await session.getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
 
   const duration = Math.max(1, Number(opts.duration) || 5) * 1000;
-  const maxEntries = Math.max(10, Math.min(Number(opts.maxEntries) || 500, 2000));
+  // F-NEW-S001: lifted upper cap; default 1000.
+  const maxEntries = Math.max(10, Number(opts.maxEntries) || 1000);
   const entries = [];
   let truncated = false;
+  let droppedCount = 0;
 
   const onRequest = (req) => {
     try {
-      if (entries.length >= maxEntries) { truncated = true; return; }
+      if (entries.length >= maxEntries) { truncated = true; droppedCount++; return; }
       const entry = {
         startedDateTime: new Date().toISOString(),
         request: {
@@ -432,13 +476,13 @@ async function captureHar(opts) {
   page.on("response", onResponse);
 
   if (opts.reload) {
-    try { await page.reload({ waitUntil: session.waitUntilIdle(), timeout: 30000 }); } catch (_) {}
+    try { await page.reload(Object.assign({ waitUntil: session.waitUntilIdle() }, session.navTimeout(opts) != null ? { timeout: session.navTimeout(opts) } : {})); } catch (_) {}
   }
   await new Promise((r) => setTimeout(r, duration));
   try { page.off("request", onRequest); } catch (_) {}
   try { page.off("response", onResponse); } catch (_) {}
 
-  return { url, duration: duration / 1000, count: entries.length, truncated, entries };
+  return { url, duration: duration / 1000, count: entries.length, truncated, droppedCount, entries };
 }
 
 module.exports = { capturePreviewRequests, captureDownload, browseUrl, captureHar };

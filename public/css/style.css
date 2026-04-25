@@ -97,6 +97,21 @@
   --sp-lg:  calc(var(--sp) * 3);     /* 21px */
   --sp-xl:  calc(var(--sp) * 4);     /* 28px */
   --sp-2xl: calc(var(--sp) * 6);     /* 42px */
+
+  /* Modal width scale (B3 — used by .modal + .modal-sm/md/lg/xl) */
+  --modal-w-sm: 380px;   /* share / errors / confirm */
+  --modal-w-md: 560px;   /* history / diff / log */
+  --modal-w-lg: 720px;   /* edit / APK / advanced */
+  --modal-w-xl: 920px;   /* full-page composers */
+
+  /* Z-index scale — single source of truth so layered overlays don't collide */
+  --z-base:    0;
+  --z-fab:     50;
+  --z-topbar:  100;
+  --z-popover: 200;
+  --z-modal:   500;
+  --z-toast:   900;
+  --z-palette: 1000;
 }
 
 /* ══════════════════════════════════════════════════
@@ -197,40 +212,78 @@ button {
 }
 button:active { transform: translateY(1px) scale(0.97); transition-duration: 50ms; }
 
+/* B2 — Named button system. Each named class is a group-selector
+   alias of the original 2-letter class so old call sites still work
+   verbatim while new code can use semantic names.
+   .btn-primary  ↔ .bp     amber call-to-action, glows on hover
+   .btn-ghost    ↔ .bg     transparent w/ border, surface on hover
+   .btn-danger   ↔ .bd     destructive — warm red with err-border
+   .btn-secondary          accent border + accent text, no fill
+   .btn-icon               square 32×32, transparent, surface hover
+   .btn-sm       ↔ .bs     compact size modifier
+*/
+
 /* Primary — amber signal, glows on hover */
-.bp {
+.bp, .btn-primary {
   background: var(--accent);
   color: var(--bg);
   font-weight: 600;
   padding: 8px 18px;
   box-shadow: var(--shadow-sm);
 }
-.bp:hover {
+.bp:hover, .btn-primary:hover {
   background: var(--accent-h);
   box-shadow: var(--shadow-md), 0 0 20px var(--accent-mid);
   transform: translateY(-1px);
 }
 
 /* Ghost — surface reveal on hover */
-.bg {
+.bg, .btn-ghost {
   background: transparent;
   color: var(--tx2);
   border: 1px solid var(--border);
   padding: 7px 14px;
 }
-.bg:hover { background: var(--sf2); color: var(--tx1); border-color: var(--border-h); }
+.bg:hover, .btn-ghost:hover { background: var(--sf2); color: var(--tx1); border-color: var(--border-h); }
 
 /* Danger — warm red, thicker left border */
-.bd {
+.bd, .btn-danger {
   background: var(--err-dim);
   color: var(--err);
   border: 1px solid var(--err-border);
   padding: 7px 14px;
 }
-.bd:hover { background: var(--err-bg-h); }
+.bd:hover, .btn-danger:hover { background: var(--err-bg-h); }
+
+/* Secondary — accent border + accent text. Sits between primary
+   (filled) and ghost (silent) for actions like Save/Apply that aren't
+   the *one* page CTA but still need accent-coded affirmation. */
+.btn-secondary {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--border-accent);
+  padding: 7px 14px;
+  font-weight: 500;
+}
+.btn-secondary:hover { background: var(--accent-dim); border-color: var(--accent); }
+
+/* Icon-only — 32×32 square, neutral hover. Use with `aria-label`
+   (or wrap with DV.iconBtn(label, opts, "iconName")) so screen
+   readers still announce the button's purpose. */
+.btn-icon {
+  background: transparent;
+  color: var(--tx2);
+  border: 1px solid transparent;
+  padding: 6px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: var(--r-btn);
+}
+.btn-icon:hover { background: var(--sf2); color: var(--tx1); border-color: var(--border); }
 
 /* Small */
-.bs { padding: 6px 10px; font-size: 12px; }
+.bs, .btn-sm { padding: 6px 10px; font-size: 12px; }
 
 /* ══════════════════════════════════════════════════
    §4 — COMPONENT CLASSES
@@ -440,6 +493,61 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
   animation: modalIn var(--dur-enter) var(--ease-physical);
 }
 
+/* B3 — Modal width variants. Add one of these to the .modal element
+   to opt into a standard size instead of bespoke max-width values:
+   .modal-sm   380px   confirm / share / errors-list
+   .modal-md   560px   history / log / standard forms
+   .modal-lg   720px   diff slider / edit / advanced composers
+   .modal-xl   920px   full-page editors
+
+   Existing .modal-share/history/diff/errors classes still apply
+   their per-modal extras (background colour, padding) but inherit
+   width from the size variant. */
+.modal-sm { max-width: var(--modal-w-sm); }
+.modal-md { max-width: var(--modal-w-md); }
+.modal-lg { max-width: var(--modal-w-lg); }
+.modal-xl { max-width: var(--modal-w-xl); }
+
+/* B3 — Structural skeleton. Optional but recommended for new modals:
+   <div class="modal modal-md">
+     <header class="modal-header">…</header>
+     <div class="modal-body">…</div>
+     <footer class="modal-footer">…</footer>
+   </div>
+
+   Header has the title (use .modal-title) and an optional close
+   button. Body scrolls; header/footer are sticky so they stay
+   visible on long lists.
+*/
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 0 14px;
+  margin: 0 0 14px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: calc(var(--sp) * -3); /* offset against parent .modal padding */
+  background: var(--sf1);
+  z-index: 1;
+}
+.modal-body {
+  /* Body scrolls within the modal's max-height. Default: no extra padding. */
+}
+.modal-footer {
+  display: flex;
+  gap: 8px;
+  padding: 14px 0 0;
+  margin: 14px 0 0;
+  border-top: 1px solid var(--border);
+  position: sticky;
+  bottom: calc(var(--sp) * -3);
+  background: var(--sf1);
+  z-index: 1;
+}
+.modal-footer.modal-footer-end { justify-content: flex-end; }
+
 /* ── Stagger — choreographed entrances ── */
 .stagger-in {
   opacity: 0;
@@ -560,7 +668,7 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
 
 /* ── Touch targets ── */
 button { min-height: 32px; }
-.bs { min-height: 28px; }
+.bs, .btn-sm { min-height: 28px; }
 
 /* ── DV Badge — product identity ── */
 .dv-badge {
@@ -608,8 +716,8 @@ button:disabled, button[disabled] {
   box-shadow: none !important;
   filter: saturate(0.3);
 }
-.bp:active { background: var(--accent-active); box-shadow: 0 1px 2px var(--shadow-base); }
-.bg:active { background: var(--sf3); }
+.bp:active, .btn-primary:active { background: var(--accent-active); box-shadow: 0 1px 2px var(--shadow-base); }
+.bg:active, .btn-ghost:active, .btn-secondary:active, .btn-icon:active { background: var(--sf3); }
 
 /* ── Separators ── */
 .sep-heavy { border-bottom: 2px solid var(--border-heavy); }
@@ -1219,6 +1327,510 @@ button:disabled, button[disabled] {
   font-family: var(--font-mono);
 }
 .repo-picker-status .ml-8 { margin-left: 8px; }
+
+/* ─── Share modal (modals.js) ─── */
+.modal-share {
+  max-width: var(--modal-w-sm);
+  text-align: center;
+}
+.share-qr-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 16px auto;
+  padding: 12px;
+  background: var(--sf2, rgba(255,255,255,0.04));
+  border-radius: var(--r-card);
+  max-width: 240px;
+}
+.share-qr {
+  width: 100%;
+  height: auto;
+  max-width: 220px;
+  display: block;
+}
+.share-url-input {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 10px 12px;
+  margin-top: 8px;
+  background: var(--sf1);
+  color: var(--tx1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+}
+.share-btn-row {
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 12px;
+  gap: 8px;
+}
+
+/* ─── Deployment history modal ─── */
+.modal-history { max-width: var(--modal-w-md); }
+.history-list {
+  max-height: 420px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  background: var(--sf1);
+  margin: 12px 0;
+}
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.history-row:last-child { border-bottom: 0; }
+.history-row-rollback { background: var(--accent-bg-faint, rgba(212,160,48,0.04)); }
+.history-row-main { flex: 1; min-width: 0; }
+.history-row-sha { color: var(--accent); font-weight: 600; font-size: 12px; }
+.history-row-note {
+  color: var(--tx2);
+  font-size: 12px;
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: var(--sf2, rgba(255,255,255,0.03));
+  border-radius: var(--r-card);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.history-row-note-btn { margin-top: 6px; }
+.history-row-actions { margin-top: 8px; }
+.history-row-comments {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-left: 2px solid var(--accent);
+  padding-left: 10px;
+}
+.history-comment {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "by del" "text del";
+  gap: 2px 8px;
+  font-size: 12px;
+}
+.history-comment-by   { grid-area: by; color: var(--tx3); font-family: var(--font-mono); font-size: 11px; }
+.history-comment-text { grid-area: text; color: var(--tx2); white-space: pre-wrap; word-break: break-word; }
+.history-comment-del  { grid-area: del; align-self: start; padding: 2px 8px; font-size: 14px; line-height: 1; }
+
+/* ─── README inline render (K7) ─── */
+.repo-readme-wrap {
+  margin-top: 12px;
+  padding: 14px 18px;
+  background: var(--sf1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  max-height: 360px;
+  overflow-y: auto;
+}
+.repo-readme-body { font-size: 13px; line-height: 1.55; color: var(--tx2); }
+.repo-readme-body .md-h  { color: var(--tx1); margin: 14px 0 6px; }
+.repo-readme-body .md-h1 { font-size: 18px; }
+.repo-readme-body .md-h2 { font-size: 16px; }
+.repo-readme-body .md-h3 { font-size: 14px; }
+.repo-readme-body .md-h4,
+.repo-readme-body .md-h5,
+.repo-readme-body .md-h6 { font-size: 13px; }
+.repo-readme-body .md-p  { margin: 8px 0; }
+.repo-readme-body .md-list { margin: 6px 0 6px 18px; }
+.repo-readme-body .md-code,
+.repo-readme-body code {
+  font-family: var(--font-mono);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 11.5px;
+  color: var(--accent);
+}
+.repo-readme-body .md-code {
+  display: block;
+  padding: 10px 12px;
+  margin: 8px 0;
+  white-space: pre;
+  overflow-x: auto;
+}
+.repo-readme-body .md-quote {
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+  color: var(--tx3);
+  margin: 8px 0;
+}
+.repo-readme-body .md-hr  { border: 0; border-top: 1px solid var(--border); margin: 12px 0; }
+.repo-readme-body a       { color: var(--accent); text-decoration: underline; }
+
+/* ─── Runtime-errors modal (J3) ─── */
+.modal-errors { max-width: var(--modal-w-md); }
+.errors-list {
+  max-height: 480px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  background: var(--sf1);
+  margin: 12px 0;
+}
+.errors-row {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.errors-row:last-child { border-bottom: 0; }
+.errors-msg { color: var(--err); font-family: var(--font-mono); font-size: 12px; font-weight: 600; word-break: break-word; }
+.errors-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.errors-stack {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border-radius: var(--r-card);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--tx2);
+  max-height: 200px;
+  overflow: auto;
+}
+.pill-clickable { cursor: pointer; border: 0; }
+
+/* ─── Visual diff slider (modals.js diffModal) ─── */
+.modal-diff { max-width: var(--modal-w-lg); }
+.diff-stage {
+  position: relative;
+  width: 100%;
+  background: #000;
+  border-radius: var(--r-card);
+  overflow: hidden;
+  cursor: ew-resize;
+  user-select: none;
+  touch-action: none;
+}
+.diff-img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.diff-img-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* clipPath inset() set inline by JS */
+}
+.diff-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  pointer-events: none;
+  box-shadow: 0 0 12px rgba(212,160,48,0.8);
+}
+.diff-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translate(-50%, -50%);
+  border: 3px solid var(--bg);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+}
+
+/* ─── Analytics view (analytics.js) ─── */
+.stat-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.stat-tile {
+  background: var(--sf1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  padding: 16px;
+  text-align: left;
+}
+.stat-tile-value {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  color: var(--accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.stat-tile-label { font-size: 11px; color: var(--tx2); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px; }
+.stat-tile-sub { font-size: 11px; color: var(--tx3); margin-top: 4px; }
+
+.counter-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.counter-row:last-child { border-bottom: 0; }
+.counter-name { color: var(--tx2); }
+.counter-value { color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.hist-row {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  background: var(--sf1);
+  border-radius: var(--r-card);
+  border: 1px solid var(--border);
+}
+.hist-meta { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.hist-name { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--tx1); }
+.hist-svg  { display: block; }
+.hist-label-strip {
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--tx3);
+  margin-top: 2px;
+}
+.hist-label-cell { flex: 1; text-align: center; }
+
+/* ─── Pull-to-refresh indicator (app.js DV.installPullToRefresh) ─── */
+.ptr-indicator {
+  height: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--tx2);
+  background: linear-gradient(to bottom, var(--sf2, rgba(255,255,255,0.04)), transparent);
+  transition: height 80ms ease-out, color 120ms ease;
+}
+.ptr-indicator.ptr-armed {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ─── Empty-state component (D3) ─── */
+/* Consistent "nothing here yet" framing. Replaces ad-hoc "No webhooks
+   configured." text scattered across Settings + modals + dashboard.
+   Render via DV.emptyState({icon, title, sub, cta}). */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px 24px;
+  color: var(--tx2);
+  gap: 4px;
+}
+.empty-state-icon {
+  font-size: 28px;
+  line-height: 1;
+  margin-bottom: 8px;
+  color: var(--tx3);
+  filter: grayscale(0.4);
+}
+.empty-state-title {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tx1);
+  letter-spacing: -0.01em;
+}
+.empty-state-sub {
+  font-size: 12px;
+  color: var(--tx3);
+  max-width: 360px;
+  line-height: 1.5;
+}
+.empty-state-cta {
+  margin-top: 12px;
+}
+
+/* ─── Skeleton loaders (D2) ─── */
+/* Use as: <div class="skeleton skeleton-text"></div> for a single line,
+   or stack multiples for paragraphs. The shimmer is a single keyframe
+   moving a soft gradient across a semi-transparent background. Pure
+   CSS — no JS, no extra DOM. */
+@keyframes skel-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--sf1) 0%,
+    var(--sf2) 50%,
+    var(--sf1) 100%
+  );
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--r-btn);
+}
+.skeleton-text { height: 14px; margin: 6px 0; }
+.skeleton-text:nth-child(odd) { width: 75%; }
+.skeleton-text:nth-child(even) { width: 92%; }
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.skeleton-row:last-child { border-bottom: 0; }
+.skeleton-circle { width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0; }
+.skeleton-flex   { flex: 1; min-width: 0; }
+.skeleton-pill   { width: 60px; height: 20px; border-radius: var(--r-pill); }
+
+/* Honour reduced-motion — show a flat shimmer-less surface instead */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background: var(--sf1); }
+}
+
+/* ─── Settings tab bar (D1) ─── */
+.settings-tab-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px;
+  margin: 0 0 24px;
+  background: var(--sf1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-popover);
+  backdrop-filter: blur(8px);
+}
+.settings-tab {
+  background: transparent;
+  color: var(--tx2);
+  border: 0;
+  padding: 7px 14px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--r-btn);
+  cursor: pointer;
+  transition: background var(--dur-micro) var(--ease-fast), color var(--dur-micro) var(--ease-fast);
+}
+.settings-tab:hover { background: var(--sf2); color: var(--tx1); }
+.settings-tab-active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.settings-tab-active:hover { background: var(--accent-mid); color: var(--accent); }
+
+/* ─── Action overflow menu (C2 — branch-row "•••" popover) ─── */
+.branch-actions {
+  position: relative;
+}
+.action-menu-trigger {
+  /* Inherits .btn-icon styles via class composition */
+}
+.action-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 6px;
+  min-width: 200px;
+  padding: 6px;
+  background: var(--sf2);
+  border: 1px solid var(--border-h);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: actionMenuIn 120ms var(--ease-fast);
+}
+@keyframes actionMenuIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.action-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-btn);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--tx1);
+  text-align: left;
+  width: 100%;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.action-menu-item:hover { background: var(--sf3); }
+.action-menu-item .action-menu-glyph {
+  width: 20px;
+  text-align: center;
+  color: var(--tx3);
+}
+.action-menu-item.action-menu-item-danger { color: var(--err); }
+.action-menu-item.action-menu-item-danger:hover { background: var(--err-bg-h); }
+.action-menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 4px;
+}
+
+/* ─── Floating Action Button (mobile palette shortcut) ─── */
+.dv-fab {
+  display: none;        /* desktop: not shown — Cmd/Ctrl+K already exists */
+}
+@media (hover: none) and (pointer: coarse) {
+  .dv-fab {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    position: fixed;
+    right: max(20px, env(safe-area-inset-right));
+    bottom: max(20px, env(safe-area-inset-bottom));
+    padding: 14px 20px;
+    background: var(--accent);
+    color: var(--bg);
+    border: 0;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(212,160,48,0.4);
+    z-index: 50;
+    transition: transform 120ms var(--ease-fast, ease);
+  }
+  .dv-fab:active { transform: scale(0.96); }
+  .dv-fab-glyph { font-size: 18px; line-height: 1; }
+}
+
+/* ─── Touch targets: ≥44px on touch devices (WCAG 2.5.5 Level AAA) ─── */
+@media (hover: none) and (pointer: coarse) {
+  button, .chip, [role="button"], .topbar-icon {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  /* Smaller "bs" buttons get padding bumped instead of width — keeps
+     them readable inline alongside text. */
+  .bs {
+    padding: 10px 14px;
+    font-size: 13px;
+  }
+  /* Compact chips inside picker rows still look right */
+  .repo-picker-types .chip,
+  .chip-row .chip {
+    padding: 8px 14px;
+  }
+}
 
 /* ─── preview.js ─── */
 .preview-controls {
@@ -1893,6 +2505,7 @@ button:disabled, button[disabled] {
 }
 .color-err { color: var(--err); }
 .color-ok  { color: var(--ok);  }
+.color-warn { color: var(--accent); }
 
 /* ══════════════════════════════════════════════════
    §APK-WD — APK working-directory input row

@@ -2,25 +2,55 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#090a10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DeployView">
 <title>DeployView</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='16' fill='%23090a10'/><text x='50' y='68' font-size='52' font-weight='700' font-family='sans-serif' fill='%23d4a030' text-anchor='middle'>DV</text></svg>">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
+<script>
+  // Register the service worker on every load. Cache busting happens via
+  // CACHE_VERSION inside sw.js; a fresh deploy + page reload picks up
+  // the new shell automatically.
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function() {
+      navigator.serviceWorker.register("/sw.js").catch(function(err) {
+        console.warn("[sw] register failed:", err && err.message);
+      });
+    });
+  }
+</script>
 </head>
 <body>
 <div id="app"></div>
 <script src="js/app.js"></script>
 <script src="js/icons.js"></script>
+<script src="js/qr.js"></script>
+<script src="js/md.js"></script>
 <script src="js/views/topbar.js"></script>
 <script src="js/views/setup.js"></script>
+<script src="js/views/branch-row.js"></script>
 <script src="js/views/dashboard.js"></script>
 <script src="js/views/addRepo.js"></script>
 <script src="js/views/preview.js"></script>
 <script src="js/views/mcp.js"></script>
 <script src="js/views/settings.js"></script>
+<script src="js/views/analytics.js"></script>
+<script src="js/views/modals/_base.js"></script>
+<script src="js/views/modals/edit.js"></script>
+<script src="js/views/modals/log.js"></script>
+<script src="js/views/modals/apk.js"></script>
+<script src="js/views/modals/share.js"></script>
+<script src="js/views/modals/history.js"></script>
+<script src="js/views/modals/diff.js"></script>
+<script src="js/views/modals/errors.js"></script>
 <script src="js/views/modals.js"></script>
 <script src="js/views/palette.js"></script>
 </body>

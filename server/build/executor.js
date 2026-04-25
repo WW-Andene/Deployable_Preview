@@ -21,7 +21,7 @@ const path = require("path");
 const { runCmd } = require("../process");
 const { saveLog } = require("../logs");
 const { scanApiRoutes } = require("../serverless");
-const { parseEnvVars } = require("../config");
+const { parseEnvVars, resolveBranchEnv } = require("../config");
 
 const {
   WORKSPACE,
@@ -32,7 +32,12 @@ const {
   branchSlug,
   getBranchDir,
   buildKey,
-  createLogger
+  createLogger,
+  appendHistory,
+  snapshotBuildOutput,
+  broadcastStatus,
+  getHistory,
+  getDirectorySize
 } = require("./state");
 
 const {
@@ -61,6 +66,7 @@ async function buildBranch(repoConfig, branchConfig) {
   if (countActiveBuilds() >= MAX_CONCURRENT_BUILDS) {
     console.log("[" + key + "] Max concurrent builds (" + MAX_CONCURRENT_BUILDS + ") reached, queuing...");
     buildStatus[key] = { status: "queued", log: "Waiting for build slot...\n", lastBuild: null, commitSha: "", mode: "static" };
+    broadcastStatus(key, buildStatus[key]);
     setTimeout(() => {
       const slot = buildStatus[key];
       if (!slot || slot.status !== "queued") return;
@@ -75,6 +81,7 @@ async function buildBranch(repoConfig, branchConfig) {
 
   const branchDir = getBranchDir(owner, repo, branchConfig);
   buildStatus[key] = { status: "building", log: "", lastBuild: null, commitSha: "", mode: "static", startedAt: Date.now() };
+  broadcastStatus(key, buildStatus[key]);
   const addLog = createLogger(key);
 
   try {
@@ -93,7 +100,8 @@ async function buildBranch(repoConfig, branchConfig) {
     // Pygame auto-build: use pygbag to compile to WebAssembly
     let pygameFile = (language === "python") ? detectPygame(workDir) : null;
     let cmd, outName;
-    let userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
+    // E1+E2: layered env — secrets (opt-in) + env-var groups + free-text fields.
+    let userEnv = resolveBranchEnv(repoConfig, branchConfig);
 
     // Fix Next.js SWC on ARM Android (Termux): Next.js detects the platform
     // as "android-arm64" and tries to download @next/swc-android-arm64 — but
@@ -232,7 +240,7 @@ async function buildBranch(repoConfig, branchConfig) {
 
     // Scan for serverless API functions in the workDir (not output dir)
     const apiRoutes = scanApiRoutes(workDir, addLog);
-    const userEnvForRuntime = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
+    const userEnvForRuntime = resolveBranchEnv(repoConfig, branchConfig);
 
     let duration = ((Date.now() - buildStatus[key].startedAt) / 1000).toFixed(1);
     addLog("Build complete in " + duration + "s! Output: " + path.relative(WORKSPACE, finalOut));
@@ -247,11 +255,117 @@ async function buildBranch(repoConfig, branchConfig) {
     buildStatus[key].outputDir = outName;
     saveLog(key, addLog.getLog());
     captureThumbAsync(repoConfig.owner, repoConfig.repo, branchSlug(branchConfig));
+    broadcastStatus(key, buildStatus[key]);
+
+    // I1: bundle-size insights. Walk the output dir, compare to the
+    // previous build's bytes, derive a delta + percentage so users see
+    // "+128 KB (4%)" or "−1.2 MB (-31%)" instead of guessing.
+    let bytes = 0, prevBytes = 0, delta = 0, deltaPct = null;
+    try {
+      bytes = getDirectorySize(finalOut);
+      const hist = getHistory(key);
+      // Skip rollback audit entries — only compare to real builds.
+      const prev = (hist || []).find((h) => h && h.by === "build" && typeof h.bytes === "number");
+      if (prev) {
+        prevBytes = prev.bytes;
+        delta = bytes - prevBytes;
+        if (prevBytes > 0) deltaPct = +((delta / prevBytes) * 100).toFixed(2);
+      }
+      buildStatus[key].outputBytes = bytes;
+      buildStatus[key].outputBytesDelta = delta;
+      buildStatus[key].outputBytesDeltaPct = deltaPct;
+      if (bytes) {
+        addLog("Output size: " + (bytes / 1024).toFixed(1) + " KB" +
+          (delta ? " (" + (delta > 0 ? "+" : "") + (delta / 1024).toFixed(1) + " KB" +
+            (deltaPct != null ? " · " + (deltaPct > 0 ? "+" : "") + deltaPct + "%" : "") + " vs previous)" : ""));
+      }
+    } catch (_) {}
+
+    // Deployment history: snapshot the just-built output so future
+    // rollbacks can restore it byte-for-byte. Best-effort — failure
+    // doesn't break the build.
+    try {
+      const snap = snapshotBuildOutput(key, finalOut);
+      appendHistory(key, {
+        commitSha: buildStatus[key].commitSha || "",
+        timestamp: Date.now(),
+        duration: parseFloat(duration),
+        outputPath: finalOut,
+        snapshotDir: snap,
+        mode: "static",
+        by: "build",
+        bytes: bytes,
+        bytesDelta: delta,
+        bytesDeltaPct: deltaPct
+      });
+    } catch (e) { addLog("WARNING: history append failed: " + e.message); }
+
+    // K1 + K6: secret scan + perf-budget check, post-build, best effort.
+    let secretFindings = [], budgetCheck = { violations: [], action: "warn" };
+    try {
+      const scanner = require("./scanner");
+      secretFindings = scanner.scanForSecrets(finalOut);
+      if (secretFindings.length) {
+        addLog("⚠ SECURITY: " + secretFindings.length + " possible leaked secret(s) detected in output:");
+        for (const f of secretFindings.slice(0, 5)) addLog("    [" + f.label + "] " + f.file + " — " + f.preview);
+        if (secretFindings.length > 5) addLog("    … " + (secretFindings.length - 5) + " more (see full list in build_status)");
+        buildStatus[key].secretFindings = secretFindings;
+        try {
+          require("../webhooks").emit("build.error", {
+            repo: repoConfig.owner + "/" + repoConfig.repo,
+            branch: branchConfig.branch,
+            slug: branchSlug(branchConfig),
+            error: "Secret scan found " + secretFindings.length + " possible leak(s)",
+            findings: secretFindings.slice(0, 20)
+          });
+        } catch (_) {}
+      }
+      const budgets = branchConfig.budgets || repoConfig.budgets;
+      if (budgets) {
+        budgetCheck = scanner.checkBudgets({ outputBytes: bytes, duration: parseFloat(duration) }, budgets);
+        if (budgetCheck.violations.length) {
+          addLog("⚠ BUDGET: " + budgetCheck.violations.length + " violation(s):");
+          for (const v of budgetCheck.violations) addLog("    " + v.message);
+          buildStatus[key].budgetViolations = budgetCheck.violations;
+          if (budgetCheck.action === "fail") {
+            buildStatus[key].status = "error";
+            addLog("BUILD FAILED: budgets.action='fail' — output rejected");
+            broadcastStatus(key, buildStatus[key]);
+            return;
+          }
+        }
+      }
+    } catch (e) { addLog("WARNING: scanner/budget pass failed: " + e.message); }
+
+    // Outgoing webhooks: fire on build success.
+    try {
+      require("../webhooks").emit("build.ready", {
+        repo: repoConfig.owner + "/" + repoConfig.repo,
+        branch: branchConfig.branch,
+        slug: branchSlug(branchConfig),
+        commitSha: buildStatus[key].commitSha || "",
+        duration: parseFloat(duration),
+        bytes: bytes,
+        bytesDelta: delta,
+        bytesDeltaPct: deltaPct,
+        previewUrl: "/preview/" + repoConfig.owner + "/" + repoConfig.repo + "/" + branchSlug(branchConfig) + "/"
+      });
+    } catch (_) {}
   } catch (e) {
     addLog("BUILD FAILED: " + e.message);
     buildStatus[key].status = "error";
     buildStatus[key].lastBuild = Date.now();
     saveLog(key, addLog.getLog());
+    broadcastStatus(key, buildStatus[key]);
+    try {
+      require("../webhooks").emit("build.error", {
+        repo: repoConfig.owner + "/" + repoConfig.repo,
+        branch: branchConfig.branch,
+        slug: branchSlug(branchConfig),
+        commitSha: buildStatus[key].commitSha || "",
+        error: e.message
+      });
+    } catch (_) {}
   } finally {
     delete buildLocks[key];
   }

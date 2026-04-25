@@ -50,7 +50,28 @@ var S = {
   ghReposError: "",
   ghReposLoading: false,
   ghReposFilter: "",
-  ghReposType: "all"         // all | owner | member
+  ghReposType: "all",        // all | owner | member
+
+  // Share modal — { url, title } when open, null otherwise.
+  shareModal: null,
+
+  // Deployment history modal — { owner, repo, slug, loading, history[], error }
+  historyModal: null,
+
+  // Visual diff modal — { owner, repo, slug, thumbAt, diff } when open.
+  diffModal: null,
+
+  // Runtime-errors modal — { owner, repo, slug, loading, errors[] } when open.
+  errorsModal: null,
+
+  // Open action-overflow menu key (C2). The dashboard uses this to decide
+  // which row's "•••" menu is currently open; clicking another row's menu
+  // (or clicking outside) closes it. Format: "owner/repo:slug".
+  openActionMenu: null,
+
+  // Active Settings tab (D1). One of: keys / browser / tunnel / workspace
+  // / webhooks / envgroups / domains / actions / about. Defaults to keys.
+  settingsTab: "keys"
 };
 
 var _dropdownCloseHandler = null;
@@ -194,6 +215,8 @@ function render() {
     views.mcp(app);
   } else if (S.view === "settings" && views.settings) {
     views.settings(app);
+  } else if (S.view === "analytics" && views.analytics) {
+    views.analytics(app);
   } else if (S.view === "preview" && views.preview) {
     views.preview(app); if (views.modals) views.modals(app);
   }
@@ -201,6 +224,21 @@ function render() {
   // Global overlays — rendered on top of every view when open
   if (DV.renderPalette) DV.renderPalette(app);
   if (DV.renderShortcuts) DV.renderShortcuts(app);
+
+  // I7: Floating Action Button — mobile-only via CSS @media. Shortcut
+  // to the command palette. Hidden on the loading + setup views since
+  // there's nothing to do until auth's done.
+  if (S.view !== "loading" && S.view !== "setup" && !S.paletteOpen) {
+    var fab = el("button", {
+      c: "dv-fab",
+      attr: { title: "Open command palette", "aria-label": "Open command palette" },
+      on: { click: function() { DV.openPalette(); } }
+    }, [
+      el("span", { c: "dv-fab-glyph" }, "⌘"),
+      el("span", { c: "dv-fab-label" }, "Actions")
+    ]);
+    app.appendChild(fab);
+  }
 }
 
 // Init
@@ -208,9 +246,87 @@ api("GET", "/api/preferences").then(function(p) { S.preferences = p || {}; }).ca
 api("GET", "/api/token").then(function(r) {
   S.hasToken = r.hasToken;
   S.view = r.hasToken ? "dashboard" : "setup";
-  if (r.hasToken) loadRepos();
+  if (r.hasToken) {
+    loadRepos();
+    installStatusStream();
+    installErrorCountSync();
+    // K2: pick up /deploy?repo=… template invites delivered as URL hash.
+    var m = (location.hash || "").match(/^#deploy=(.+)$/);
+    if (m) {
+      try {
+        var qp = new URLSearchParams(decodeURIComponent(m[1]));
+        S.repoUrl = qp.get("repo") || "";
+        S.view = "addRepo";
+        location.hash = "";
+      } catch (_) {}
+    }
+  }
   else render();
 });
+
+// J3: pull the per-branch runtime-error summary every 15s. Cheap call
+// (just a Map.size + sum). Stops once the user logs out / leaves.
+function installErrorCountSync() {
+  if (S._errorSyncTimer) return;
+  function tick() {
+    if (!S.hasToken) { clearInterval(S._errorSyncTimer); S._errorSyncTimer = null; return; }
+    var counts = {};
+    var pending = 0, done = 0;
+    for (var i = 0; i < (S.repos || []).length; i++) {
+      var r = S.repos[i];
+      var slugs = Object.keys(r.branchStatuses || {});
+      for (var j = 0; j < slugs.length; j++) {
+        (function(rr, slug) {
+          pending++;
+          api("GET", "/api/preview-errors/" + rr.owner + "/" + rr.repo + "/" + encodeURIComponent(slug)).then(function(res) {
+            if (res && res.summary && res.summary.uniqueErrors) {
+              counts[rr.owner + "/" + rr.repo + ":" + slug] = res.summary;
+            }
+          }).catch(function(){}).then(function() {
+            done++;
+            if (done >= pending) { S._previewErrorCounts = counts; render(); }
+          });
+        })(r, slugs[j]);
+      }
+    }
+    if (pending === 0) { S._previewErrorCounts = counts; }
+  }
+  tick();
+  S._errorSyncTimer = setInterval(tick, 15000);
+}
+
+// H1: open the SSE status stream once and keep it open. Every push
+// patches S.repos[*].branchStatuses[slug] in-place and re-renders.
+// Auto-reconnects with a 5s back-off if the connection drops.
+function installStatusStream() {
+  if (S._statusES) return;
+  function open() {
+    var es = new EventSource("/api/status/stream");
+    S._statusES = es;
+    es.addEventListener("message", function(ev) {
+      var msg; try { msg = JSON.parse(ev.data); } catch (_) { return; }
+      if (!msg || !msg.key || !msg.slot) return;
+      var parts = msg.key.split(":");
+      if (parts.length < 2) return;
+      var ownerRepo = parts[0];           // owner/repo
+      var slug = parts.slice(1).join(":"); // re-join in case slug had a colon
+      var or = ownerRepo.split("/");
+      var repo = (S.repos || []).find(function(r) { return r.owner === or[0] && r.repo === or[1]; });
+      if (!repo) return;
+      if (!repo.branchStatuses) repo.branchStatuses = {};
+      // Merge — server already stripped heavy fields (thumb/log/diffThumb).
+      repo.branchStatuses[slug] = Object.assign({}, repo.branchStatuses[slug] || {}, msg.slot);
+      render();
+    });
+    es.addEventListener("error", function() {
+      try { es.close(); } catch (_) {}
+      S._statusES = null;
+      setTimeout(open, 5000);
+    });
+  }
+  open();
+}
+DV._installStatusStream = installStatusStream;
 
 function loadMcpTools() {
   api("GET", "/api/mcp/tools").then(function(r) {
@@ -252,13 +368,141 @@ function iconBtn(label, opts, icon) {
   return el("button", opts, typeof icon === "string" ? (window.DV && DV.iconEl ? DV.iconEl(icon) : icon) : icon);
 }
 
+// D2: skeleton placeholder factory. Renders N "row" placeholders inside
+// a container so async lists show structure while loading instead of
+// blank space → pop-in. Use:
+//   container.appendChild(DV.skeleton.rows(3))   // 3 list-rows
+//   container.appendChild(DV.skeleton.lines(4))  // 4 text-only lines
+function skeletonRows(n) {
+  var wrap = el("div", { c: "skeleton-list", attr: { "aria-label": "Loading", role: "status" } });
+  for (var i = 0; i < (n || 3); i++) {
+    var row = el("div", { c: "skeleton-row" }, [
+      el("div", { c: "skeleton skeleton-circle" }),
+      el("div", { c: "skeleton-flex" }, [
+        el("div", { c: "skeleton skeleton-text" }),
+        el("div", { c: "skeleton skeleton-text" })
+      ]),
+      el("div", { c: "skeleton skeleton-pill" })
+    ]);
+    wrap.appendChild(row);
+  }
+  return wrap;
+}
+function skeletonLines(n) {
+  var wrap = el("div", { c: "skeleton-list", attr: { "aria-label": "Loading", role: "status" } });
+  for (var i = 0; i < (n || 4); i++) wrap.appendChild(el("div", { c: "skeleton skeleton-text" }));
+  return wrap;
+}
+
+// D3: consistent empty-state component. Use:
+//   container.appendChild(DV.emptyState({
+//     icon: "📭", title: "No webhooks yet",
+//     sub:  "Wire DV into Slack/Discord with a single POST URL.",
+//     cta:  { label: "Add webhook", run: function(){…} }   // optional
+//   }))
+// `cta` may also be {label, href} for an anchor.
+function emptyState(opts) {
+  opts = opts || {};
+  var wrap = el("div", { c: "empty-state", attr: { role: "status", "aria-live": "polite" } });
+  if (opts.icon) wrap.appendChild(el("div", { c: "empty-state-icon", attr: { "aria-hidden": "true" } }, opts.icon));
+  if (opts.title) wrap.appendChild(el("div", { c: "empty-state-title" }, opts.title));
+  if (opts.sub)   wrap.appendChild(el("div", { c: "empty-state-sub" },   opts.sub));
+  if (opts.cta) {
+    var c = opts.cta;
+    var node;
+    if (c.href) node = el("a", { c: "btn-primary btn-sm empty-state-cta", attr: { href: c.href, target: c.target || "_self" } }, c.label);
+    else        node = el("button", { c: "btn-primary btn-sm empty-state-cta", on: { click: c.run || function(){} } }, c.label);
+    wrap.appendChild(node);
+  }
+  return wrap;
+}
+
 // Expose globals for view modules
 window.DV = {
   S: S, el: el, api: api, statusClass: statusClass, render: render,
   loadRepos: loadRepos,
   fetchAvailableBranches: fetchAvailableBranches, addBranchToRepo: addBranchToRepo,
   fetchGhRepos: fetchGhRepos,
+  // installPullToRefresh(rootEl, onRefresh) — wires touch handlers so the
+  // user can drag down from the top of `rootEl` to trigger onRefresh().
+  // Idempotent: if already installed on the same element, no-op. Returns
+  // the cleanup function.
+  installPullToRefresh: function(rootEl, onRefresh) {
+    if (!rootEl || rootEl._dvPTR) return rootEl && rootEl._dvPTR;
+    var startY = 0, dy = 0, dragging = false, indicator = null, threshold = 70;
+    function ensureIndicator() {
+      if (indicator) return indicator;
+      indicator = document.createElement("div");
+      indicator.className = "ptr-indicator";
+      indicator.textContent = "Pull to refresh";
+      rootEl.insertBefore(indicator, rootEl.firstChild);
+      return indicator;
+    }
+    function onStart(e) {
+      // Only engage when scrolled to the top — otherwise the user is
+      // scrolling the content normally.
+      if (window.scrollY > 4) return;
+      var t = e.touches && e.touches[0];
+      if (!t) return;
+      startY = t.clientY; dy = 0; dragging = true;
+    }
+    function onMove(e) {
+      if (!dragging) return;
+      var t = e.touches && e.touches[0];
+      if (!t) return;
+      dy = t.clientY - startY;
+      if (dy <= 0) { dragging = false; if (indicator) indicator.style.height = "0"; return; }
+      // Only swallow scroll once we've actually moved enough that this is
+      // intentional — keeps short flicks from blocking normal scroll.
+      if (dy > 6 && e.cancelable) e.preventDefault();
+      var ind = ensureIndicator();
+      var pulled = Math.min(dy, threshold * 1.4);
+      ind.style.height = pulled + "px";
+      ind.textContent = dy >= threshold ? "Release to refresh" : "Pull to refresh";
+      ind.classList.toggle("ptr-armed", dy >= threshold);
+    }
+    function onEnd() {
+      if (!dragging) return;
+      dragging = false;
+      var fired = dy >= threshold;
+      if (indicator) {
+        indicator.style.height = "0";
+        indicator.classList.remove("ptr-armed");
+      }
+      if (fired) try { onRefresh(); } catch (_) {}
+    }
+    rootEl.addEventListener("touchstart", onStart, { passive: true });
+    rootEl.addEventListener("touchmove",  onMove,  { passive: false });
+    rootEl.addEventListener("touchend",   onEnd,   { passive: true });
+    rootEl.addEventListener("touchcancel", onEnd,  { passive: true });
+    var cleanup = function() {
+      rootEl.removeEventListener("touchstart", onStart);
+      rootEl.removeEventListener("touchmove", onMove);
+      rootEl.removeEventListener("touchend", onEnd);
+      rootEl.removeEventListener("touchcancel", onEnd);
+      if (indicator && indicator.parentNode) indicator.parentNode.removeChild(indicator);
+      delete rootEl._dvPTR;
+    };
+    rootEl._dvPTR = cleanup;
+    return cleanup;
+  },
+  // openShare(url, title?) — preferred entry point. Uses native share sheet
+  // on supported devices (Android/iOS/macOS Safari), falls back to the QR
+  // modal on desktop / unsupported browsers. Always also offers clipboard.
+  openShare: function(url, title) {
+    if (!url) return;
+    var fullUrl = /^https?:\/\//i.test(url) ? url : (location.origin + url);
+    if (navigator.share && /Mobi|Android|iPhone|iPad/.test(navigator.userAgent)) {
+      navigator.share({ title: title || "DeployView preview", url: fullUrl })
+        .catch(function(){ S.shareModal = { url: fullUrl, title: title || "" }; render(); });
+      return;
+    }
+    S.shareModal = { url: fullUrl, title: title || "" };
+    render();
+  },
   loadMcpTools: loadMcpTools, showToast: showToast, iconBtn: iconBtn,
+  skeleton: { rows: skeletonRows, lines: skeletonLines },
+  emptyState: emptyState,
   views: views, VIEW_PRESETS: VIEW_PRESETS,
   getDropdownHandler: function() { return _dropdownCloseHandler; },
   setDropdownHandler: function(h) { _dropdownCloseHandler = h; }

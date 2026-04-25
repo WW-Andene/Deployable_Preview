@@ -2,12 +2,49 @@
 var S = DV.S, el = DV.el, api = DV.api;
 
 /* ── Helpers ── */
-function section(title, children) {
+// section(title, children, tabId?) — when tabId is provided, the section
+// only renders when S.settingsTab matches it (D1: tabs). Sections without
+// tabId render unconditionally — used for the implicit "all" view if any.
+function section(title, children, tabId) {
+  if (tabId && S.settingsTab && S.settingsTab !== tabId) return null;
   var s = el("div", { c: "settings-section" });
   s.appendChild(el("h3", { c: "settings-section-title" }, title));
   if (Array.isArray(children)) children.forEach(function(c) { if (c) s.appendChild(c); });
   return s;
 }
+
+// Tab bar — sticky at the top of the settings page. Clicks switch
+// S.settingsTab and re-render. Each tab corresponds to one section()
+// callsite below.
+var SETTINGS_TABS = [
+  { id: "keys",       label: "API Keys" },
+  { id: "browser",    label: "Browser" },
+  { id: "tunnel",     label: "Tunnel" },
+  { id: "webhooks",   label: "Webhooks" },
+  { id: "envgroups",  label: "Env Groups" },
+  { id: "domains",    label: "Domains" },
+  { id: "workspace",  label: "Workspace" },
+  { id: "actions",    label: "Actions" },
+  { id: "about",      label: "About" }
+];
+function tabBar() {
+  var bar = el("div", { c: "settings-tab-bar", attr: { role: "tablist", "aria-label": "Settings sections" } });
+  for (var i = 0; i < SETTINGS_TABS.length; i++) {
+    (function(t) {
+      var active = S.settingsTab === t.id;
+      bar.appendChild(el("button", {
+        c: "settings-tab" + (active ? " settings-tab-active" : ""),
+        attr: { role: "tab", "aria-selected": active ? "true" : "false", title: t.label },
+        on: { click: function() { S.settingsTab = t.id; DV.render(); } }
+      }, t.label));
+    })(SETTINGS_TABS[i]);
+  }
+  return bar;
+}
+
+// appendIfExists — used to swallow null returns from section() so the
+// page-level appends in the body below don't crash.
+function appendIfExists(parent, child) { if (child) parent.appendChild(child); }
 
 function keyRow(secret, onSave, onDelete) {
   var card = el("div", { c: "settings-key-row" });
@@ -60,6 +97,7 @@ function keyRow(secret, onSave, onDelete) {
 DV.views.settings = function(app) {
   var page = el("div", { c: "settings-page" });
   page.appendChild(el("h2", { c: "page-title" }, "Settings"));
+  page.appendChild(tabBar());
 
   /* ══════════ Section: API Keys ══════════ */
   var keysBody = el("div", {});
@@ -195,10 +233,10 @@ DV.views.settings = function(app) {
     });
   }
   loadKeys();
-  page.appendChild(section("API Keys & Secrets", [
+  appendIfExists(page, section("API Keys & Secrets", [
     el("div", { c: "settings-hint mb-8" }, "Saved to this server only. Env vars work as fallback. All keys are injected into build environments."),
     keysBody
-  ]));
+  ], "keys"));
 
   /* ══════════ Section: Browser Engine ══════════ */
   var browserBody = el("div", {});
@@ -277,7 +315,7 @@ DV.views.settings = function(app) {
     }).catch(function() { browserBody.textContent = "Could not load."; });
   }
   refreshBrowser();
-  page.appendChild(section("Browser Engine", [browserBody]));
+  appendIfExists(page, section("Browser Engine", [browserBody], "browser"));
 
   /* ══════════ Section: HTTPS Tunnel ══════════ */
   var tunnelBody = el("div", {});
@@ -338,7 +376,7 @@ DV.views.settings = function(app) {
     }).catch(function() { tunnelBody.textContent = "Could not reach API."; });
   }
   refreshTunnel();
-  page.appendChild(section("HTTPS Tunnel", [tunnelBody]));
+  appendIfExists(page, section("HTTPS Tunnel", [tunnelBody], "tunnel"));
 
   /* ══════════ Section: Workspace ══════════ */
   var wsBody = el("div", {});
@@ -354,10 +392,309 @@ DV.views.settings = function(app) {
       } } }, "Clean " + stats.orphaned + " orphaned"));
     }
   }).catch(function() { wsBody.textContent = "Could not load."; });
-  page.appendChild(section("Workspace", [wsBody]));
+  appendIfExists(page, section("Workspace", [wsBody], "workspace"));
+
+  /* ══════════ Section: Outgoing webhooks ══════════ */
+  // Slack/Discord/custom URL receivers for build events. Lets a team
+  // wire DV into their existing channels without polling /api/repos.
+  var whBody = el("div", {});
+  whBody.appendChild(el("div", { c: "text-center pad-md" }, [el("span", { c: "spin" })]));
+
+  function loadWebhooks() {
+    api("GET", "/api/webhooks").then(function(r) {
+      whBody.innerHTML = "";
+      var list = (r && r.webhooks) || [];
+      var validEvents = (r && r.validEvents) || [];
+
+      // Existing webhooks
+      if (list.length === 0) {
+        whBody.appendChild(DV.emptyState({
+          icon: "📡",
+          title: "No webhooks configured",
+          sub: "Wire DV into Slack / Discord / your own server with a single POST URL — fired on every build event."
+        }));
+      } else {
+        for (var i = 0; i < list.length; i++) {
+          (function(wh) {
+            var card = el("div", { c: "settings-key-row" });
+            card.appendChild(el("div", { c: "flex-row gap-8 items-center" }, [
+              el("span", { c: "settings-key-name" }, wh.label || wh.url),
+              el("span", { c: "pill " + (wh.enabled ? "pill-ok" : "pill-warn") }, wh.enabled ? "on" : "off"),
+              el("span", { c: "pill pill-info" }, wh.format),
+              el("span", { c: "color-tx3 text-11 font-mono" }, wh.events.join(","))
+            ]));
+            card.appendChild(el("div", { c: "color-tx3 text-12 font-mono mt-4" }, wh.url));
+            card.appendChild(el("div", { c: "flex-row gap-6 mt-6" }, [
+              el("button", { c: "bg bs", on: { click: function() {
+                api("POST", "/api/webhooks/" + wh.id + "/test").then(function(r) {
+                  DV.showToast(r.ok ? "Test event dispatched" : (r.error || "Failed"), r.ok ? "success" : "error");
+                });
+              } } }, "Test"),
+              el("button", { c: "bg bs", on: { click: function() {
+                api("PUT", "/api/webhooks/" + wh.id, { enabled: !wh.enabled }).then(loadWebhooks);
+              } } }, wh.enabled ? "Disable" : "Enable"),
+              el("button", { c: "bd bs", on: { click: function() {
+                if (!confirm("Delete this webhook?")) return;
+                api("DELETE", "/api/webhooks/" + wh.id).then(loadWebhooks);
+              } } }, "×")
+            ]));
+            whBody.appendChild(card);
+          })(list[i]);
+        }
+      }
+
+      // Add new
+      var form = el("div", { c: "settings-key-row" });
+      form.appendChild(el("div", { c: "label" }, "Add webhook"));
+      var urlInp = document.createElement("input");
+      urlInp.placeholder = "https://hooks.slack.com/services/… or https://discord.com/api/webhooks/…";
+      urlInp.className = "flex-1 font-mono text-12 mb-6";
+      form.appendChild(urlInp);
+      var labelInp = document.createElement("input");
+      labelInp.placeholder = "Label (optional, e.g. #builds Slack)";
+      labelInp.className = "flex-1 font-mono text-12 mb-6";
+      form.appendChild(labelInp);
+      // Format chips
+      var fmt = "json";
+      var fmtRow = el("div", { c: "chip-row mb-6" });
+      ["json", "slack", "discord"].forEach(function(f){
+        var chip = el("div", { c: "chip" + (fmt === f ? " on" : ""), on: { click: function(){
+          fmt = f;
+          [].forEach.call(fmtRow.children, function(c){ c.classList.toggle("on", c.textContent === f); });
+        } } }, f);
+        fmtRow.appendChild(chip);
+      });
+      form.appendChild(fmtRow);
+      // Event chips (multi-select)
+      var selectedEvents = ["*"];
+      var evRow = el("div", { c: "chip-row mb-6" });
+      ["*"].concat(validEvents).forEach(function(e){
+        var chip = el("div", { c: "chip" + (selectedEvents.indexOf(e) !== -1 ? " on" : ""), on: { click: function(){
+          var idx = selectedEvents.indexOf(e);
+          if (idx !== -1) selectedEvents.splice(idx, 1); else selectedEvents.push(e);
+          chip.classList.toggle("on", selectedEvents.indexOf(e) !== -1);
+        } } }, e);
+        evRow.appendChild(chip);
+      });
+      form.appendChild(evRow);
+      var secretInp = document.createElement("input");
+      secretInp.placeholder = "Optional HMAC secret (X-DV-Signature header)";
+      secretInp.type = "password";
+      secretInp.className = "flex-1 font-mono text-12 mb-6";
+      form.appendChild(secretInp);
+      form.appendChild(el("button", { c: "bp bs", on: { click: function() {
+        if (!urlInp.value.trim()) { DV.showToast("URL required", "error"); return; }
+        api("POST", "/api/webhooks", {
+          url: urlInp.value.trim(), label: labelInp.value.trim(),
+          format: fmt, events: selectedEvents.length ? selectedEvents : ["*"],
+          secret: secretInp.value.trim()
+        }).then(function(r) {
+          if (r.error) { DV.showToast(r.error, "error"); return; }
+          DV.showToast("Webhook added", "success");
+          urlInp.value = ""; labelInp.value = ""; secretInp.value = "";
+          loadWebhooks();
+        });
+      } } }, "Add"));
+      whBody.appendChild(form);
+    }).catch(function() { whBody.textContent = "Could not load."; });
+  }
+  loadWebhooks();
+  appendIfExists(page, section("Outgoing Webhooks", [whBody], "webhooks"));
+
+  /* ══════════ Section: Env-var groups ══════════ */
+  // Reusable named bundles of KEY=value, attached per-branch via the
+  // Edit modal. Values are masked (last 4) in the UI; full values only
+  // exist server-side.
+  var egBody = el("div", {});
+  egBody.appendChild(el("div", { c: "text-center pad-md" }, [el("span", { c: "spin" })]));
+
+  function loadEnvGroups() {
+    // Drop the modal-side cache so the next Edit modal pulls fresh.
+    delete S._envGroupsCache;
+    api("GET", "/api/env-groups").then(function(r) {
+      egBody.innerHTML = "";
+      var groups = (r && r.groups) || [];
+      if (groups.length === 0) {
+        egBody.appendChild(DV.emptyState({
+          icon: "🗂",
+          title: "No env-var groups yet",
+          sub: "Bundle reusable KEY=value pairs and attach them to multiple branches without copy-pasting."
+        }));
+      } else {
+        for (var i = 0; i < groups.length; i++) {
+          (function(g) {
+            var card = el("div", { c: "settings-key-row" });
+            card.appendChild(el("div", { c: "flex-row gap-8 items-center" }, [
+              el("span", { c: "settings-key-name" }, g.name),
+              el("span", { c: "pill pill-info" }, g.id),
+              el("span", { c: "color-tx3 text-11" }, g.keyCount + " keys")
+            ]));
+            if (g.keys && g.keys.length) {
+              card.appendChild(el("div", { c: "color-tx3 text-12 font-mono mt-4" }, g.keys.join(", ")));
+            }
+            // Edit + delete
+            card.appendChild(el("div", { c: "flex-row gap-6 mt-6" }, [
+              el("button", { c: "bg bs", on: { click: function() { editEnvGroup(g.id); } } }, "Edit values"),
+              el("button", { c: "bd bs", on: { click: function() {
+                if (!confirm("Delete env group '" + g.name + "'?")) return;
+                api("DELETE", "/api/env-groups/" + g.id).then(loadEnvGroups);
+              } } }, "×")
+            ]));
+            egBody.appendChild(card);
+          })(groups[i]);
+        }
+      }
+
+      // Add new group
+      var form = el("div", { c: "settings-key-row" });
+      form.appendChild(el("div", { c: "label" }, "New group"));
+      var idInp = document.createElement("input");
+      idInp.placeholder = "id (e.g. staging — letters, numbers, _ -)";
+      idInp.className = "flex-1 font-mono text-12 mb-6";
+      form.appendChild(idInp);
+      var nameInp = document.createElement("input");
+      nameInp.placeholder = "name (display label)";
+      nameInp.className = "flex-1 font-mono text-12 mb-6";
+      form.appendChild(nameInp);
+      var varsInp = document.createElement("textarea");
+      varsInp.rows = 4;
+      varsInp.placeholder = "KEY=value\nDATABASE_URL=postgres://…";
+      varsInp.className = "flex-1 font-mono text-12 mb-6";
+      form.appendChild(varsInp);
+      form.appendChild(el("button", { c: "bp bs", on: { click: function() {
+        if (!idInp.value.trim()) { DV.showToast("id required", "error"); return; }
+        var vars = {};
+        varsInp.value.split("\n").forEach(function(line){
+          var t = line.trim(); if (!t || t.startsWith("#")) return;
+          var eq = t.indexOf("="); if (eq < 1) return;
+          vars[t.slice(0, eq).trim()] = t.slice(eq + 1).trim();
+        });
+        api("POST", "/api/env-groups", {
+          id: idInp.value.trim(), name: nameInp.value.trim() || idInp.value.trim(), vars: vars
+        }).then(function(r){
+          if (r.error) { DV.showToast(r.error, "error"); return; }
+          DV.showToast("Group created", "success");
+          idInp.value = ""; nameInp.value = ""; varsInp.value = "";
+          loadEnvGroups();
+        });
+      } } }, "Create"));
+      egBody.appendChild(form);
+    }).catch(function() { egBody.textContent = "Could not load."; });
+  }
+
+  function editEnvGroup(id) {
+    api("GET", "/api/env-groups/" + id).then(function(g) {
+      if (g.error) { DV.showToast(g.error, "error"); return; }
+      var current = "";
+      Object.keys(g.vars || {}).forEach(function(k){ current += k + "=\n"; });
+      var newVars = prompt("Replace ALL values for '" + g.name + "'.\n\nFormat: KEY=value, one per line.\nMasked existing keys:\n" + Object.keys(g.vars || {}).join(", "), current);
+      if (newVars === null) return;
+      var vars = {};
+      newVars.split("\n").forEach(function(line){
+        var t = line.trim(); if (!t || t.startsWith("#")) return;
+        var eq = t.indexOf("="); if (eq < 1) return;
+        var v = t.slice(eq + 1).trim();
+        if (v) vars[t.slice(0, eq).trim()] = v;
+      });
+      api("PUT", "/api/env-groups/" + id, { vars: vars }).then(function(r){
+        if (r.error) { DV.showToast(r.error, "error"); return; }
+        DV.showToast("Saved", "success");
+        loadEnvGroups();
+      });
+    });
+  }
+  loadEnvGroups();
+  appendIfExists(page, section("Env-Var Groups", [egBody], "envgroups"));
+
+  /* ══════════ Section: Custom Domains (H4) ══════════ */
+  // Map a hostname → (owner, repo, slug). Users CNAME their domain at
+  // this server; DV does the URL rewriting. Server validates the
+  // target points at a real configured branch on POST.
+  var domBody = el("div", {});
+  domBody.appendChild(el("div", { c: "text-center pad-md" }, [el("span", { c: "spin" })]));
+
+  function loadDomains() {
+    api("GET", "/api/domains").then(function(r) {
+      domBody.innerHTML = "";
+      var list = (r && r.domains) || [];
+      if (list.length === 0) {
+        domBody.appendChild(el("div", { c: "color-tx3 text-12 mb-12" }, "No custom domains mapped."));
+      } else {
+        for (var i = 0; i < list.length; i++) {
+          (function(d) {
+            var card = el("div", { c: "settings-key-row" });
+            card.appendChild(el("div", { c: "flex-row gap-8 items-center" }, [
+              el("a", { c: "settings-key-name", attr: { href: "https://" + d.host, target: "_blank", rel: "noopener" } }, d.host),
+              el("span", { c: "color-tx3 text-12 font-mono" }, "→ " + d.owner + "/" + d.repo + " · " + d.slug),
+              el("button", { c: "bd bs", on: { click: function() {
+                if (!confirm("Remove mapping for " + d.host + "?")) return;
+                api("DELETE", "/api/domains/" + encodeURIComponent(d.host)).then(loadDomains);
+              } } }, "×")
+            ]));
+            domBody.appendChild(card);
+          })(list[i]);
+        }
+      }
+      // Add form
+      var form = el("div", { c: "settings-key-row" });
+      form.appendChild(el("div", { c: "label" }, "Map a domain"));
+      var hostInp = document.createElement("input");
+      hostInp.placeholder = "preview.example.com (point this at this server via DNS A or CNAME)";
+      hostInp.className = "flex-1 font-mono text-12 mb-6";
+      form.appendChild(hostInp);
+      // Target picker — select from existing branches
+      var ownerInp = document.createElement("input"); ownerInp.placeholder = "owner"; ownerInp.className = "flex-1 font-mono text-12 mb-6";
+      var repoInp  = document.createElement("input"); repoInp.placeholder  = "repo";  repoInp.className  = "flex-1 font-mono text-12 mb-6";
+      var slugInp  = document.createElement("input"); slugInp.placeholder  = "slug";  slugInp.className  = "flex-1 font-mono text-12 mb-6";
+      // If we already have repos loaded, suggest them via datalist
+      if (S.repos && S.repos.length) {
+        var dl = document.createElement("datalist");
+        dl.id = "domain-target-suggestions";
+        for (var i = 0; i < S.repos.length; i++) {
+          var rr = S.repos[i];
+          var slugs = Object.keys(rr.branchStatuses || {});
+          for (var j = 0; j < slugs.length; j++) {
+            var opt = document.createElement("option");
+            opt.value = rr.owner + "/" + rr.repo + " · " + slugs[j];
+            dl.appendChild(opt);
+          }
+        }
+        form.appendChild(dl);
+        var picker = document.createElement("input");
+        picker.placeholder = "Quick-pick from your existing branches…";
+        picker.setAttribute("list", "domain-target-suggestions");
+        picker.className = "flex-1 font-mono text-12 mb-6";
+        picker.addEventListener("change", function() {
+          var m = picker.value.match(/^([^/]+)\/([^\s]+)\s+·\s+(.+)$/);
+          if (m) { ownerInp.value = m[1]; repoInp.value = m[2]; slugInp.value = m[3]; }
+        });
+        form.appendChild(picker);
+      }
+      form.appendChild(ownerInp);
+      form.appendChild(repoInp);
+      form.appendChild(slugInp);
+      form.appendChild(el("button", { c: "bp bs", on: { click: function() {
+        var host = hostInp.value.trim().toLowerCase();
+        if (!host || !ownerInp.value.trim() || !repoInp.value.trim() || !slugInp.value.trim()) {
+          DV.showToast("All fields required", "error"); return;
+        }
+        api("POST", "/api/domains", {
+          host: host, owner: ownerInp.value.trim(), repo: repoInp.value.trim(), slug: slugInp.value.trim()
+        }).then(function(r) {
+          if (r.error) { DV.showToast(r.error, "error"); return; }
+          DV.showToast("Mapping created. " + (r.hint || ""), "success");
+          hostInp.value = ownerInp.value = repoInp.value = slugInp.value = "";
+          loadDomains();
+        });
+      } } }, "Map"));
+      domBody.appendChild(form);
+    }).catch(function() { domBody.textContent = "Could not load."; });
+  }
+  loadDomains();
+  appendIfExists(page, section("Custom Domains", [domBody], "domains"));
 
   /* ══════════ Section: Actions ══════════ */
-  page.appendChild(section("Actions", [
+  appendIfExists(page, section("Actions", [
     el("div", { c: "settings-actions-grid" }, [
       el("button", { c: "bg bs", on: { click: function() {
         if (!confirm("Rebuild all branches?")) return;
@@ -389,7 +726,7 @@ DV.views.settings = function(app) {
         api("POST", "/api/token", { token: "" }).then(function() { S.hasToken = false; S.view = "setup"; DV.render(); });
       } } }, "Logout")
     ])
-  ]));
+  ], "actions"));
 
   /* ══════════ Section: About ══════════ */
   var aboutBody = el("div", { c: "settings-about" });
@@ -404,7 +741,7 @@ DV.views.settings = function(app) {
       ]));
     });
   }).catch(function() {});
-  page.appendChild(section("About", [aboutBody]));
+  appendIfExists(page, section("About", [aboutBody], "about"));
 
   app.appendChild(page);
 };

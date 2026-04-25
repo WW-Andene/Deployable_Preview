@@ -86,8 +86,13 @@ dv.defineTool({
     },
     required: ["owner", "repo", "slug", "trigger"]
   },
-  async handler(args) {
-    const result = await browser.captureDownload(args);
+  async handler(args, ctx) {
+    // Forward MCP progress callback so captureDownload can heartbeat
+    // every few seconds — this keeps client-side timeouts (Claude Desktop's
+    // 60 s default) from killing slow downloads.
+    const result = await browser.captureDownload(Object.assign({}, args, {
+      onProgress: ctx && ctx.progress
+    }));
     if (result.error) return dv.failFromBrowser(result);
     const out = {
       suggestedFilename: result.suggestedFilename,

@@ -325,7 +325,7 @@ function checkRequirement(req) {
  * @param {object} [args]
  * @returns {Promise<MCPResult>}
  */
-async function callTool(name, args) {
+async function callTool(name, args, ctx) {
   const tool = registry.get(name);
   if (!tool) return fail("Unknown tool: " + name);
 
@@ -347,9 +347,14 @@ async function callTool(name, args) {
     if (failure) return failure;
   }
 
+  // ctx.progress(progress, total?, message?) is a no-op when the client
+  // didn't include _meta.progressToken. Long-running handlers should still
+  // call it on a heartbeat — that's what keeps the MCP client from killing
+  // the request at its own 60s mark.
+  const progress = (ctx && typeof ctx.progress === "function") ? ctx.progress : function(){};
   let result;
   try {
-    result = await tool.handler(args || {});
+    result = await tool.handler(args || {}, { progress });
   } catch (e) {
     const stackHead = (e && e.stack) ? String(e.stack).split("\n").slice(0, 4).join("\n") : "";
     return fail("Tool '" + name + "' failed: " + (e && e.message || e), stackHead ? { stack: stackHead } : undefined);

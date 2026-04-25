@@ -18,6 +18,11 @@ const lifecycle = require("./lifecycle");
 const pageSessions = new Map();
 const SESSION_TTL_MS = parseInt(process.env.DV_SESSION_TTL_MS, 10) || (5 * 60 * 1000);
 const MAX_SESSIONS  = parseInt(process.env.DV_MAX_SESSIONS, 10) || 100;
+// Cap for the initial page.goto when a session is created. 0 = no cap.
+// Override via DV_NAV_TIMEOUT_MS env var or per-call by passing navTimeout
+// down through the tools (already plumbed in screenshot/audit/network).
+const NAV_TIMEOUT_MS = parseInt(process.env.DV_NAV_TIMEOUT_MS, 10);
+const NAV_TIMEOUT_DEFAULT = Number.isFinite(NAV_TIMEOUT_MS) ? NAV_TIMEOUT_MS : 30000;
 
 // A leaked refCount (caller forgot to release) shouldn't pin the session
 // forever. After this grace period an in-use entry is treated as stale and
@@ -42,6 +47,14 @@ const _evictTimer = setInterval(() => {
 // Don't keep the event loop alive on shutdown.
 if (typeof _evictTimer.unref === "function") _evictTimer.unref();
 
+// F-NEW-A001: track the most recent eviction reason so the next-acquired
+// session can attach a warning to its result. Surfaced to callers as
+// `pool: { evictedKey, reason }` so they know "your previous viewport
+// session was dropped — this is a fresh page" instead of seeing wrong
+// state silently.
+let _lastEviction = null;
+function getLastEviction() { const e = _lastEviction; _lastEviction = null; return e; }
+
 // Evict oldest non-busy session if the pool is full.
 function evictOldestIfFull() {
   if (pageSessions.size < MAX_SESSIONS) return;
@@ -54,6 +67,7 @@ function evictOldestIfFull() {
     const s = pageSessions.get(oldestKey);
     s.page.close().catch(() => {});
     pageSessions.delete(oldestKey);
+    _lastEviction = { key: oldestKey, at: Date.now(), reason: "pool full (max " + MAX_SESSIONS + ")" };
     console.log("[mcp-browser] Session evicted (pool full): " + oldestKey);
   }
 }
@@ -67,7 +81,7 @@ function evictOldestIfFull() {
  * will not close this session out from under the caller. The .release is
  * idempotent.
  */
-async function getSessionPage(browser, owner, repo, slug, width, height, _depth) {
+async function getSessionPage(browser, owner, repo, slug, width, height, _depth, _opts) {
   // F-A006: cap recursion. If a freshly created page also fails .title()
   // (e.g. browser crashed entirely) we'd otherwise loop forever, ballooning
   // the call stack and leaking sessions.
@@ -85,7 +99,7 @@ async function getSessionPage(browser, owner, repo, slug, width, height, _depth)
       await existing.page.title(); // will throw if closed/crashed
     } catch (_) {
       pageSessions.delete(key);
-      return getSessionPage(browser, owner, repo, slug, width, height, depth + 1);
+      return getSessionPage(browser, owner, repo, slug, width, height, depth + 1, _opts);
     }
 
     // Resize viewport if needed
@@ -150,7 +164,14 @@ async function getSessionPage(browser, owner, repo, slug, width, height, _depth)
     });
   } catch (_) { /* listener setup is best-effort */ }
 
-  await page.goto(url, { waitUntil: lifecycle.waitUntilIdle(), timeout: 30000 });
+  // Pass navTimeout=0 from the tool layer to disable the cap entirely
+  // for this nav. Anything else (or undefined) uses the env-configured
+  // default. Negative values fall back to the default too.
+  const navTimeoutOpt = _opts && Number.isFinite(_opts.navTimeout) ? _opts.navTimeout : NAV_TIMEOUT_DEFAULT;
+  const goOpts = { waitUntil: lifecycle.waitUntilIdle() };
+  if (navTimeoutOpt > 0) goOpts.timeout = navTimeoutOpt;
+  // navTimeoutOpt === 0 → omit timeout → Playwright treats as no timeout.
+  await page.goto(url, goOpts);
 
   pageSessions.set(key, { page, width: w, height: h, lastUsed: Date.now(), errorLog, refCount: 1 });
   console.log("[mcp-browser] New session: " + key + " (" + w + "x" + h + ")");
@@ -208,5 +229,6 @@ module.exports = {
   closeSession,
   closeAllSessions,
   getSessionErrors,
-  evictOldestIfFull
+  evictOldestIfFull,
+  getLastEviction
 };

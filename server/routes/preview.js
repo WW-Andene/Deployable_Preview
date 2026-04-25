@@ -7,6 +7,56 @@ const { buildStatus } = require("../build");
 const { runningServers } = require("../process");
 const { proxyTo, serveIndex } = require("../proxy");
 const { executeHandler } = require("../serverless");
+const { previewAuthMiddleware, previewAuthLogin } = require("../preview-auth");
+const { edgeMiddleware } = require("../edge");
+const imageOpt = require("../image-opt");
+const { getHistory } = require("../build");
+
+// Login form POST handler — must be registered before the catch-all
+// preview routes so __auth doesn't get proxied to the user's app.
+router.post("/preview/:owner/:repo/:branchSlug/__auth", express.urlencoded({ extended: false }), previewAuthLogin);
+
+// J1: time-travel preview routing. /preview/owner/repo/slug/__snapshot/<id>/...
+// serves the bytes from a specific history entry's snapshotDir. Lets users
+// (and Claude) compare past builds side-by-side without rolling back.
+router.use("/preview/:owner/:repo/:branchSlug/__snapshot/:snapId", function(req, res, next) {
+  const { owner, repo, branchSlug, snapId } = req.params;
+  const key = owner + "/" + repo + ":" + branchSlug;
+  const hist = getHistory(key);
+  // K4: snapId may be either a raw history id OR a tag. Tag wins so
+  // /preview/.../__snapshot/v1.0/ keeps working as v1.0 moves.
+  const entry = hist.find(function(h){ return h.id === snapId || h.tag === snapId; });
+  if (!entry) return res.status(404).type("text/html").send("<h1>404 — Snapshot not found</h1><p>id: " + snapId + "</p>");
+  if (!entry.snapshotDir || !fs.existsSync(entry.snapshotDir)) {
+    return res.status(410).type("text/html").send("<h1>410 — Snapshot evicted</h1><p>The snapshot directory is no longer on disk.</p>");
+  }
+  // Strip the /__snapshot/<id> prefix off req.url so express.static
+  // resolves relative to the snapshot dir.
+  const stripPrefix = "/preview/" + owner + "/" + repo + "/" + branchSlug + "/__snapshot/" + snapId;
+  if (req.originalUrl.startsWith(stripPrefix)) {
+    req.url = req.originalUrl.slice(stripPrefix.length) || "/";
+    if (!req.url.startsWith("/")) req.url = "/" + req.url;
+  }
+  // Static dir lookup, with the same image-optimization pass.
+  res.removeHeader("X-Frame-Options");
+  res.setHeader("X-DV-Snapshot", snapId);
+  if (req.url === "/" || req.url === "" || (!path.extname(req.url) && req.url.indexOf(".") === -1)) {
+    const indexHtml = path.join(entry.snapshotDir, "index.html");
+    if (fs.existsSync(indexHtml)) return res.type("text/html").send(fs.readFileSync(indexHtml, "utf8"));
+    return res.status(404).type("text/html").send("<h1>No index.html in snapshot</h1>");
+  }
+  const filePath = path.join(entry.snapshotDir, decodeURIComponent(req.url.split("?")[0]));
+  Promise.resolve(imageOpt.maybeServeOptimized(filePath, req, res))
+    .then(function(handled) { if (!handled) express.static(entry.snapshotDir)(req, res, next); })
+    .catch(function() { express.static(entry.snapshotDir)(req, res, next); });
+});
+
+// Password gate — runs in front of every other preview route. No-op for
+// branches without a previewPassword set.
+router.use("/preview/:owner/:repo/:branchSlug", previewAuthMiddleware);
+// Edge middleware — per-branch redirects + custom headers. No-op when
+// branchConfig.edge is unset.
+router.use("/preview/:owner/:repo/:branchSlug", edgeMiddleware);
 
 function findOutputDir(owner, repo, slug) {
   const key = owner + "/" + repo + ":" + slug;
@@ -101,7 +151,12 @@ router.use("/preview/:owner/:repo/:branchSlug", (req, res, next) => {
   const reqPath = req.path;
   if (reqPath === "/" || reqPath === "" || (!path.extname(reqPath) && !reqPath.includes("."))) return serveIndex(outDir, res, previewPrefix(req));
   res.removeHeader("X-Frame-Options");
-  express.static(outDir)(req, res, next);
+  // H2: image optimization. Only kicks in when the client passed
+  // ?w=/?h=/?fmt=/?q= and sharp is installed; otherwise pass through.
+  const filePath = path.join(outDir, decodeURIComponent(reqPath));
+  Promise.resolve(imageOpt.maybeServeOptimized(filePath, req, res))
+    .then(function(handled) { if (!handled) express.static(outDir)(req, res, next); })
+    .catch(function() { express.static(outDir)(req, res, next); });
 });
 
 // SPA fallback

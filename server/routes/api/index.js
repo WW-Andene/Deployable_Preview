@@ -11,7 +11,9 @@ const router = express.Router();
 // the auto-generated API token. Routes that are intentionally public —
 // /health (no secrets), /webhook (HMAC-protected), /live/... (own token) —
 // are skipped via the early-return below.
-const PUBLIC_PATHS = /^\/(health|metrics|webhook|live\/)/;
+// /api/preview-errors is also public — it's called by the user's own
+// app code (injected via the proxy), no auth makes sense there.
+const PUBLIC_PATHS = /^\/(health|metrics|webhook|live\/|preview-errors\/)/;
 
 function isLocalIp(ip) {
   if (!ip) return false;
@@ -90,6 +92,11 @@ router.use("/", require("./fetch"));
 // ── Metrics + health ─────────────────────────────────────────────────────────
 const metrics = require("../../metrics");
 router.get("/metrics", (req, res) => { res.json(metrics.snapshot()); });
+// K5: audit log tail. Last N entries, newest first.
+router.get("/audit", (req, res) => {
+  const n = Math.max(1, Math.min(parseInt(req.query.n, 10) || 200, 5000));
+  res.json({ entries: require("../../audit").tail(n), max: 5000 });
+});
 // F-M005: Prometheus scrape endpoint
 router.get("/metrics/prometheus", (req, res) => {
   res.type("text/plain; version=0.0.4").send(metrics.prometheus());

@@ -86,30 +86,40 @@ function loadConfig() {
   }
 }
 
+// F-NEW-B002: serialised async save chain. saveConfig() schedules the
+// write and returns immediately; calls during an in-flight save queue
+// behind it so we never race the .tmp+rename. Errors propagate via the
+// returned promise but callers historically didn't await — we keep that
+// behaviour and just log save errors instead.
+let _savingChain = Promise.resolve();
 function saveConfig() {
+  // Snapshot the payload synchronously so concurrent mutations between
+  // schedule and write don't leak into the wrong on-disk state.
   const payload = JSON.stringify(config, null, 2);
-  // Take a backup of the previous good file (best-effort) so a corrupted
-  // write can be recovered from .bak on next startup.
-  try {
-    if (fs.existsSync(CONFIG_FILE)) {
-      fs.copyFileSync(CONFIG_FILE, CONFIG_FILE + ".bak");
-    }
-  } catch (_) {}
-  // Atomic write: stage to .tmp then rename. POSIX rename is atomic; on
-  // Windows fs.renameSync overwrites. Either way, partial writes can't be
-  // observed by a concurrent reader.
   const tmpFile = CONFIG_FILE + ".tmp";
-  try {
-    fs.writeFileSync(tmpFile, payload);
-    fs.renameSync(tmpFile, CONFIG_FILE);
-  } catch (e) {
-    // Fall back to a direct write so we don't lose the update entirely.
-    try { fs.writeFileSync(CONFIG_FILE, payload); } catch (_) { throw e; }
-  }
-  // Notify SSOT subscribers (e.g. build state pruning) — best-effort.
-  for (const cb of _saveSubscribers) {
-    try { cb(config); } catch (err) { console.warn("[config] save subscriber threw: " + err.message); }
-  }
+  _savingChain = _savingChain.then(async () => {
+    try {
+      // Take a backup of the previous good file (best-effort) so a corrupted
+      // write can be recovered from .bak on next startup.
+      try { if (fs.existsSync(CONFIG_FILE)) await fs.promises.copyFile(CONFIG_FILE, CONFIG_FILE + ".bak"); } catch (_) {}
+      // Atomic write: stage to .tmp then rename. POSIX rename is atomic;
+      // on Windows fs.rename overwrites.
+      try {
+        await fs.promises.writeFile(tmpFile, payload);
+        await fs.promises.rename(tmpFile, CONFIG_FILE);
+      } catch (e) {
+        try { await fs.promises.writeFile(CONFIG_FILE, payload); }
+        catch (_) { throw e; }
+      }
+    } catch (err) {
+      console.error("[config] save failed:", err.message);
+    }
+    // Notify SSOT subscribers — best-effort.
+    for (const cb of _saveSubscribers) {
+      try { cb(config); } catch (err) { console.warn("[config] save subscriber threw: " + err.message); }
+    }
+  });
+  return _savingChain;
 }
 
 // SSOT enforcement: callers register here to be notified after every save
@@ -147,6 +157,48 @@ function parseEnvVars(envStr) {
   return env;
 }
 
+// E1+E2: resolve the full env handed to a build / server-mode start.
+// Layered, with later entries overriding earlier ones:
+//   1. Secrets from config.secrets (only if branch.injectSecrets is true)
+//   2. Each referenced env-var group's vars (in branch.envGroupIds order)
+//   3. The repo-level envVars text field
+//   4. The branch-level envVars text field (highest priority — last word)
+//
+// Group definitions live in config.envGroups: [{ id, name, vars: {…} }].
+// Missing groups are skipped silently (don't break a build because a
+// group was renamed). Returns a plain object suitable to spread into
+// process.env when spawning the build / server process.
+function resolveBranchEnv(repoConfig, branchConfig) {
+  const out = {};
+  // 1. Inject ALL stored secrets if explicitly opted in.
+  if (branchConfig && branchConfig.injectSecrets && config && config.secrets) {
+    for (const k of Object.keys(config.secrets)) {
+      const v = config.secrets[k];
+      if (typeof v === "string" && v) out[k] = v;
+    }
+  }
+  // 2. Env-var groups in the order the branch references them.
+  const groupIds = (branchConfig && Array.isArray(branchConfig.envGroupIds)) ? branchConfig.envGroupIds : [];
+  const groups = (config && Array.isArray(config.envGroups)) ? config.envGroups : [];
+  for (const id of groupIds) {
+    const g = groups.find(function(x){ return x && x.id === id; });
+    if (!g || !g.vars) continue;
+    for (const k of Object.keys(g.vars)) {
+      const v = g.vars[k];
+      if (typeof v === "string") out[k] = v;
+    }
+  }
+  // 3. Repo-level envVars (legacy free-text field).
+  if (repoConfig && repoConfig.envVars) {
+    Object.assign(out, parseEnvVars(repoConfig.envVars));
+  }
+  // 4. Branch-level envVars wins.
+  if (branchConfig && branchConfig.envVars) {
+    Object.assign(out, parseEnvVars(branchConfig.envVars));
+  }
+  return out;
+}
+
 // Get a secret: config.secrets[key] first, then process.env[envKey] fallback
 function getSecret(key, envKey) {
   const val = config.secrets && config.secrets[key];
@@ -166,4 +218,4 @@ function getApiSecret() {
   return config.apiSecret;
 }
 
-module.exports = { loadConfig, saveConfig, getConfig, migrateConfig, parseEnvVars, getSecret, getApiSecret, getValidationReport, validateAndRepairConfig, onConfigSaved };
+module.exports = { loadConfig, saveConfig, getConfig, migrateConfig, parseEnvVars, resolveBranchEnv, getSecret, getApiSecret, getValidationReport, validateAndRepairConfig, onConfigSaved };

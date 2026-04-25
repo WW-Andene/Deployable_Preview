@@ -1,4 +1,5 @@
 const fs = require("fs");
+const fsp = fs.promises;
 const path = require("path");
 
 const LOG_DIR = path.join(__dirname, "..", "logs");
@@ -14,24 +15,41 @@ const MAX_LOG_BYTES = parseInt(process.env.DV_MAX_LOG_BYTES, 10) || (5 * 1024 * 
 
 function logFileName(key) { return key.replace(/[\/\:]/g, "__") + ".log"; }
 
+// F-NEW-B001: per-key write queue. saveLog() returns immediately; the
+// actual disk write happens async, serialized per file. Bursty builds
+// no longer stall the event loop with sync writes.
+const _writeQueues = new Map(); // key → Promise (chain)
+
+function _writeQueued(file, log) {
+  return (async () => {
+    try {
+      const bytes = Buffer.byteLength(log, "utf8");
+      if (bytes > MAX_LOG_BYTES) {
+        const tail = Buffer.from(log, "utf8").slice(-MAX_LOG_BYTES + 200).toString("utf8");
+        const trimmed = "[log truncated to last " + Math.round(MAX_LOG_BYTES / 1024 / 1024) + " MiB]\n" + tail;
+        try { await fsp.rename(file, file + ".1"); } catch (_) {}
+        await fsp.writeFile(file, trimmed);
+      } else {
+        await fsp.writeFile(file, log);
+      }
+    } catch (_) { /* swallow — best-effort logging */ }
+  })();
+}
+
 function saveLog(key, log) {
-  try {
-    const file = path.join(LOG_DIR, logFileName(key));
-    const bytes = Buffer.byteLength(log, "utf8");
-    if (bytes > MAX_LOG_BYTES) {
-      // Truncate log to last MAX_LOG_BYTES bytes plus a notice.
-      const tail = Buffer.from(log, "utf8").slice(-MAX_LOG_BYTES + 200).toString("utf8");
-      const trimmed = "[log truncated to last " + Math.round(MAX_LOG_BYTES / 1024 / 1024) + " MiB]\n" + tail;
-      // Rotate previous file once
-      try { if (fs.existsSync(file)) fs.renameSync(file, file + ".1"); } catch (_) {}
-      fs.writeFileSync(file, trimmed);
-    } else {
-      fs.writeFileSync(file, log);
-    }
-  } catch (e) {}
+  const file = path.join(LOG_DIR, logFileName(key));
+  // Chain on the previous queued write so two saveLog() in quick
+  // succession don't race; tail of the chain is what's on disk.
+  const prev = _writeQueues.get(key) || Promise.resolve();
+  const next = prev.then(() => _writeQueued(file, log));
+  _writeQueues.set(key, next);
+  // Drop the queue entry once it settles so the map doesn't leak.
+  next.finally(() => { if (_writeQueues.get(key) === next) _writeQueues.delete(key); });
 }
 
 function loadLog(key) {
+  // Synchronous because callers (HTTP route handlers) expect a string return.
+  // Reads are O(few KB) and cached at the OS level — tolerable.
   try { return fs.readFileSync(path.join(LOG_DIR, logFileName(key)), "utf8"); } catch (e) { return ""; }
 }
 

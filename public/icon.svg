@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Maskable safe zone is roughly the inner 80% (60–460). -->
+  <rect width="512" height="512" fill="#090a10"/>
+  <text x="256" y="338" font-family="JetBrains Mono, ui-monospace, monospace" font-size="240" font-weight="700"
+        fill="#d4a030" text-anchor="middle">DV</text>
+</svg>

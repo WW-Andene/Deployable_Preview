@@ -14,6 +14,7 @@
 "use strict";
 
 const { execSync } = require("child_process");
+const crypto = require("crypto");
 const fs   = require("fs");
 const os   = require("os");
 const path = require("path");
@@ -21,6 +22,45 @@ const path = require("path");
 const { runCmd } = require("../process");
 const { getConfig } = require("../config");
 const { detectPygame } = require("./detect");
+
+// Build cache: skip the install step when (a) node_modules exists and
+// (b) the lockfile SHA hasn't changed since the previous successful
+// install. The cache marker is a single file inside node_modules so it
+// gets blown away naturally when the user nukes the dir.
+function _lockfileFor(workDir) {
+  const candidates = ["pnpm-lock.yaml", "yarn.lock", "package-lock.json", "npm-shrinkwrap.json"];
+  for (const f of candidates) {
+    const p = path.join(workDir, f);
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+function _hashFile(file) {
+  try {
+    const h = crypto.createHash("sha256");
+    h.update(fs.readFileSync(file));
+    return h.digest("hex");
+  } catch (_) { return null; }
+}
+function _markerPath(workDir) { return path.join(workDir, "node_modules", ".dv-install-marker"); }
+function shouldSkipInstall(workDir) {
+  const lock = _lockfileFor(workDir);
+  if (!lock) return false;
+  if (!fs.existsSync(path.join(workDir, "node_modules"))) return false;
+  const marker = _markerPath(workDir);
+  if (!fs.existsSync(marker)) return false;
+  const newHash = _hashFile(lock);
+  let prev = "";
+  try { prev = fs.readFileSync(marker, "utf8").trim(); } catch (_) {}
+  return !!(newHash && newHash === prev);
+}
+function recordInstall(workDir) {
+  const lock = _lockfileFor(workDir);
+  if (!lock) return;
+  const newHash = _hashFile(lock);
+  if (!newHash) return;
+  try { fs.writeFileSync(_markerPath(workDir), newHash + "\n"); } catch (_) {}
+}
 
 // F-C007: write token to a 0600 temp file and load it via git's
 // credential.helper=store --file=… Token never appears in argv (so `ps`
@@ -111,13 +151,22 @@ async function installDeps(workDir, addLog, language) {
     return;
   }
   // Node.js (default)
+  // Build cache: if the lockfile hash matches the marker stored in
+  // node_modules/.dv-install-marker, skip install entirely. Saves
+  // 30–120s on every rebuild of the same commit (or any rebuild where
+  // dependencies didn't change).
+  if (shouldSkipInstall(workDir)) {
+    addLog("✓ Dependencies cached — lockfile unchanged, skipping install");
+    return;
+  }
   const hasNodeModules = fs.existsSync(path.join(workDir, "node_modules"));
-  addLog(hasNodeModules ? "Checking dependencies..." : "Installing dependencies...");
+  addLog(hasNodeModules ? "Reinstalling dependencies (lockfile changed)..." : "Installing dependencies...");
   const hasPnpmLock = fs.existsSync(path.join(workDir, "pnpm-lock.yaml"));
   const hasYarnLock = fs.existsSync(path.join(workDir, "yarn.lock"));
   if (hasPnpmLock) await runCmd("pnpm install", workDir);
   else if (hasYarnLock) await runCmd("yarn install", workDir);
   else await runCmd("npm install", workDir);
+  recordInstall(workDir);
 }
 
-module.exports = { updateRepo, resolveWorkDir, installDeps };
+module.exports = { updateRepo, resolveWorkDir, installDeps, shouldSkipInstall, recordInstall };

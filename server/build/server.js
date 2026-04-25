@@ -18,7 +18,7 @@ const { spawn } = require("child_process");
 
 const { runCmd, findFreePort, waitForPort, runningServers, killServer } = require("../process");
 const { saveLog, broadcastLog } = require("../logs");
-const { parseEnvVars } = require("../config");
+const { resolveBranchEnv } = require("../config");
 
 const {
   buildStatus,
@@ -28,7 +28,8 @@ const {
   buildKey,
   branchSlug,
   getBranchDir,
-  createLogger
+  createLogger,
+  broadcastStatus
 } = require("./state");
 
 const { detectLanguage, detectPygame, defaultStartCommand } = require("./detect");
@@ -52,6 +53,7 @@ async function startServer(repoConfig, branchConfig, isRestart) {
   if (!isRestart && countActiveBuilds() >= MAX_CONCURRENT_BUILDS) {
     console.log("[" + key + "] Max concurrent builds (" + MAX_CONCURRENT_BUILDS + ") reached, queuing...");
     buildStatus[key] = { status: "queued", log: "Waiting for build slot...\n", lastBuild: null, commitSha: "", mode: "server" };
+    broadcastStatus(key, buildStatus[key]);
     setTimeout(() => {
       const slot = buildStatus[key];
       if (!slot || slot.status !== "queued") return;
@@ -69,6 +71,7 @@ async function startServer(repoConfig, branchConfig, isRestart) {
 
   const restarts = isRestart ? ((buildStatus[key] && buildStatus[key].restarts) || 0) : 0;
   buildStatus[key] = { status: "building", log: isRestart ? (buildStatus[key].log || "") : "", lastBuild: null, commitSha: "", mode: "server", restarts, startedAt: Date.now() };
+  broadcastStatus(key, buildStatus[key]);
   const addLog = createLogger(key);
   if (isRestart) addLog.setLog(buildStatus[key].log);
 
@@ -85,7 +88,8 @@ async function startServer(repoConfig, branchConfig, isRestart) {
 
     const port = await findFreePort();
     const startCmd = branchConfig.startCommand || (language === "nodejs" ? repoConfig.startCommand : "") || defaultStartCommand(language);
-    const userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
+    // E1+E2: layered env — secrets (opt-in) + env-var groups + free-text fields.
+    const userEnv = resolveBranchEnv(repoConfig, branchConfig);
     addLog((isRestart ? "Restarting" : "Starting") + " server: " + startCmd + " (port " + port + ")");
 
     // F-M024: Windows has no /bin/sh; fall back to cmd.exe /c. detached:true
@@ -135,6 +139,7 @@ async function startServer(repoConfig, branchConfig, isRestart) {
     buildStatus[key].serverPort = port;
     buildStatus[key].restarts = 0;
     saveLog(key, addLog.getLog());
+    broadcastStatus(key, buildStatus[key]);
     // Give the app a moment to finish rendering before grabbing a thumb
     captureThumbAsync(repoConfig.owner, repoConfig.repo, branchSlug(branchConfig), 3000);
   } catch (e) {
@@ -143,6 +148,7 @@ async function startServer(repoConfig, branchConfig, isRestart) {
     buildStatus[key].status = "error";
     buildStatus[key].lastBuild = Date.now();
     saveLog(key, addLog.getLog());
+    broadcastStatus(key, buildStatus[key]);
   } finally {
     delete buildLocks[key];
   }

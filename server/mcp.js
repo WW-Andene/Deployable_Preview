@@ -59,7 +59,17 @@ function makeError(id, code, message) {
   return JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } });
 }
 
-async function handleMessage(msg) {
+function makeNotification(method, params) {
+  return JSON.stringify({ jsonrpc: "2.0", method, params });
+}
+
+// `sendNotification(payload)` is injected by the transport (stdio / HTTP).
+// It's the callback that actually writes a JSON-RPC notification back to
+// the client mid-call. MCP clients (Claude Desktop / claude.ai) reset
+// their per-request timeout each time one of these arrives, so a
+// long-running tool like `download` can stay alive past 60 s by
+// emitting a progress notification every few seconds.
+async function handleMessage(msg, sendNotification) {
   const { id, method, params } = msg;
 
   switch (method) {
@@ -86,7 +96,21 @@ async function handleMessage(msg) {
     case "tools/call": {
       const toolName = params && params.name;
       const toolArgs = (params && params.arguments) || {};
-      const result = await dv.callTool(toolName, toolArgs);
+      // Per MCP spec the client may pass _meta.progressToken to ask for
+      // notifications/progress updates while the tool runs.
+      const progressToken = params && params._meta && params._meta.progressToken;
+      let progressCb = null;
+      if (progressToken !== undefined && typeof sendNotification === "function") {
+        progressCb = (progress, total, message) => {
+          try {
+            const payload = { progressToken, progress: Number(progress) || 0 };
+            if (total != null) payload.total = Number(total);
+            if (message) payload.message = String(message);
+            sendNotification(makeNotification("notifications/progress", payload));
+          } catch (_) {}
+        };
+      }
+      const result = await dv.callTool(toolName, toolArgs, { progress: progressCb });
       return makeResponse(id, result);
     }
 
@@ -111,10 +135,16 @@ function startStdioServer() {
 
   process.stderr.write("[MCP] DeployView MCP server ready on stdio (" + dv.listTools().length + " tools)\n");
 
+  // stdio transport's notification sink — writes JSON-RPC notifications
+  // to stdout while the tool is still running. Used by progress updates.
+  function sendNotification(payload) {
+    try { process.stdout.write(payload + "\n"); } catch (_) {}
+  }
+
   rl.on("line", async (line) => {
     try {
       const msg = JSON.parse(line);
-      const response = await handleMessage(msg);
+      const response = await handleMessage(msg, sendNotification);
       if (response) process.stdout.write(response + "\n");
     } catch (_) {
       // Accumulate for multi-line JSON
@@ -122,7 +152,7 @@ function startStdioServer() {
       try {
         const msg = JSON.parse(buffer);
         buffer = "";
-        const response = await handleMessage(msg);
+        const response = await handleMessage(msg, sendNotification);
         if (response) process.stdout.write(response + "\n");
       } catch (_2) {
         if (buffer.length > 100000) {
