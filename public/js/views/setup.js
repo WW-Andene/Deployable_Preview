@@ -2,8 +2,9 @@
 var S = DV.S, el = DV.el, api = DV.api;
 
 DV.views.setup = function(app) {
-  var inp = el("input", { c: "input-mono", attr: { type: "password", placeholder: "ghp_xxxx..." } });
-  var err = el("p", { c: "setup-error hidden" }, "> Invalid token");
+  // G1-005: explicit label tied to input via id/for
+  var inp = el("input", { c: "input-mono", attr: { id: "setup-token-input", type: "password", placeholder: "ghp_xxxx...", "aria-describedby": "setup-token-hint" } });
+  var err = el("p", { c: "setup-error hidden", attr: { role: "alert" } }, "> Invalid token. Check it has 'repo' scope and isn't expired.");
   function submit() {
     var t = inp.value; if (!t) return; btn.innerHTML = "<span class='spin'></span>";
     api("POST", "/api/token", { token: t }).then(function(r) {
@@ -24,14 +25,16 @@ DV.views.setup = function(app) {
       el("span", { c: "color-accent" }, "Deploy"),
       el("span", { c: "color-tx2" }, "View")
     ]),
-    el("p", { c: "setup-subtitle" }, "Personal Access Token with repo scope.\nStored on this server only."),
+    el("label", { c: "setup-subtitle", attr: { "for": "setup-token-input" } }, "Personal Access Token with repo scope.\nStored on this server only."),
     el("div", { c: "token-row" }, [inp, btn]),
     err,
-    el("p", { c: "label-hint" }, [
+    el("p", { c: "label-hint", attr: { id: "setup-token-hint" } }, [
       "Required: ",
       el("span", { c: "color-accent" }, "repo"),
       " scope. ",
-      el("a", { attr: { href: "https://github.com/settings/tokens/new?scopes=repo,workflow&description=DeployView", target: "_blank", rel: "noopener" }, c: "color-accent" }, "Create token \u2197")
+      el("a", { attr: { href: "https://github.com/settings/tokens/new?scopes=repo,workflow&description=DeployView", target: "_blank", rel: "noopener" }, c: "color-accent" }, "Create token \u2197"),
+      " \u00b7 ",
+      el("a", { attr: { href: "https://github.com/settings/tokens", target: "_blank", rel: "noopener" }, c: "color-accent" }, "Manage existing")
     ])
   ]));
 };

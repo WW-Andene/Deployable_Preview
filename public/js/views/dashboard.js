@@ -172,16 +172,26 @@ DV.views.dashboard = function(app) {
             var checked = !!S.selectedRows[rk];
             row.appendChild(el("div", {
               c: "branch-check" + (checked ? " on" : ""),
-              attr: { title: "Select for bulk action", role: "checkbox", tabindex: "0" },
-              on: { click: function(e) {
-                e.stopPropagation();
-                if (S.selectedRows[rk]) delete S.selectedRows[rk]; else S.selectedRows[rk] = true;
-                DV.render();
-              } }
+              attr: { title: "Select for bulk action", "aria-label": "Select " + label + " for bulk action", role: "checkbox", "aria-checked": S.selectedRows[rk] ? "true" : "false", tabindex: "0" },
+              on: {
+                click: function(e) {
+                  e.stopPropagation();
+                  if (S.selectedRows[rk]) delete S.selectedRows[rk]; else S.selectedRows[rk] = true;
+                  DV.render();
+                },
+                // G3-001: keyboard-toggle support (Space / Enter)
+                keydown: function(e) {
+                  if (e.key !== " " && e.key !== "Enter") return;
+                  e.preventDefault();
+                  if (S.selectedRows[rk]) delete S.selectedRows[rk]; else S.selectedRows[rk] = true;
+                  DV.render();
+                }
+              }
             }));
 
             var info = el("div", { c: "branch-info" }, [
-              el("span", { c: statusClass(bs.status) }),
+              // G1-002: status conveyed by aria-label, not just colour
+              el("span", { c: statusClass(bs.status), attr: { role: "img", "aria-label": "Status: " + (bs.status || "idle") } }),
               el("span", { c: btagClass(bs.status) }, label)
             ]);
             if (bs.hasThumb) {

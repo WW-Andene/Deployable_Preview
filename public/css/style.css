@@ -1860,7 +1860,7 @@ button:disabled, button[disabled] {
   pointer-events: none;
 }
 .toast {
-  padding: 10px 16px;
+  padding: 10px 32px 10px 16px;
   border-radius: var(--r-card);
   font-family: var(--font-mono);
   font-size: 12px;
@@ -1873,7 +1873,22 @@ button:disabled, button[disabled] {
   pointer-events: auto;
   max-width: 340px;
   border-left: 3px solid var(--accent);
+  position: relative;
 }
+.toast-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  background: transparent;
+  border: 0;
+  color: var(--tx2);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.toast-close:hover { color: var(--tx1); background: rgba(255,255,255,0.06); }
 .toast-success {
   background: var(--ok-bg-h);
   border-left-color: var(--ok);
