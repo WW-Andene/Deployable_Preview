@@ -122,8 +122,15 @@ async function pageEval(opts) {
     resultText = "[unserializable: " + (e.message || e) + "]";
     resultType = "unserializable";
   }
-  const MAX = 200 * 1024;
-  if (resultText && resultText.length > MAX) { resultText = resultText.slice(0, MAX) + "\n[… truncated]"; truncated = true; }
+  // No truncation by default. Caller can pass maxResultBytes to opt in
+  // to a cap (useful when probing huge DOM trees). Truncation breaks any
+  // downstream JSON.parse on the result, so we no longer impose one
+  // unilaterally — bandwidth/limits are the caller's problem now.
+  const MAX = Number(opts.maxResultBytes) > 0 ? Number(opts.maxResultBytes) : 0;
+  if (MAX > 0 && resultText && resultText.length > MAX) {
+    resultText = resultText.slice(0, MAX) + "\n[… truncated]";
+    truncated = true;
+  }
 
   return {
     url,
