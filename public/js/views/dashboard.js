@@ -354,8 +354,12 @@ DV.views.dashboard = function(app) {
             row.appendChild(el("div", { c: "branch-status-text flex-row gap-6 items-center flex-wrap" }, statusParts));
 
             var actions = el("div", { c: "branch-actions" });
+            var menuKey = repo.owner + "/" + repo.repo + ":" + slug;
 
-            /* Primary action */
+            // ── Primary actions inline (C2) ───────────────────────────
+            // Two buttons inline at most: a state-dependent primary
+            // (Cancel-while-building / Preview-when-ready) and Rebuild.
+            // Everything else moves to the overflow menu below.
             if (bs.status === "building" || bs.status === "queued") {
               actions.appendChild(el("button", { c: "bd bs", attr: { title: "Cancel" }, on: { click: function() {
                 api("POST", "/api/cancel/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(function(r) {
@@ -366,104 +370,152 @@ DV.views.dashboard = function(app) {
               actions.appendChild(el("button", { c: "bp bs", attr: { title: "Preview" }, on: { click: function() {
                 S.activeRepo = repo; S.activeBranch = slug; S.compareMode = false; S.compareBranch = ""; S.view = "preview"; DV.render();
               } } }, DV.iconEl("preview")));
-              actions.appendChild(el("button", { c: "bg bs", attr: { title: "New tab" }, on: { click: function() {
-                window.open(previewUrl, "_blank");
-              } } }, DV.iconEl("arrow_out")));
-              actions.appendChild(el("button", { c: "bg bs", attr: { title: "Share (QR / native sheet / copy link)", "aria-label": "Share preview URL" }, on: { click: function() {
-                var origin = (S._tunnelStatus && S._tunnelStatus.url) ? S._tunnelStatus.url : window.location.origin;
-                var full = origin.replace(/\/$/, "") + previewUrl;
-                DV.openShare(full, repo.owner + "/" + repo.repo + " · " + slug);
-              } } }, DV.iconEl("link")));
-            }
-
-            /* Secondary actions */
-            if (branchMode === "server" && bs.status === "running") {
-              actions.appendChild(el("button", { c: "bg bs", attr: { title: "Stop" }, on: { click: function() {
-                api("POST", "/api/stop/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(DV.loadRepos);
-              } } }, DV.iconEl("stop")));
             }
             actions.appendChild(el("button", { c: "bg bs", attr: { title: "Rebuild" }, on: { click: function() {
               api("POST", "/api/build/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)); DV.loadRepos();
             } } }, DV.iconEl("rebuild")));
-            actions.appendChild(el("button", { c: "bg bs", attr: { title: "Log" }, on: { click: function() {
-              S.logModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: repo.owner + "/" + repo.repo + ":" + slug }; DV.render();
-            } } }, DV.iconEl("log")));
-            actions.appendChild(el("button", { c: "bg bs", attr: { title: "Edit" }, on: { click: function() {
-              // Pull the live branchConfig from S.repos so newly-added
-              // fields (customSlug, previewPassword, envGroupIds,
-              // injectSecrets) make it into the modal even if the
-              // server hasn't surfaced them via buildStatus.
-              var bcLive = (repo.activeBranches || []).find(function(b){
-                // match either by branch name + baseDir OR customSlug
-                if (b.customSlug && b.customSlug === slug) return true;
-                var auto = (b.branch || "").replace(/\//g, "__") + (b.baseDir ? "--" + b.baseDir.replace(/\//g, "__") : "");
-                return auto === slug;
-              }) || {};
-              S.editModal = {
-                owner: repo.owner, repo: repo.repo, slug: slug,
-                branch: bs.branch || bcLive.branch,
-                baseDir: bcLive.baseDir || "",
-                buildCommand: bcLive.buildCommand || "",
-                outputDir: bcLive.outputDir || "",
-                mode: bcLive.mode || bs.mode || "static",
-                startCommand: bcLive.startCommand || "",
-                envVars: bcLive.envVars || "",
-                language: bcLive.language || "auto",
-                customSlug: bcLive.customSlug || "",
-                previewPassword: bcLive.previewPassword || "",
-                injectSecrets: !!bcLive.injectSecrets,
-                envGroupIds: Array.isArray(bcLive.envGroupIds) ? bcLive.envGroupIds.slice() : [],
-                edge: bcLive.edge || { redirects: [], headers: [] },
-                schedule: bcLive.schedule || 0
-              };
-              DV.render();
-            } } }, DV.iconEl("edit")));
-            // I6: Visual diff slider — only show when we actually have
-            // a diff thumbnail (i.e. there's been at least one prior build).
-            if (isLive && bs.diff && typeof bs.diff.percent === "number" && bs.diff.percent > 0) {
-              actions.appendChild(el("button", {
-                c: "bg bs", attr: { title: "Visual diff (before / after slider)", "aria-label": "Visual diff" },
-                on: { click: function() {
-                  S.diffModal = { owner: repo.owner, repo: repo.repo, slug: slug, thumbAt: bs.thumbAt, diff: bs.diff };
-                  DV.render();
-                } }
-              }, "◐"));
-            }
-            // H3: Download artifact (.zip of the current outputDir)
-            if (isLive) {
-              actions.appendChild(el("a", {
-                c: "bg bs", attr: {
+
+            // ── Overflow menu (C2) ────────────────────────────────────
+            // Single "•••" toggle that opens a popover with the rest.
+            // Click-outside or pick-an-item closes it.
+            var menuOpen = S.openActionMenu === menuKey;
+            actions.appendChild(el("button", {
+              c: "btn-icon action-menu-trigger",
+              attr: { title: "More actions", "aria-label": "More actions for " + label, "aria-haspopup": "menu", "aria-expanded": menuOpen ? "true" : "false" },
+              on: { click: function(e) {
+                e.stopPropagation();
+                S.openActionMenu = menuOpen ? null : menuKey;
+                DV.render();
+              } }
+            }, "•••"));
+
+            if (menuOpen) {
+              var menu = el("div", { c: "action-menu", attr: { role: "menu" } });
+              function _item(opts) {
+                var spec = {
+                  c: "action-menu-item" + (opts.danger ? " action-menu-item-danger" : ""),
+                  attr: { role: "menuitem", title: opts.title || opts.label },
+                  on: { click: function(e) {
+                    e.stopPropagation();
+                    S.openActionMenu = null;
+                    if (typeof opts.run === "function") opts.run();
+                    DV.render();
+                  } }
+                };
+                if (opts.href) { spec.attr.href = opts.href; if (opts.download) spec.attr.download = ""; }
+                return el(opts.href ? "a" : "button", spec, [
+                  el("span", { c: "action-menu-glyph" }, opts.glyph || ""),
+                  el("span", {}, opts.label)
+                ]);
+              }
+
+              if (isLive) {
+                menu.appendChild(_item({
+                  glyph: "↗", label: "Open in new tab",
+                  run: function() { window.open(previewUrl, "_blank"); }
+                }));
+                menu.appendChild(_item({
+                  glyph: "⊞", label: "Share (QR / sheet / copy link)",
+                  run: function() {
+                    var origin = (S._tunnelStatus && S._tunnelStatus.url) ? S._tunnelStatus.url : window.location.origin;
+                    DV.openShare(origin.replace(/\/$/, "") + previewUrl, repo.owner + "/" + repo.repo + " · " + slug);
+                  }
+                }));
+                menu.appendChild(_item({
+                  glyph: "⤓", label: "Download artifact (.zip)",
                   href: "/api/artifact/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug),
-                  download: "",
-                  title: "Download build artifact (.zip)",
-                  "aria-label": "Download build artifact"
+                  download: true
+                }));
+                if (bs.diff && typeof bs.diff.percent === "number" && bs.diff.percent > 0) {
+                  menu.appendChild(_item({
+                    glyph: "◐", label: "Visual diff (before / after)",
+                    run: function() { S.diffModal = { owner: repo.owner, repo: repo.repo, slug: slug, thumbAt: bs.thumbAt, diff: bs.diff }; }
+                  }));
                 }
-              }, "⤓"));
+              }
+              if (branchMode === "server" && bs.status === "running") {
+                menu.appendChild(_item({
+                  glyph: "■", label: "Stop server",
+                  run: function() { api("POST", "/api/stop/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(DV.loadRepos); }
+                }));
+              }
+              menu.appendChild(_item({
+                glyph: "≡", label: "Build log",
+                run: function() { S.logModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: menuKey }; }
+              }));
+              menu.appendChild(_item({
+                glyph: "↶", label: "Deployment history & rollback",
+                run: function() {
+                  S.historyModal = { owner: repo.owner, repo: repo.repo, slug: slug, loading: true, history: [] };
+                  api("GET", "/api/history/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(function(r) {
+                    if (!S.historyModal) return;
+                    S.historyModal.loading = false;
+                    S.historyModal.history = (r && r.history) || [];
+                    S.historyModal.error = r && r.error;
+                    DV.render();
+                  }).catch(function(e) {
+                    if (!S.historyModal) return;
+                    S.historyModal.loading = false;
+                    S.historyModal.error = e.message || "Failed to load history";
+                    DV.render();
+                  });
+                }
+              }));
+              menu.appendChild(_item({
+                glyph: "✎", label: "Edit configuration",
+                run: function() {
+                  var bcLive = (repo.activeBranches || []).find(function(b){
+                    if (b.customSlug && b.customSlug === slug) return true;
+                    var auto = (b.branch || "").replace(/\//g, "__") + (b.baseDir ? "--" + b.baseDir.replace(/\//g, "__") : "");
+                    return auto === slug;
+                  }) || {};
+                  S.editModal = {
+                    owner: repo.owner, repo: repo.repo, slug: slug,
+                    branch: bs.branch || bcLive.branch,
+                    baseDir: bcLive.baseDir || "",
+                    buildCommand: bcLive.buildCommand || "",
+                    outputDir: bcLive.outputDir || "",
+                    mode: bcLive.mode || bs.mode || "static",
+                    startCommand: bcLive.startCommand || "",
+                    envVars: bcLive.envVars || "",
+                    language: bcLive.language || "auto",
+                    customSlug: bcLive.customSlug || "",
+                    previewPassword: bcLive.previewPassword || "",
+                    injectSecrets: !!bcLive.injectSecrets,
+                    envGroupIds: Array.isArray(bcLive.envGroupIds) ? bcLive.envGroupIds.slice() : [],
+                    edge: bcLive.edge || { redirects: [], headers: [] },
+                    schedule: bcLive.schedule || 0
+                  };
+                }
+              }));
+              menu.appendChild(_item({
+                glyph: "⌬", label: "Build APK",
+                run: function() { S.apkModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: menuKey }; }
+              }));
+              menu.appendChild(el("div", { c: "action-menu-divider" }));
+              menu.appendChild(_item({
+                glyph: "✕", label: "Remove this branch", danger: true,
+                run: function() {
+                  if (!confirm("Remove this branch?")) return;
+                  api("DELETE", "/api/repos/" + repo.owner + "/" + repo.repo + "/branch?slug=" + encodeURIComponent(slug)).then(DV.loadRepos);
+                }
+              }));
+              actions.appendChild(menu);
+
+              // Click-outside closes the menu. Bound once per render via
+              // the dropdown handler slot already used by the branch picker.
+              setTimeout(function() {
+                var handler = function(ev) {
+                  if (!actions.contains(ev.target)) {
+                    S.openActionMenu = null;
+                    document.removeEventListener("click", handler, true);
+                    DV.render();
+                  }
+                };
+                document.addEventListener("click", handler, true);
+                DV.setDropdownHandler(handler);
+              }, 0);
             }
-            // History viewer + rollback button
-            actions.appendChild(el("button", { c: "bg bs", attr: { title: "Deployment history & rollback", "aria-label": "Deployment history" }, on: { click: function() {
-              S.historyModal = { owner: repo.owner, repo: repo.repo, slug: slug, loading: true, history: [] };
-              DV.render();
-              api("GET", "/api/history/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(function(r) {
-                if (!S.historyModal) return;
-                S.historyModal.loading = false;
-                S.historyModal.history = (r && r.history) || [];
-                S.historyModal.error = r && r.error;
-                DV.render();
-              }).catch(function(e) {
-                if (!S.historyModal) return;
-                S.historyModal.loading = false;
-                S.historyModal.error = e.message || "Failed to load history";
-                DV.render();
-              });
-            } } }, "↶"));
-            actions.appendChild(el("button", { c: "bg bs btn-accent-highlight", attr: { title: "APK" }, on: { click: function() {
-              S.apkModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: repo.owner + "/" + repo.repo + ":" + slug }; DV.render();
-            } } }, "APK"));
-            actions.appendChild(el("button", { c: "bd bs", attr: { title: "Delete" }, on: { click: function() {
-              if (!confirm("Remove this branch?")) return;
-              api("DELETE", "/api/repos/" + repo.owner + "/" + repo.repo + "/branch?slug=" + encodeURIComponent(slug)).then(DV.loadRepos);
-            } } }, DV.iconEl("close")));
             row.appendChild(actions);
 
             card.appendChild(row);

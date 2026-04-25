@@ -62,7 +62,12 @@ var S = {
   diffModal: null,
 
   // Runtime-errors modal — { owner, repo, slug, loading, errors[] } when open.
-  errorsModal: null
+  errorsModal: null,
+
+  // Open action-overflow menu key (C2). The dashboard uses this to decide
+  // which row's "•••" menu is currently open; clicking another row's menu
+  // (or clicking outside) closes it. Format: "owner/repo:slug".
+  openActionMenu: null
 };
 
 var _dropdownCloseHandler = null;

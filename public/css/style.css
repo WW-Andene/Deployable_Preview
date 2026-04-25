@@ -1613,6 +1613,65 @@ button:disabled, button[disabled] {
   font-weight: 600;
 }
 
+/* ─── Action overflow menu (C2 — branch-row "•••" popover) ─── */
+.branch-actions {
+  position: relative;
+}
+.action-menu-trigger {
+  /* Inherits .btn-icon styles via class composition */
+}
+.action-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 6px;
+  min-width: 200px;
+  padding: 6px;
+  background: var(--sf2);
+  border: 1px solid var(--border-h);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: actionMenuIn 120ms var(--ease-fast);
+}
+@keyframes actionMenuIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.action-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-btn);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--tx1);
+  text-align: left;
+  width: 100%;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.action-menu-item:hover { background: var(--sf3); }
+.action-menu-item .action-menu-glyph {
+  width: 20px;
+  text-align: center;
+  color: var(--tx3);
+}
+.action-menu-item.action-menu-item-danger { color: var(--err); }
+.action-menu-item.action-menu-item-danger:hover { background: var(--err-bg-h); }
+.action-menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 4px;
+}
+
 /* ─── Floating Action Button (mobile palette shortcut) ─── */
 .dv-fab {
   display: none;        /* desktop: not shown — Cmd/Ctrl+K already exists */
