@@ -154,8 +154,7 @@ dv.defineTool({
   async handler(args) {
     const result = await browser.deployAndVerify(args);
     if (result.error) {
-      const details = result.log ? { logTail: String(result.log).slice(-4000) } : undefined;
-      return dv.fail(result.error, details);
+      return dv.failFromBrowser(result, { logTail: result.log ? String(result.log).slice(-4000) : undefined });
     }
     const content = [];
     if (result.screenshot && result.screenshot.base64) {
@@ -185,7 +184,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.runTest(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     const content = [];
     if (result.screenshot) {
       content.push({ type: "image", data: result.screenshot.base64, mimeType: result.screenshot.mimeType });

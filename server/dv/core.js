@@ -155,6 +155,51 @@ function failCode(code, message, extra) {
   return makeResult([{ type: "text", text: JSON.stringify(body, null, 2) }], true);
 }
 
+/**
+ * Classify a browser-layer error string into a stable code + hint. Takes the
+ * same shape tool handlers get from browser/* modules (`{error, ...ctx}`).
+ * Used so each tool can write one line instead of a bespoke try/classify
+ * block:
+ *
+ *   if (result.error) return dv.failFromBrowser(result);
+ *
+ * Classification patterns are intentionally conservative — unknown errors
+ * fall through as TOOL_FAILED with the raw message preserved.
+ */
+function failFromBrowser(result, opts) {
+  const raw = String(result && result.error ? result.error : result || "");
+  const extra = {};
+  // Preserve any context the browser module attached (result.url, result.code, etc.)
+  if (result && typeof result === "object") {
+    for (const k of Object.keys(result)) {
+      if (k === "error") continue;
+      // Skip bulk binary fields
+      if (k === "base64" || k === "raw" || k === "buffer") continue;
+      extra[k] = result[k];
+    }
+  }
+  if (opts && typeof opts === "object") Object.assign(extra, opts);
+
+  const rules = [
+    [/no browser|browser.*unavailable|still setting one up/i,          "BROWSER_UNAVAILABLE", "The headless browser isn't ready. Check dv_status; if unavailable, configure BROWSERLESS_API_KEY or install playwright."],
+    [/timed out|timeout|timed-out/i,                                    "TIMEOUT",             "Operation exceeded its time budget. Raise the timeout, simplify the task, or check that the preview is actually up."],
+    [/element not found|selector.*not found|no element|match(es)? nothing/i, "SELECTOR_NOT_FOUND", "The CSS selector matched nothing. Use `inspect` or `find_all` to discover the correct selector."],
+    [/bounding ?box|boundingRect/i,                                    "GEOMETRY_UNRESOLVED", "The element exists but has no bounding box (hidden, display:none, or zero-size). Scroll it into view or wait for a render."],
+    [/iframe not found/i,                                               "FRAME_NOT_FOUND",    "The frame descriptor didn't match any iframe. Accepts: CSS selector, URL substring, or frame name."],
+    [/navigation|net::ERR_|ERR_CONNECTION|ERR_NAME/i,                   "NAV_FAILED",         "Navigation failed. Check the preview is running and the URL resolves."],
+    [/library not installed|Cannot find module/i,                       "LIBRARY_MISSING",    "An optional library is missing. Install the package mentioned in the error."],
+    [/groq|GROQ_API_KEY|claudeGroqAccess/i,                             "GROQ_UNAUTHORIZED",  "Groq access is not authorized. Set GROQ_API_KEY and preferences.claudeGroqAccess in deployview.json."],
+    [/CDP session|dispatchTouchEvent/i,                                 "CDP_UNAVAILABLE",    "The CDP channel needed for this feature isn't available on this browser build."],
+    [/decompression|charset|content-type/i,                             "RESPONSE_DECODE",    "Response could not be decoded. Try a different format flag, or fetch raw bytes via base64."],
+    [/EADDRINUSE|address already in use/i,                              "PORT_IN_USE",        "Port collision — kill the conflicting process or pick another port."],
+    [/ENOTFOUND|EAI_AGAIN/i,                                            "DNS_UNREACHABLE",    "Hostname could not be resolved."]
+  ];
+  for (const [re, code, hint] of rules) {
+    if (re.test(raw)) return failCode(code, raw, Object.assign({ hint }, extra));
+  }
+  return failCode((opts && opts.fallbackCode) || "TOOL_FAILED", raw, extra);
+}
+
 // ── Capability gates ──────────────────────────────────────────────────────
 
 /**
@@ -285,6 +330,7 @@ module.exports = {
   ok,
   fail,
   failCode,
+  failFromBrowser,
   // capability
   checkRequirement,
   // introspection

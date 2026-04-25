@@ -42,7 +42,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.runOCRDispatch(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok({
       text: result.text,
       confidence: result.confidence,
@@ -73,7 +73,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = enrich.textDiff(args.a, args.b, args.mode);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -92,7 +92,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = enrich.textAnalysis(args.text);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -125,7 +125,7 @@ dv.defineTool({
       timeout: args.timeout,
       skip: args.skip
     });
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -144,7 +144,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = enrich.parseStackTrace(args.stack);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -171,7 +171,7 @@ dv.defineTool({
       { lineNumber: args.lineNumber, columnNumber: args.columnNumber },
       sm
     );
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -190,7 +190,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = enrich.cspCheck(args.header);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -220,7 +220,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = enrich.vulnScan(args.fingerprints);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });

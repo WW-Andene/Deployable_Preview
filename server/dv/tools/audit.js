@@ -33,7 +33,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.runAccessibility(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -55,7 +55,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.runLighthouseAudit(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -77,7 +77,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.performanceMetrics(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -99,7 +99,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.getWebVitals(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -122,7 +122,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.getCodeCoverage(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -154,9 +154,9 @@ dv.defineTool({
         catch (_) { input = r.returnValue; }
       }
     }
-    if (!input) return dv.fail("html, url, or (owner, repo, slug) required");
+    if (!input) return dv.failCode("BAD_ARGS", "html, url, or (owner, repo, slug) required", { hint: "Pass one of: `html` (string), `url` (string), or a preview triple (owner/repo/slug)." });
     const result = await enrich.validateHtml(input);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -175,7 +175,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = enrich.cssSpecificity(args.selector);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -199,7 +199,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.getComputedStyles(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });

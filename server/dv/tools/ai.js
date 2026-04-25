@@ -37,7 +37,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.visualQuery(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.text(result.text || "(no answer)");
   }
 });
@@ -60,7 +60,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.findElementVisually(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -92,7 +92,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.visualDiffWithAction(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.text(result.summary || "(no summary)");
   }
 });
@@ -121,7 +121,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.runVerifyLoop(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     const content = [];
     if (args.returnScreenshot && result.finalScreenshot) {
       content.push({ type: "image", data: result.finalScreenshot, mimeType: "image/png" });

@@ -18,7 +18,7 @@ dv.defineTool({
   schema: { type: "object", properties: {}, required: [] },
   async handler() {
     const result = await browser.listPages();
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -37,7 +37,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.closePage(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });

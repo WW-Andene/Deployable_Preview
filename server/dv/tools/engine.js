@@ -35,7 +35,7 @@ dv.defineTool({
     const grouped = dv.getToolsByCategory();
     if (args && args.category) {
       const only = grouped[args.category];
-      if (!only) return dv.fail("Unknown category: " + args.category, { available: Object.keys(grouped) });
+      if (!only) return dv.failCode("BAD_ARGS", "Unknown category: " + args.category, { available: Object.keys(grouped) });
       return dv.ok({ category: args.category, tools: only });
     }
     return dv.ok({

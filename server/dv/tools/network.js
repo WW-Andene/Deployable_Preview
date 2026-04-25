@@ -36,7 +36,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.capturePreviewRequests(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(summarizeNetwork(result, args));
   }
 });
@@ -62,7 +62,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.captureHar(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(summarizeNetwork(result, args));
   }
 });
@@ -88,7 +88,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.captureDownload(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     const out = {
       suggestedFilename: result.suggestedFilename,
       byteLength: result.byteLength,
@@ -170,7 +170,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.getRobots(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -330,7 +330,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await runWebFetch(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.text(formatWebFetchResult(result));
   }
 });
