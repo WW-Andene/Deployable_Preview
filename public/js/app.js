@@ -326,7 +326,6 @@ function installStatusStream() {
   }
   open();
 }
-DV._installStatusStream = installStatusStream;
 
 function loadMcpTools() {
   api("GET", "/api/mcp/tools").then(function(r) {
