@@ -182,7 +182,16 @@ DV.views.modals = function(app) {
       .then(function(r) { return r.text(); })
       .then(function(t) {
         logDiv._raw = ""; logDiv._full = "";
-        appendChunk(t || "No log yet.");
+        if (t && t !== "No build log.") {
+          appendChunk(t);
+        } else {
+          // Empty-state — clearer guidance than the bare "No log yet."
+          logDiv.innerHTML =
+            '<div class="modal-empty">' +
+              '<div class="modal-empty-title">No build log for this branch yet</div>' +
+              '<div class="modal-empty-body">Trigger a build from the dashboard rebuild button. Live output will stream in here as it runs.</div>' +
+            '</div>';
+        }
       });
     if (S._logSSE) { S._logSSE.close(); S._logSSE = null; }
     S._logSSE = new EventSource("/api/logs/stream?key=" + encodeURIComponent(lm.key));

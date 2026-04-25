@@ -2273,6 +2273,30 @@ button:disabled, button[disabled] {
 .detect-badge-icon { font-size: 13px; }
 .detect-badge-meta { color: var(--tx3); font-size: 11px; font-family: var(--font-mono); }
 
+/* ── Modal empty states ────────────────────────────────────────────── */
+/* Used by the log modal when a branch has not been built yet, or any
+   modal that needs to communicate "nothing here yet, here's why."
+   Same chrome family as `.frame-empty` but tuned for in-modal copy. */
+.modal-empty {
+  padding: var(--sp-2xl) var(--sp-lg);
+  text-align: center;
+  color: var(--tx2);
+  font-family: var(--font-ui);
+}
+.modal-empty-title {
+  color: var(--tx1);
+  font-size: var(--text-md);
+  font-weight: 500;
+  margin-bottom: var(--sp-sm);
+}
+.modal-empty-body {
+  color: var(--tx3);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  max-width: 360px;
+  margin: 0 auto;
+}
+
 /* ── Inline SVG icons (DV.iconEl) ──────────────────────────────────── */
 /* Wraps the DV.iconEl(name) <span>. Inherits currentColor so accent /
    error / ghost button variants colour the stroke automatically. */
