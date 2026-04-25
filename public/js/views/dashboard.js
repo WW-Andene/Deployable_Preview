@@ -251,14 +251,14 @@ DV.views.dashboard = function(app) {
                 api("POST", "/api/cancel/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(function(r) {
                   if (r.ok) DV.showToast("Cancelled", "info"); DV.loadRepos();
                 });
-              } } }, "\u2715"));
+              } } }, DV.iconEl("close")));
             } else if (isLive) {
               actions.appendChild(el("button", { c: "bp bs", attr: { title: "Preview" }, on: { click: function() {
                 S.activeRepo = repo; S.activeBranch = slug; S.compareMode = false; S.compareBranch = ""; S.view = "preview"; DV.render();
-              } } }, "\u25B6"));
+              } } }, DV.iconEl("preview")));
               actions.appendChild(el("button", { c: "bg bs", attr: { title: "New tab" }, on: { click: function() {
                 window.open(previewUrl, "_blank");
-              } } }, "\u2197"));
+              } } }, DV.iconEl("arrow_out")));
               actions.appendChild(el("button", { c: "bg bs", attr: { title: "Copy shareable URL (uses tunnel when active)" }, on: { click: function() {
                 var origin = (S._tunnelStatus && S._tunnelStatus.url) ? S._tunnelStatus.url : window.location.origin;
                 var full = origin.replace(/\/$/, "") + previewUrl;
@@ -270,31 +270,31 @@ DV.views.dashboard = function(app) {
                   ta.select(); try { done(document.execCommand("copy")); } catch (e) { done(false); }
                   document.body.removeChild(ta);
                 }
-              } } }, "\ud83d\udd17"));
+              } } }, DV.iconEl("link")));
             }
 
             /* Secondary actions */
             if (branchMode === "server" && bs.status === "running") {
               actions.appendChild(el("button", { c: "bg bs", attr: { title: "Stop" }, on: { click: function() {
                 api("POST", "/api/stop/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(DV.loadRepos);
-              } } }, "\u25A0"));
+              } } }, DV.iconEl("stop")));
             }
             actions.appendChild(el("button", { c: "bg bs", attr: { title: "Rebuild" }, on: { click: function() {
               api("POST", "/api/build/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)); DV.loadRepos();
-            } } }, "\u21BB"));
+            } } }, DV.iconEl("rebuild")));
             actions.appendChild(el("button", { c: "bg bs", attr: { title: "Log" }, on: { click: function() {
               S.logModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: repo.owner + "/" + repo.repo + ":" + slug }; DV.render();
-            } } }, "\u2261"));
+            } } }, DV.iconEl("log")));
             actions.appendChild(el("button", { c: "bg bs", attr: { title: "Edit" }, on: { click: function() {
               S.editModal = { owner: repo.owner, repo: repo.repo, slug: slug, branch: bs.branch, baseDir: bs.baseDir || "", buildCommand: bs.buildCommand || "", outputDir: bs.outputDir || "", mode: bs.mode || "static", startCommand: bs.startCommand || "", envVars: bs.envVars || "", language: bs.language || "auto" }; DV.render();
-            } } }, "\u270E"));
+            } } }, DV.iconEl("edit")));
             actions.appendChild(el("button", { c: "bg bs btn-accent-highlight", attr: { title: "APK" }, on: { click: function() {
               S.apkModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: repo.owner + "/" + repo.repo + ":" + slug }; DV.render();
             } } }, "APK"));
             actions.appendChild(el("button", { c: "bd bs", attr: { title: "Delete" }, on: { click: function() {
               if (!confirm("Remove this branch?")) return;
               api("DELETE", "/api/repos/" + repo.owner + "/" + repo.repo + "/branch?slug=" + encodeURIComponent(slug)).then(DV.loadRepos);
-            } } }, "\u2715"));
+            } } }, DV.iconEl("close")));
             row.appendChild(actions);
 
             card.appendChild(row);

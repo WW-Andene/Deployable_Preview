@@ -103,7 +103,7 @@ DV.views.preview = function(app) {
         c: "bg bs compare-picker-clear",
         attr: { title: "Clear compare branch" },
         on: { click: function() { S.compareBranch = ""; S._compareFilter = null; DV.render(); } }
-      }, "\u2715"));
+      }, DV.iconEl("close")));
     }
     ctrls.appendChild(pickerWrap);
   }
@@ -226,7 +226,7 @@ DV.views.preview = function(app) {
   } } }, "Copy"));
   urlBar.appendChild(el("button", { c: "bg bs", attr: { title: "Open in new tab" }, on: { click: function() {
     window.open(url, "_blank");
-  } } }, "\u2197"));
+  } } }, DV.iconEl("arrow_out")));
   app.appendChild(urlBar);
 
   // View toggles
@@ -294,7 +294,7 @@ DV.views.preview = function(app) {
           ].join(",");
           window.open(src + "?_r=" + S.refreshKey, winName, features);
         } }
-      }, "\u2197");  // ↗ pop-out arrow
+      }, DV.iconEl("arrow_out"));  // ↗ pop-out arrow
     }
 
     f.appendChild(el("div", { c: "frame-label" }, [

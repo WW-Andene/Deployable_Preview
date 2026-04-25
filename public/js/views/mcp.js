@@ -6,7 +6,7 @@ DV.views.mcp = function(app) {
 
   // Header
   ct.appendChild(el("div", { c: "page-header" }, [
-    el("span", { c: "page-header-icon" }, "🔌"),
+    el("span", { c: "page-header-icon" }, DV.iconEl("plug", 18)),
     el("h2", { c: "page-header-title" }, "MCP Server Tools"),
     el("span", { c: "chip on" }, "Model Context Protocol")
   ]));
@@ -321,7 +321,7 @@ DV.views.mcp = function(app) {
         row.appendChild(el("button", { c: "bg bs", on: { click: function() {
           S.mcpAction = { type: "console", owner: p.owner, repo: p.repo, slug: p.slug };
           DV.render();
-        } } }, "📋"));
+        } } }, DV.iconEl("clipboard")));
 
         previewsList.appendChild(row);
       })(previews[pi]);
@@ -339,7 +339,7 @@ DV.views.mcp = function(app) {
     var actionTitle = S.mcpAction.type.charAt(0).toUpperCase() + S.mcpAction.type.slice(1) + ": " + S.mcpAction.owner + "/" + S.mcpAction.repo + ":" + S.mcpAction.slug;
     actionPanel.appendChild(el("div", { c: "agent-header" }, [
       el("h3", { c: "agent-title" }, actionTitle),
-      el("button", { c: "bg bs", on: { click: function() { S.mcpAction = null; S.mcpResult = null; DV.render(); } } }, "✕")
+      el("button", { c: "bg bs", on: { click: function() { S.mcpAction = null; S.mcpResult = null; DV.render(); } } }, DV.iconEl("close"))
     ]));
 
     var resultDiv = el("div", { attr: { id: "mcp-result" } });
