@@ -16,7 +16,11 @@ DV._modal.errors = function render(app) {
     if (em.loading) {
       ebox.appendChild(DV.skeleton ? DV.skeleton.rows(3) : el("div", { c: "text-center pad-md" }, [el("span", { c: "spin" })]));
     } else if (!em.errors.length) {
-      ebox.appendChild(el("div", { c: "color-tx3 text-12 pad-md" }, "No runtime errors captured. Open the preview and trigger one to see it here."));
+      ebox.appendChild(DV.emptyState({
+        icon: "✓",
+        title: "No runtime errors captured",
+        sub: "DV's preview proxy injects an error collector into every HTML response. Open the preview and trigger an error to see it here."
+      }));
     } else {
       var elist = el("div", { c: "errors-list" });
       for (var ei = 0; ei < em.errors.length; ei++) {

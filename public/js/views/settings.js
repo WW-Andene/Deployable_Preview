@@ -408,7 +408,11 @@ DV.views.settings = function(app) {
 
       // Existing webhooks
       if (list.length === 0) {
-        whBody.appendChild(el("div", { c: "color-tx3 text-12 mb-12" }, "No webhooks configured."));
+        whBody.appendChild(DV.emptyState({
+          icon: "📡",
+          title: "No webhooks configured",
+          sub: "Wire DV into Slack / Discord / your own server with a single POST URL — fired on every build event."
+        }));
       } else {
         for (var i = 0; i < list.length; i++) {
           (function(wh) {
@@ -511,7 +515,11 @@ DV.views.settings = function(app) {
       egBody.innerHTML = "";
       var groups = (r && r.groups) || [];
       if (groups.length === 0) {
-        egBody.appendChild(el("div", { c: "color-tx3 text-12 mb-12" }, "No env groups defined."));
+        egBody.appendChild(DV.emptyState({
+          icon: "🗂",
+          title: "No env-var groups yet",
+          sub: "Bundle reusable KEY=value pairs and attach them to multiple branches without copy-pasting."
+        }));
       } else {
         for (var i = 0; i < groups.length; i++) {
           (function(g) {

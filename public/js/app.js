@@ -394,6 +394,29 @@ function skeletonLines(n) {
   return wrap;
 }
 
+// D3: consistent empty-state component. Use:
+//   container.appendChild(DV.emptyState({
+//     icon: "📭", title: "No webhooks yet",
+//     sub:  "Wire DV into Slack/Discord with a single POST URL.",
+//     cta:  { label: "Add webhook", run: function(){…} }   // optional
+//   }))
+// `cta` may also be {label, href} for an anchor.
+function emptyState(opts) {
+  opts = opts || {};
+  var wrap = el("div", { c: "empty-state", attr: { role: "status", "aria-live": "polite" } });
+  if (opts.icon) wrap.appendChild(el("div", { c: "empty-state-icon", attr: { "aria-hidden": "true" } }, opts.icon));
+  if (opts.title) wrap.appendChild(el("div", { c: "empty-state-title" }, opts.title));
+  if (opts.sub)   wrap.appendChild(el("div", { c: "empty-state-sub" },   opts.sub));
+  if (opts.cta) {
+    var c = opts.cta;
+    var node;
+    if (c.href) node = el("a", { c: "btn-primary btn-sm empty-state-cta", attr: { href: c.href, target: c.target || "_self" } }, c.label);
+    else        node = el("button", { c: "btn-primary btn-sm empty-state-cta", on: { click: c.run || function(){} } }, c.label);
+    wrap.appendChild(node);
+  }
+  return wrap;
+}
+
 // Expose globals for view modules
 window.DV = {
   S: S, el: el, api: api, statusClass: statusClass, render: render,
@@ -479,6 +502,7 @@ window.DV = {
   },
   loadMcpTools: loadMcpTools, showToast: showToast, iconBtn: iconBtn,
   skeleton: { rows: skeletonRows, lines: skeletonLines },
+  emptyState: emptyState,
   views: views, VIEW_PRESETS: VIEW_PRESETS,
   getDropdownHandler: function() { return _dropdownCloseHandler; },
   setDropdownHandler: function(h) { _dropdownCloseHandler = h; }

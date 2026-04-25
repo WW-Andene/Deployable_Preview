@@ -19,7 +19,11 @@ DV._modal.history = function render(app) {
     } else if (hm.error) {
       hbox.appendChild(el("div", { c: "color-err font-mono text-12" }, hm.error));
     } else if (!hm.history.length) {
-      hbox.appendChild(el("div", { c: "color-tx3 text-12 pad-md" }, "No deployment history yet — build the branch at least twice to see entries here."));
+      hbox.appendChild(DV.emptyState({
+        icon: "🕘",
+        title: "No deployment history yet",
+        sub: "DV starts recording snapshots from this branch's first build. Trigger one to see entries here."
+      }));
     } else {
       var listBody = el("div", { c: "history-list" });
       for (var hi = 0; hi < hm.history.length; hi++) {
