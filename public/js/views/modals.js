@@ -79,7 +79,9 @@ DV.views.modals = function(app) {
       { label: "Build command", key: "buildCommand", placeholder: lp.build, show: function() { return m.mode !== "server"; } },
       { label: "Output directory", key: "outputDir", placeholder: lp.output, show: function() { return m.mode !== "server"; } },
       { label: "Start command", key: "startCommand", placeholder: lp.start, show: function() { return m.mode === "server"; } },
-      { label: "Environment variables", key: "envVars", type: "textarea", placeholder: "KEY=value" },
+      { label: "Environment variables", key: "envVars", type: "textarea", placeholder: "KEY=value", hint: "Highest priority — overrides anything from groups or secrets." },
+      { label: "Env-var groups", key: "envGroupIds", type: "envGroups", hint: "Reusable named bundles. Manage them in Settings → Env Groups." },
+      { label: "Inject ALL stored secrets as env", key: "injectSecrets", type: "toggle", hint: "Exports every key from Settings → Secrets to the build/server. Use sparingly." },
       { label: "Preview password (optional)", key: "previewPassword", type: "password", placeholder: "leave blank for public preview", hint: "Visitors must enter this before the preview loads. Stored on this server only." }
     ];
 
@@ -100,6 +102,50 @@ DV.views.modals = function(app) {
           var ta = document.createElement("textarea"); ta.value = m[f.key] || ""; ta.placeholder = f.placeholder || ""; ta.rows = 3;
           ta.addEventListener("input", function(e) { m[f.key] = e.target.value; });
           wrap.appendChild(ta);
+        } else if (f.type === "toggle") {
+          var tog = el("div", {
+            c: "chip" + (m[f.key] ? " on" : ""),
+            attr: { role: "switch", "aria-checked": m[f.key] ? "true" : "false", tabindex: "0" },
+            on: {
+              click: function() { m[f.key] = !m[f.key]; DV.render(); },
+              keydown: function(e) { if (e.key === " " || e.key === "Enter") { e.preventDefault(); m[f.key] = !m[f.key]; DV.render(); } }
+            }
+          }, m[f.key] ? "Enabled" : "Disabled");
+          wrap.appendChild(tog);
+        } else if (f.type === "envGroups") {
+          // Multi-select chip row populated from /api/env-groups. We
+          // refresh the list once per modal open via S._envGroupsCache.
+          var row = el("div", { c: "chip-row" });
+          var current = Array.isArray(m[f.key]) ? m[f.key] : [];
+          var groups = S._envGroupsCache || [];
+          if (!S._envGroupsCache) {
+            api("GET", "/api/env-groups").then(function(r){
+              S._envGroupsCache = (r && r.groups) || [];
+              DV.render();
+            }).catch(function(){ S._envGroupsCache = []; });
+          }
+          if (!groups.length) {
+            row.appendChild(el("div", { c: "color-tx3 text-12" }, "No env groups defined yet — create one in Settings."));
+          } else {
+            for (var gi = 0; gi < groups.length; gi++) {
+              (function(g) {
+                var on = current.indexOf(g.id) !== -1;
+                row.appendChild(el("div", {
+                  c: "chip" + (on ? " on" : ""),
+                  attr: { role: "button", "aria-pressed": on ? "true" : "false", tabindex: "0" },
+                  on: {
+                    click: function() {
+                      var arr = Array.isArray(m[f.key]) ? m[f.key].slice() : [];
+                      var idx = arr.indexOf(g.id);
+                      if (idx !== -1) arr.splice(idx, 1); else arr.push(g.id);
+                      m[f.key] = arr; DV.render();
+                    }
+                  }
+                }, g.name + " (" + g.keyCount + ")"));
+              })(groups[gi]);
+            }
+          }
+          wrap.appendChild(row);
         } else {
           var inp = document.createElement("input"); inp.value = m[f.key] || ""; inp.placeholder = f.placeholder || "";
           if (f.type === "password") { inp.type = "password"; inp.autocomplete = "new-password"; }
@@ -117,7 +163,8 @@ DV.views.modals = function(app) {
         api("PUT", "/api/repos/" + m.owner + "/" + m.repo + "/branch", {
           slug: m.slug, baseDir: m.baseDir, buildCommand: m.buildCommand, outputDir: m.outputDir,
           mode: m.mode, startCommand: m.startCommand, envVars: m.envVars, language: m.language,
-          customSlug: m.customSlug, previewPassword: m.previewPassword
+          customSlug: m.customSlug, previewPassword: m.previewPassword,
+          injectSecrets: m.injectSecrets, envGroupIds: m.envGroupIds || []
         }).then(function() { S.editModal = null; DV.loadRepos(); });
       } } }, "Save")
     ]));

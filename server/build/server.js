@@ -18,7 +18,7 @@ const { spawn } = require("child_process");
 
 const { runCmd, findFreePort, waitForPort, runningServers, killServer } = require("../process");
 const { saveLog, broadcastLog } = require("../logs");
-const { parseEnvVars } = require("../config");
+const { resolveBranchEnv } = require("../config");
 
 const {
   buildStatus,
@@ -85,7 +85,8 @@ async function startServer(repoConfig, branchConfig, isRestart) {
 
     const port = await findFreePort();
     const startCmd = branchConfig.startCommand || (language === "nodejs" ? repoConfig.startCommand : "") || defaultStartCommand(language);
-    const userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
+    // E1+E2: layered env — secrets (opt-in) + env-var groups + free-text fields.
+    const userEnv = resolveBranchEnv(repoConfig, branchConfig);
     addLog((isRestart ? "Restarting" : "Starting") + " server: " + startCmd + " (port " + port + ")");
 
     // F-M024: Windows has no /bin/sh; fall back to cmd.exe /c. detached:true

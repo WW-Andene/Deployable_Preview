@@ -157,6 +157,48 @@ function parseEnvVars(envStr) {
   return env;
 }
 
+// E1+E2: resolve the full env handed to a build / server-mode start.
+// Layered, with later entries overriding earlier ones:
+//   1. Secrets from config.secrets (only if branch.injectSecrets is true)
+//   2. Each referenced env-var group's vars (in branch.envGroupIds order)
+//   3. The repo-level envVars text field
+//   4. The branch-level envVars text field (highest priority — last word)
+//
+// Group definitions live in config.envGroups: [{ id, name, vars: {…} }].
+// Missing groups are skipped silently (don't break a build because a
+// group was renamed). Returns a plain object suitable to spread into
+// process.env when spawning the build / server process.
+function resolveBranchEnv(repoConfig, branchConfig) {
+  const out = {};
+  // 1. Inject ALL stored secrets if explicitly opted in.
+  if (branchConfig && branchConfig.injectSecrets && config && config.secrets) {
+    for (const k of Object.keys(config.secrets)) {
+      const v = config.secrets[k];
+      if (typeof v === "string" && v) out[k] = v;
+    }
+  }
+  // 2. Env-var groups in the order the branch references them.
+  const groupIds = (branchConfig && Array.isArray(branchConfig.envGroupIds)) ? branchConfig.envGroupIds : [];
+  const groups = (config && Array.isArray(config.envGroups)) ? config.envGroups : [];
+  for (const id of groupIds) {
+    const g = groups.find(function(x){ return x && x.id === id; });
+    if (!g || !g.vars) continue;
+    for (const k of Object.keys(g.vars)) {
+      const v = g.vars[k];
+      if (typeof v === "string") out[k] = v;
+    }
+  }
+  // 3. Repo-level envVars (legacy free-text field).
+  if (repoConfig && repoConfig.envVars) {
+    Object.assign(out, parseEnvVars(repoConfig.envVars));
+  }
+  // 4. Branch-level envVars wins.
+  if (branchConfig && branchConfig.envVars) {
+    Object.assign(out, parseEnvVars(branchConfig.envVars));
+  }
+  return out;
+}
+
 // Get a secret: config.secrets[key] first, then process.env[envKey] fallback
 function getSecret(key, envKey) {
   const val = config.secrets && config.secrets[key];
@@ -176,4 +218,4 @@ function getApiSecret() {
   return config.apiSecret;
 }
 
-module.exports = { loadConfig, saveConfig, getConfig, migrateConfig, parseEnvVars, getSecret, getApiSecret, getValidationReport, validateAndRepairConfig, onConfigSaved };
+module.exports = { loadConfig, saveConfig, getConfig, migrateConfig, parseEnvVars, resolveBranchEnv, getSecret, getApiSecret, getValidationReport, validateAndRepairConfig, onConfigSaved };

@@ -21,7 +21,7 @@ const path = require("path");
 const { runCmd } = require("../process");
 const { saveLog } = require("../logs");
 const { scanApiRoutes } = require("../serverless");
-const { parseEnvVars } = require("../config");
+const { parseEnvVars, resolveBranchEnv } = require("../config");
 
 const {
   WORKSPACE,
@@ -95,7 +95,8 @@ async function buildBranch(repoConfig, branchConfig) {
     // Pygame auto-build: use pygbag to compile to WebAssembly
     let pygameFile = (language === "python") ? detectPygame(workDir) : null;
     let cmd, outName;
-    let userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
+    // E1+E2: layered env — secrets (opt-in) + env-var groups + free-text fields.
+    let userEnv = resolveBranchEnv(repoConfig, branchConfig);
 
     // Fix Next.js SWC on ARM Android (Termux): Next.js detects the platform
     // as "android-arm64" and tries to download @next/swc-android-arm64 — but
@@ -234,7 +235,7 @@ async function buildBranch(repoConfig, branchConfig) {
 
     // Scan for serverless API functions in the workDir (not output dir)
     const apiRoutes = scanApiRoutes(workDir, addLog);
-    const userEnvForRuntime = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
+    const userEnvForRuntime = resolveBranchEnv(repoConfig, branchConfig);
 
     let duration = ((Date.now() - buildStatus[key].startedAt) / 1000).toFixed(1);
     addLog("Build complete in " + duration + "s! Output: " + path.relative(WORKSPACE, finalOut));
