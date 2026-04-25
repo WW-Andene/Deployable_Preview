@@ -195,6 +195,31 @@ function addHistoryComment(key, historyId, by, text) {
   return comment;
 }
 
+// K4: tag a snapshot with a memorable name. Tags are repo-unique
+// strings — re-tagging an entry updates instead of duplicating, and a
+// tag may only point at one entry at a time (transferring it away
+// implicitly).
+function setHistoryTag(key, historyId, tag) {
+  const arr = getHistory(key);
+  const entry = arr.find((h) => h.id === historyId);
+  if (!entry) return null;
+  if (tag == null || String(tag).trim() === "") {
+    delete entry.tag;
+  } else {
+    const t = String(tag).trim().slice(0, 64);
+    // Strip the tag off any other entry that already has it.
+    for (const other of arr) if (other !== entry && other.tag === t) delete other.tag;
+    entry.tag = t;
+  }
+  try { fs.writeFileSync(_historyFile(key), JSON.stringify(arr, null, 2)); } catch (_) {}
+  return entry;
+}
+function findHistoryByTag(key, tag) {
+  if (!tag) return null;
+  const arr = getHistory(key);
+  return arr.find((h) => h.tag === String(tag)) || null;
+}
+
 function deleteHistoryComment(key, historyId, commentId) {
   const arr = getHistory(key);
   const entry = arr.find((h) => h.id === historyId);
@@ -268,6 +293,8 @@ module.exports = {
   getHistory,
   appendHistory,
   setHistoryNote,
+  setHistoryTag,
+  findHistoryByTag,
   addHistoryComment,
   deleteHistoryComment,
   snapshotBuildOutput,

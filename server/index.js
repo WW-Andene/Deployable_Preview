@@ -156,6 +156,67 @@ app.get("/api/health", (req, res) => {
 // ── Routes ──
 app.use("/api", apiRoutes);
 setupStreamableHTTP(app, "/mcp");
+
+// K2: viral one-click deploy template URL.
+//   /deploy?repo=https://github.com/foo/bar&branches=main,develop
+// Bounces to the SPA's addRepo flow with the URL pre-filled.
+app.get("/deploy", (req, res) => {
+  const repo = String(req.query.repo || "").trim();
+  if (!repo) return res.status(400).type("text/html").send(
+    '<!DOCTYPE html><meta charset="utf-8"><title>DeployView</title>' +
+    '<style>body{background:#090a10;color:#e6e1d5;font-family:system-ui;padding:48px;max-width:600px;margin:auto}a{color:#d4a030}</style>' +
+    '<h1>DeployView</h1><p>One-click deploy any GitHub repo:</p>' +
+    '<pre>https://YOUR-DV-HOST/deploy?repo=https://github.com/owner/repo</pre>' +
+    '<p><a href="/">← Open dashboard</a></p>'
+  );
+  // The SPA picks #deploy=… off the hash on load and pre-fills addRepo.
+  const branches = String(req.query.branches || "").trim();
+  const params = new URLSearchParams({ repo });
+  if (branches) params.set("branches", branches);
+  res.redirect(302, "/#deploy=" + encodeURIComponent(params.toString()));
+});
+
+// K3: status badge SVG endpoint — drop-in for GitHub READMEs.
+//   ![status](https://YOUR-DV-HOST/badge/owner/repo/main)
+// Returns a Shields.io-shaped SVG showing the latest build state.
+app.get("/badge/:owner/:repo/:slug", (req, res) => {
+  const { buildStatus } = require("./build");
+  const key = req.params.owner + "/" + req.params.repo + ":" + req.params.slug;
+  const slot = buildStatus[key] || { status: "unknown" };
+  const STATUS_COLORS = {
+    ready:     "#4ade80",
+    running:   "#4ade80",
+    building:  "#60a5fa",
+    queued:    "#a78bfa",
+    error:     "#ef4444",
+    stopped:   "#9ca3af",
+    cancelled: "#9ca3af",
+    idle:      "#9ca3af",
+    unknown:   "#9ca3af"
+  };
+  const color = STATUS_COLORS[slot.status] || "#9ca3af";
+  const label = "deployview";
+  const value = slot.status + (slot.commitSha ? " · " + slot.commitSha.slice(0, 7) : "");
+  // Approximate text widths at 11px DejaVu — Shields uses fancier
+  // metrics; this is close enough for clean rendering.
+  const labelW = label.length * 6.5 + 10;
+  const valueW = value.length * 6.5 + 10;
+  const total = labelW + valueW;
+  const svg = '<?xml version="1.0" encoding="UTF-8"?>'
+    + '<svg xmlns="http://www.w3.org/2000/svg" width="' + total + '" height="20" role="img">'
+    + '<linearGradient id="g" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>'
+    + '<rect width="' + labelW + '" height="20" fill="#555"/>'
+    + '<rect x="' + labelW + '" width="' + valueW + '" height="20" fill="' + color + '"/>'
+    + '<rect width="' + total + '" height="20" fill="url(#g)"/>'
+    + '<g fill="#fff" text-anchor="middle" font-family="Verdana,sans-serif" font-size="11">'
+    + '<text x="' + (labelW / 2) + '" y="14">' + label + '</text>'
+    + '<text x="' + (labelW + valueW / 2) + '" y="14">' + value + '</text>'
+    + '</g></svg>';
+  res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.send(svg);
+});
+
 app.use(previewRoutes);
 
 // ── Global error handler ──

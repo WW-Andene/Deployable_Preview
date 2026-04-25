@@ -237,7 +237,21 @@ api("GET", "/api/preferences").then(function(p) { S.preferences = p || {}; }).ca
 api("GET", "/api/token").then(function(r) {
   S.hasToken = r.hasToken;
   S.view = r.hasToken ? "dashboard" : "setup";
-  if (r.hasToken) { loadRepos(); installStatusStream(); installErrorCountSync(); }
+  if (r.hasToken) {
+    loadRepos();
+    installStatusStream();
+    installErrorCountSync();
+    // K2: pick up /deploy?repo=… template invites delivered as URL hash.
+    var m = (location.hash || "").match(/^#deploy=(.+)$/);
+    if (m) {
+      try {
+        var qp = new URLSearchParams(decodeURIComponent(m[1]));
+        S.repoUrl = qp.get("repo") || "";
+        S.view = "addRepo";
+        location.hash = "";
+      } catch (_) {}
+    }
+  }
   else render();
 });
 

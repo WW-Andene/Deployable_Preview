@@ -267,6 +267,75 @@ dv.defineTool({
   }
 });
 
+// ── bisect_builds ─────────────────────────────────────────────────────────
+// Returns the candidate set of history IDs Claude (or the user) should
+// probe to find the build that introduced a regression. Stateless —
+// just slices the history. Caller decides how to test each candidate
+// (visit the time-travel URL, run a smoke test, etc.) and feeds back
+// results via subsequent calls with `keepGood`/`keepBad`.
+dv.defineTool({
+  name: "bisect_builds",
+  category: "deploy",
+  description:
+    "Binary-search through deployment history to find the build that introduced a regression. " +
+    "Pass `goodId` (a known-working snapshot) and `badId` (a known-broken one). " +
+    "Returns the midpoint snapshot id + its time-travel URL — visit it, decide good/bad, then " +
+    "call again with the narrowed (goodId/badId) range. Converges in O(log N) steps.",
+  requires: [],
+  schema: {
+    type: "object",
+    properties: {
+      owner: OWNER, repo: REPO, slug: SLUG,
+      goodId: { type: "string", description: "known-good history id (or 'oldest' for the earliest entry)" },
+      badId:  { type: "string", description: "known-bad history id (or 'latest' for the most recent build)" }
+    },
+    required: ["owner", "repo", "slug", "goodId", "badId"]
+  },
+  async handler(args) {
+    const key = args.owner + "/" + args.repo + ":" + args.slug;
+    const hist = (require("../../build").getHistory(key) || []).filter(function(h){ return h && h.by === "build"; });
+    if (!hist.length) return dv.failCode("NO_HISTORY", "No build history for " + key);
+    // History stored newest-first; bisect math reads cleaner
+    // chronologically, so flip to oldest-first.
+    const chrono = hist.slice().reverse();
+    function findIdx(id) {
+      if (id === "oldest") return 0;
+      if (id === "latest") return chrono.length - 1;
+      return chrono.findIndex(function(h){ return h.id === id; });
+    }
+    const goodIdx = findIdx(args.goodId);
+    const badIdx  = findIdx(args.badId);
+    if (goodIdx === -1) return dv.failCode("BAD_REF", "goodId not found: " + args.goodId);
+    if (badIdx  === -1) return dv.failCode("BAD_REF", "badId not found: "  + args.badId);
+    if (goodIdx >= badIdx) {
+      return dv.failCode("BAD_RANGE", "goodId must come BEFORE badId chronologically (good must be older)");
+    }
+    if (badIdx - goodIdx === 1) {
+      // Bisection complete — the bad entry IS the introducer.
+      return dv.ok({
+        done: true,
+        firstBadId: chrono[badIdx].id,
+        firstBadCommit: chrono[badIdx].commitSha,
+        firstBadAt: chrono[badIdx].timestamp,
+        timeTravelUrl: "/preview/" + args.owner + "/" + args.repo + "/" + args.slug + "/__snapshot/" + chrono[badIdx].id + "/",
+        message: "Bisection complete. " + (chrono[badIdx].commitSha || "").slice(0, 7) + " is the first known-bad build."
+      });
+    }
+    const midIdx = Math.floor((goodIdx + badIdx) / 2);
+    const mid = chrono[midIdx];
+    const remainingSteps = Math.ceil(Math.log2(badIdx - goodIdx));
+    return dv.ok({
+      done: false,
+      probeId: mid.id,
+      probeCommit: mid.commitSha,
+      probeAt: mid.timestamp,
+      timeTravelUrl: "/preview/" + args.owner + "/" + args.repo + "/" + args.slug + "/__snapshot/" + mid.id + "/",
+      remainingSteps,
+      hint: "Visit timeTravelUrl. If it works, call bisect_builds again with goodId='" + mid.id + "', badId='" + args.badId + "'. If broken, with goodId='" + args.goodId + "', badId='" + mid.id + "'."
+    });
+  }
+});
+
 // ── compare_deployments ───────────────────────────────────────────────────
 // Compute a structured diff between two history snapshots: added,
 // removed, changed (size delta), unchanged-count, total bytes per side.

@@ -145,6 +145,17 @@ DV.views.dashboard = function(app) {
         headerLeft.appendChild(el("p", { c: "repo-meta" }, (repo.buildCommand || "npm run build") + " \u2192 " + (repo.outputDir || "dist")));
         header.appendChild(headerLeft);
         var headerRight = el("div", { c: "flex-row gap-6 items-center" });
+        // K7: README peek. Toggle expands a markdown render of the
+        // repo's README inside the card.
+        headerRight.appendChild(el("button", {
+          c: "bg bs", attr: { title: "Show README", "aria-pressed": (S._readmeOpen||{})[repo.owner+"/"+repo.repo] ? "true" : "false" },
+          on: { click: function() {
+            S._readmeOpen = S._readmeOpen || {};
+            var k = repo.owner + "/" + repo.repo;
+            S._readmeOpen[k] = !S._readmeOpen[k];
+            DV.render();
+          } }
+        }, "📖"));
         // I2: auto PR previews toggle. When ON, GitHub pull_request
         // webhook events auto-add the head branch as pr-<N> + build it,
         // and remove it on close. Off by default.
@@ -169,6 +180,30 @@ DV.views.dashboard = function(app) {
         } } }, "x"));
         header.appendChild(headerRight);
         card.appendChild(header);
+
+        // K7: collapsible README. Cached client-side per-render — first
+        // expand fetches /api/github/.../readme, second is instant.
+        S._readmeOpen = S._readmeOpen || {};
+        S._readmeMd   = S._readmeMd   || {};
+        var rk0 = repo.owner + "/" + repo.repo;
+        if (S._readmeOpen[rk0]) {
+          var rwrap = el("div", { c: "repo-readme-wrap" });
+          if (S._readmeMd[rk0] === undefined) {
+            rwrap.appendChild(el("div", { c: "color-tx3 text-12" }, "Loading README…"));
+            api("GET", "/api/github/" + repo.owner + "/" + repo.repo + "/readme").then(function(r) {
+              S._readmeMd[rk0] = (r && r.md) || "";
+              DV.render();
+            }).catch(function(){ S._readmeMd[rk0] = ""; DV.render(); });
+          } else if (!S._readmeMd[rk0]) {
+            rwrap.appendChild(el("div", { c: "color-tx3 text-12" }, "No README found in repo root."));
+          } else {
+            var body = document.createElement("div");
+            body.className = "repo-readme-body";
+            body.innerHTML = (window.DV && DV.md ? DV.md.render(S._readmeMd[rk0]) : "");
+            rwrap.appendChild(body);
+          }
+          card.appendChild(rwrap);
+        }
 
         var slugs = Object.keys(repo.branchStatuses || {});
         for (var j = 0; j < slugs.length; j++) {
@@ -263,6 +298,14 @@ DV.views.dashboard = function(app) {
               // J3: runtime-error count from the injected collector.
               // Click to open a modal with the full list.
               var ek = repo.owner + "/" + repo.repo + ":" + slug;
+              // K1: secret-scan findings
+              if (Array.isArray(bs.secretFindings) && bs.secretFindings.length) {
+                statusParts.push(el("span", { c: "pill pill-err", attr: { title: bs.secretFindings.length + " possible leaked secret(s) — open log for details" } }, "🔓 " + bs.secretFindings.length + " secret"));
+              }
+              // K6: budget violations
+              if (Array.isArray(bs.budgetViolations) && bs.budgetViolations.length) {
+                statusParts.push(el("span", { c: "pill pill-warn", attr: { title: bs.budgetViolations.map(function(v){ return v.message; }).join("\n") } }, "⚖ over budget"));
+              }
               if (S._previewErrorCounts && S._previewErrorCounts[ek] && S._previewErrorCounts[ek].uniqueErrors) {
                 var ec = S._previewErrorCounts[ek];
                 statusParts.push(el("button", {

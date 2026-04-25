@@ -300,6 +300,43 @@ async function buildBranch(repoConfig, branchConfig) {
       });
     } catch (e) { addLog("WARNING: history append failed: " + e.message); }
 
+    // K1 + K6: secret scan + perf-budget check, post-build, best effort.
+    let secretFindings = [], budgetCheck = { violations: [], action: "warn" };
+    try {
+      const scanner = require("./scanner");
+      secretFindings = scanner.scanForSecrets(finalOut);
+      if (secretFindings.length) {
+        addLog("⚠ SECURITY: " + secretFindings.length + " possible leaked secret(s) detected in output:");
+        for (const f of secretFindings.slice(0, 5)) addLog("    [" + f.label + "] " + f.file + " — " + f.preview);
+        if (secretFindings.length > 5) addLog("    … " + (secretFindings.length - 5) + " more (see full list in build_status)");
+        buildStatus[key].secretFindings = secretFindings;
+        try {
+          require("../webhooks").emit("build.error", {
+            repo: repoConfig.owner + "/" + repoConfig.repo,
+            branch: branchConfig.branch,
+            slug: branchSlug(branchConfig),
+            error: "Secret scan found " + secretFindings.length + " possible leak(s)",
+            findings: secretFindings.slice(0, 20)
+          });
+        } catch (_) {}
+      }
+      const budgets = branchConfig.budgets || repoConfig.budgets;
+      if (budgets) {
+        budgetCheck = scanner.checkBudgets({ outputBytes: bytes, duration: parseFloat(duration) }, budgets);
+        if (budgetCheck.violations.length) {
+          addLog("⚠ BUDGET: " + budgetCheck.violations.length + " violation(s):");
+          for (const v of budgetCheck.violations) addLog("    " + v.message);
+          buildStatus[key].budgetViolations = budgetCheck.violations;
+          if (budgetCheck.action === "fail") {
+            buildStatus[key].status = "error";
+            addLog("BUILD FAILED: budgets.action='fail' — output rejected");
+            broadcastStatus(key, buildStatus[key]);
+            return;
+          }
+        }
+      }
+    } catch (e) { addLog("WARNING: scanner/budget pass failed: " + e.message); }
+
     // Outgoing webhooks: fire on build success.
     try {
       require("../webhooks").emit("build.ready", {

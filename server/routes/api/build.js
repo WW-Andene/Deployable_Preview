@@ -13,6 +13,7 @@ const router = express.Router();
 const { getConfig, getSecret } = require("../../config");
 const { logStreams } = require("../../logs");
 const { deployBranch } = require("../../build");
+const audit = require("../../audit");
 
 const deployment = require("../../services/deployment");
 const STATUS = deployment.CODE_TO_STATUS;
@@ -150,7 +151,7 @@ router.get("/status/stream", (req, res) => {
 });
 
 // Build trigger
-router.post("/build/:owner/:repo", (req, res) => {
+router.post("/build/:owner/:repo", audit.logAction("build.trigger", { target: ["params.owner", "params.repo"] }), (req, res) => {
   const slug = req.query.slug || req.query.branch;
   const r = deployment.triggerBuild(req.params.owner, req.params.repo, slug);
   if (!r.ok) return res.status(STATUS[r.code] || 500).json({ error: r.error, availableSlugs: r.availableSlugs });
@@ -201,7 +202,7 @@ router.get("/history/:owner/:repo", (req, res) => {
 });
 
 // Roll back to a prior history entry. Body: { slug, historyId }.
-router.post("/rollback/:owner/:repo", (req, res) => {
+router.post("/rollback/:owner/:repo", audit.logAction("rollback", { target: ["params.owner", "params.repo", "body.slug"], bodyKeys: ["historyId"] }), (req, res) => {
   const { slug, historyId } = req.body || {};
   const r = deployment.rollback(req.params.owner, req.params.repo, slug, historyId);
   if (!r.ok) return res.status(STATUS[r.code] || 500).json({ error: r.error });
@@ -215,6 +216,17 @@ router.post("/history/:owner/:repo/note", (req, res) => {
   const r = deployment.annotateHistory(req.params.owner, req.params.repo, slug, historyId, note);
   if (!r.ok) return res.status(STATUS[r.code] || 500).json({ error: r.error });
   res.json({ ok: true, entry: r.entry });
+});
+
+// K4: tag a history entry. Body: { slug, historyId, tag }.
+const { setHistoryTag } = require("../../build");
+router.post("/history/:owner/:repo/tag", (req, res) => {
+  const { slug, historyId, tag } = req.body || {};
+  if (!slug || !historyId) return res.status(400).json({ error: "slug + historyId required" });
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  const entry = setHistoryTag(key, historyId, tag);
+  if (!entry) return res.status(404).json({ error: "history entry not found" });
+  res.json({ ok: true, entry });
 });
 
 // H5: comments thread on a history entry.

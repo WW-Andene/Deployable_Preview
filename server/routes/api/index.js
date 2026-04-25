@@ -92,6 +92,11 @@ router.use("/", require("./fetch"));
 // ── Metrics + health ─────────────────────────────────────────────────────────
 const metrics = require("../../metrics");
 router.get("/metrics", (req, res) => { res.json(metrics.snapshot()); });
+// K5: audit log tail. Last N entries, newest first.
+router.get("/audit", (req, res) => {
+  const n = Math.max(1, Math.min(parseInt(req.query.n, 10) || 200, 5000));
+  res.json({ entries: require("../../audit").tail(n), max: 5000 });
+});
 // F-M005: Prometheus scrape endpoint
 router.get("/metrics/prometheus", (req, res) => {
   res.type("text/plain; version=0.0.4").send(metrics.prometheus());

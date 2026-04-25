@@ -23,7 +23,9 @@ router.use("/preview/:owner/:repo/:branchSlug/__snapshot/:snapId", function(req,
   const { owner, repo, branchSlug, snapId } = req.params;
   const key = owner + "/" + repo + ":" + branchSlug;
   const hist = getHistory(key);
-  const entry = hist.find(function(h){ return h.id === snapId; });
+  // K4: snapId may be either a raw history id OR a tag. Tag wins so
+  // /preview/.../__snapshot/v1.0/ keeps working as v1.0 moves.
+  const entry = hist.find(function(h){ return h.id === snapId || h.tag === snapId; });
   if (!entry) return res.status(404).type("text/html").send("<h1>404 — Snapshot not found</h1><p>id: " + snapId + "</p>");
   if (!entry.snapshotDir || !fs.existsSync(entry.snapshotDir)) {
     return res.status(410).type("text/html").send("<h1>410 — Snapshot evicted</h1><p>The snapshot directory is no longer on disk.</p>");

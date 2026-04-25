@@ -9,6 +9,7 @@ const router = express.Router();
 
 const { getConfig, saveConfig, getSecret } = require("../../config");
 const { ghApi } = require("../../github");
+const audit = require("../../audit");
 const { buildStatus, branchSlug, buildKey, getBranchDir, deployBranch } = require("../../build");
 const { runningServers, killServer } = require("../../process");
 
@@ -89,7 +90,7 @@ router.get("/secrets/suggestions", (req, res) => {
 // fill deployview.json with junk and OOM the parser on next load.
 const MAX_SECRETS = 200;
 
-router.post("/secrets", (req, res) => {
+router.post("/secrets", audit.logAction("secret.write", { target: ["body.key"] }), (req, res) => {
   const config = getConfig();
   if (!config.secrets) config.secrets = {};
   const { key, value } = req.body;
@@ -114,7 +115,7 @@ router.post("/secrets", (req, res) => {
   res.json({ ok: true, key, hasValue: !!trimmed });
 });
 
-router.delete("/secrets/:key", (req, res) => {
+router.delete("/secrets/:key", audit.logAction("secret.delete", { target: ["params.key"] }), (req, res) => {
   const config = getConfig();
   if (!config.secrets) config.secrets = {};
   const key = req.params.key;
@@ -209,6 +210,29 @@ router.get("/github/repos", async (req, res) => {
     }
     _reposCache = { fetchedAt: now, type, data: all };
     res.json({ repos: all, cached: false, count: all.length });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// K7: cached GitHub README. Returned as raw markdown — the SPA renders
+// a safe subset client-side so we never echo GitHub's HTML. Cached for
+// 10 minutes to keep API quota low.
+const _readmeCache = new Map(); // key "owner/repo" → { md, fetchedAt }
+const README_TTL_MS = 10 * 60 * 1000;
+router.get("/github/:owner/:repo/readme", async (req, res) => {
+  const key = req.params.owner + "/" + req.params.repo;
+  const now = Date.now();
+  const hit = _readmeCache.get(key);
+  if (hit && (now - hit.fetchedAt) < README_TTL_MS) {
+    return res.json({ md: hit.md, cached: true, ageMs: now - hit.fetchedAt });
+  }
+  try {
+    const cfg = getConfig();
+    if (!cfg.token) return res.status(401).json({ error: "GitHub token not set" });
+    const meta = await ghApi("/repos/" + req.params.owner + "/" + req.params.repo + "/readme", cfg.token);
+    if (!meta || !meta.content) { _readmeCache.set(key, { md: "", fetchedAt: now }); return res.json({ md: "" }); }
+    const md = Buffer.from(meta.content, meta.encoding || "base64").toString("utf8");
+    _readmeCache.set(key, { md, fetchedAt: now });
+    res.json({ md, cached: false });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -426,9 +450,16 @@ router.put("/repos/:owner/:repo/branch", (req, res) => {
   if (previewPassword !== undefined) bc.previewPassword = String(previewPassword || "");
   if (req.body.injectSecrets !== undefined) bc.injectSecrets = !!req.body.injectSecrets;
   if (req.body.schedule !== undefined) {
-    // I5: number = seconds between auto-rebuilds. 0 / null / "" disables.
-    const n = Number(req.body.schedule);
-    bc.schedule = (Number.isFinite(n) && n >= 30) ? n : 0;
+    // I5/K9: integer seconds OR cron expression. Parser is in monitor.js.
+    bc.schedule = req.body.schedule;
+  }
+  if (req.body.budgets !== undefined) {
+    const b = req.body.budgets || {};
+    bc.budgets = {
+      maxBundleBytes: Math.max(0, Number(b.maxBundleBytes) || 0) || undefined,
+      maxBuildSeconds: Math.max(0, Number(b.maxBuildSeconds) || 0) || undefined,
+      action: b.action === "fail" ? "fail" : "warn"
+    };
   }
   if (req.body.edge !== undefined) {
     // Light validation — accept the shape, ignore garbage. Redirect
@@ -566,7 +597,7 @@ router.get("/domains", (req, res) => {
   res.json({ domains: Object.keys(map).map(function(host){ return Object.assign({ host: host }, map[host]); }) });
 });
 
-router.post("/domains", (req, res) => {
+router.post("/domains", audit.logAction("domain.add", { target: ["body.host"], bodyKeys: ["owner", "repo", "slug"] }), (req, res) => {
   const { host, owner, repo, slug } = req.body || {};
   const h = String(host || "").toLowerCase().trim();
   if (!HOST_RE.test(h)) return res.status(400).json({ error: "Invalid host (must be a real DNS name)" });
@@ -583,7 +614,7 @@ router.post("/domains", (req, res) => {
   res.json({ ok: true, host: h, target: { owner, repo, slug }, hint: "Point '" + h + "' at this server via DNS A or CNAME, then visit https://" + h });
 });
 
-router.delete("/domains/:host", (req, res) => {
+router.delete("/domains/:host", audit.logAction("domain.remove", { target: ["params.host"] }), (req, res) => {
   const cfg = getConfig();
   const h = String(req.params.host || "").toLowerCase().trim();
   if (!cfg.domains || !cfg.domains[h]) return res.status(404).json({ error: "host not mapped" });

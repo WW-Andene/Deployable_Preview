@@ -87,8 +87,14 @@ DV.views.modals = function(app) {
       { label: "Inject ALL stored secrets as env", key: "injectSecrets", type: "toggle", hint: "Exports every key from Settings → Secrets to the build/server. Use sparingly." },
       { label: "Preview password (optional)", key: "previewPassword", type: "password", placeholder: "leave blank for public preview", hint: "Visitors must enter this before the preview loads. Stored on this server only." },
       { label: "Edge rules (advanced — JSON)", key: "edgeJson", type: "textarea", placeholder: '{ "redirects": [{ "from": "/old", "to": "/new", "status": 301 }], "headers": [{ "pathPattern": "/api/*", "headers": { "Access-Control-Allow-Origin": "*" } }] }', hint: "Per-branch redirects + response headers, applied at the proxy layer. Supports trailing /* in patterns." },
-      { label: "Auto-rebuild schedule (seconds)", key: "schedule", placeholder: "0 = disabled, e.g. 3600 for hourly", hint: "Re-run this branch's build every N seconds. Minimum 30s, 0 disables." }
+      { label: "Auto-rebuild schedule", key: "schedule", placeholder: "Seconds (e.g. 3600) OR cron expression (e.g. 0 3 * * *) — empty/0 disables", hint: "Numbers = seconds (min 30). Otherwise standard 5-field cron: 'min hour day-of-month month day-of-week'." },
+      { label: "Performance budgets (advanced — JSON)", key: "budgetsJson", type: "textarea", placeholder: '{ "maxBundleBytes": 524288, "maxBuildSeconds": 90, "action": "warn" }', hint: "action: 'warn' logs but ships, 'fail' marks the build error. Empty / {} disables." }
     ];
+
+    if (m.budgets !== undefined && m.budgetsJson === undefined) {
+      try { m.budgetsJson = JSON.stringify(m.budgets || {}, null, 2); }
+      catch (_) { m.budgetsJson = ""; }
+    }
 
     // Hydrate edgeJson from m.edge once on first render
     if (m.edge !== undefined && m.edgeJson === undefined) {
@@ -190,6 +196,11 @@ DV.views.modals = function(app) {
           schedule: Number(m.schedule) || 0
         };
         if (edge !== undefined) payload.edge = edge;
+        if (m.budgetsJson !== undefined && m.budgetsJson !== null) {
+          var bt = String(m.budgetsJson).trim();
+          if (bt === "" || bt === "{}") payload.budgets = {};
+          else { try { payload.budgets = JSON.parse(bt); } catch (e) { DV.showToast("Budgets JSON invalid: " + e.message, "error"); return; } }
+        }
         api("PUT", "/api/repos/" + m.owner + "/" + m.repo + "/branch", payload).then(function(r) {
           if (r.error) { DV.showToast(r.error, "error"); return; }
           S.editModal = null;
@@ -549,6 +560,7 @@ DV.views.modals = function(app) {
           }
           meta.appendChild(el("div", { c: "history-row-label" }, [
             el("span", { c: "history-row-sha font-mono" }, entry.commitShort || "—"),
+            entry.tag ? el("span", { c: "pill pill-ok history-row-tag font-mono", attr: { title: "Tag — also reachable via /__snapshot/" + entry.tag + "/" } }, "🏷 " + entry.tag) : null,
             el("span", { c: "color-tx3 text-11" }, " · " + (entry.timestamp ? new Date(entry.timestamp).toLocaleString() : "?")),
             entry.duration ? el("span", { c: "color-tx3 text-11" }, " · " + entry.duration + "s") : null,
             sizePill,
@@ -581,8 +593,23 @@ DV.views.modals = function(app) {
             }
             meta.appendChild(cthread);
           }
+          // K4: tag button — set/clear a memorable name
+          var tagBtn = el("button", { c: "bg bs", attr: { title: entry.tag ? "Re-tag (current: " + entry.tag + ")" : "Tag this build" }, on: { click: function() {
+            var newTag = prompt("Tag for " + (entry.commitShort || entry.id) + " (letters/numbers/-_./, blank to clear):", entry.tag || "");
+            if (newTag === null) return;
+            api("POST", "/api/history/" + hm.owner + "/" + hm.repo + "/tag", {
+              slug: hm.slug, historyId: entry.id, tag: newTag
+            }).then(function(r) {
+              if (r.error) { DV.showToast(r.error, "error"); return; }
+              // Update local view (also clear the tag from any other entry)
+              if (newTag) for (var k = 0; k < hm.history.length; k++) if (hm.history[k] !== entry) delete hm.history[k].tag;
+              entry.tag = newTag ? newTag.trim().slice(0, 64) : undefined;
+              DV.render();
+            });
+          } } }, entry.tag ? "🏷 Re-tag" : "🏷 Tag");
           // Inline buttons: add comment, set/clear note
           var actionRow = el("div", { c: "flex-row gap-6 history-row-actions" }, [
+            tagBtn,
             el("button", { c: "bg bs", on: { click: function() {
               var text = prompt("New comment on " + (entry.commitShort || entry.id) + ":");
               if (!text) return;

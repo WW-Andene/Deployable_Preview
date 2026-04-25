@@ -101,25 +101,40 @@ async function _runOnce() {
     }
   }));
 
-  // ── Scheduled rebuilds (I5) ───────────────────────────────────────
-  // bc.schedule = number of seconds between auto-rebuilds. Last fire
-  // tracked on buildStatus[key].lastScheduledAt so we don't double-fire
-  // on tight tick intervals.
+  // ── Scheduled rebuilds (I5/K9) ────────────────────────────────────
+  // bc.schedule may be:
+  //   - a number (or numeric string) of SECONDS between rebuilds, OR
+  //   - a 5-field cron expression: "min hour dom mon dow"
+  // The cron form gives "weekdays at 9am", "every 3 hours", etc.
+  const cron = require("./cron");
   for (const r of (config.repos || [])) {
     for (const bc of (r.activeBranches || [])) {
-      const periodSec = Number(bc.schedule);
-      if (!Number.isFinite(periodSec) || periodSec < 30) continue; // 30s floor
+      if (!bc.schedule) continue;
       const key = r.owner + "/" + r.repo + ":" + branchSlug(bc);
       const slot = buildStatus[key] || {};
-      const last = slot.lastScheduledAt || 0;
-      if (now - last < periodSec * 1000) continue;
-      // Don't pile on if a build is already in flight or the slot was
-      // most recently built within the interval.
       if (slot.status === "building" || slot.status === "queued") continue;
-      if (slot.lastBuild && now - slot.lastBuild < periodSec * 1000) continue;
-      console.log("[monitor] scheduled rebuild: " + key + " (every " + periodSec + "s)");
-      slot.lastScheduledAt = now;
-      try { deployBranch(r, bc); } catch (e) { console.error("[monitor] scheduled rebuild failed: " + e.message); }
+
+      let shouldFire = false, reason = "";
+      if (cron.looksLikeCron(bc.schedule)) {
+        // Cron: fire once per matching minute. lastScheduledAt is to-the-minute.
+        if (!cron.isCronTrigger(bc.schedule, new Date(now))) continue;
+        const lastFireMinute = Math.floor((slot.lastScheduledAt || 0) / 60000);
+        const nowMinute = Math.floor(now / 60000);
+        if (nowMinute !== lastFireMinute) { shouldFire = true; reason = "cron " + bc.schedule; }
+      } else {
+        const periodSec = Number(bc.schedule);
+        if (!Number.isFinite(periodSec) || periodSec < 30) continue;
+        const last = slot.lastScheduledAt || 0;
+        if (now - last < periodSec * 1000) continue;
+        if (slot.lastBuild && now - slot.lastBuild < periodSec * 1000) continue;
+        shouldFire = true; reason = "every " + periodSec + "s";
+      }
+
+      if (shouldFire) {
+        console.log("[monitor] scheduled rebuild: " + key + " (" + reason + ")");
+        slot.lastScheduledAt = now;
+        try { deployBranch(r, bc); } catch (e) { console.error("[monitor] scheduled rebuild failed: " + e.message); }
+      }
     }
   }
 }
