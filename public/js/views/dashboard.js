@@ -279,40 +279,40 @@ DV.views.dashboard = function(app) {
             }
             row.appendChild(info);
 
+            // ── Status row (C1) ────────────────────────────────────────
+            // Compose once, in priority order:
+            //   1) status text (Queued / Building / Running / Ready / Cancelled / Idle)
+            //   2) ONE canonical pill (worst-of: error > broken > secret >
+            //      budget > runtime errors). Click opens the relevant modal.
+            //   3) info chips (bundle size + delta, duration, age, sha)
             var statusParts = [];
-            if (bs.status === "cancelled") {
-              statusParts.push(el("span", {}, "Cancelled"));
-            } else if (bs.status === "queued") {
-              statusParts.push(el("span", {}, "Queued..."));
-            } else if (bs.status === "building") {
-              statusParts.push(el("span", {}, branchMode === "server" ? "Starting..." : "Building..."));
-            } else if (bs.status === "running") {
-              statusParts.push(el("span", {}, "Running \u2014 port " + (bs.serverPort || "?")));
-            } else if (bs.status === "ready") {
-              statusParts.push(el("span", {}, "Ready"));
-              // I3: surface health-monitor result. Healthy = silent;
-              // broken = red badge with reason on hover.
-              if (bs.health === "broken") {
-                statusParts.push(el("span", { c: "pill pill-err", attr: { title: "Health check failed: " + (bs.healthReason || "unknown") } }, "broken"));
-              }
-              // J3: runtime-error count from the injected collector.
-              // Click to open a modal with the full list.
-              var ek = repo.owner + "/" + repo.repo + ":" + slug;
-              // K1: secret-scan findings
-              if (Array.isArray(bs.secretFindings) && bs.secretFindings.length) {
-                statusParts.push(el("span", { c: "pill pill-err", attr: { title: bs.secretFindings.length + " possible leaked secret(s) — open log for details" } }, "🔓 " + bs.secretFindings.length + " secret"));
-              }
-              // K6: budget violations
-              if (Array.isArray(bs.budgetViolations) && bs.budgetViolations.length) {
-                statusParts.push(el("span", { c: "pill pill-warn", attr: { title: bs.budgetViolations.map(function(v){ return v.message; }).join("\n") } }, "⚖ over budget"));
-              }
-              if (S._previewErrorCounts && S._previewErrorCounts[ek] && S._previewErrorCounts[ek].uniqueErrors) {
-                var ec = S._previewErrorCounts[ek];
-                statusParts.push(el("button", {
-                  c: "pill pill-warn pill-clickable",
-                  attr: { title: ec.totalEvents + " runtime event(s) across " + ec.uniqueErrors + " unique error(s) — click to inspect" },
-                  on: { click: function(e) {
-                    e.stopPropagation();
+            var ek = repo.owner + "/" + repo.repo + ":" + slug;
+            var errCount = S._previewErrorCounts && S._previewErrorCounts[ek];
+
+            // 1) Status text
+            if (bs.status === "cancelled") statusParts.push(el("span", {}, "Cancelled"));
+            else if (bs.status === "queued")   statusParts.push(el("span", {}, "Queued…"));
+            else if (bs.status === "building") statusParts.push(el("span", {}, branchMode === "server" ? "Starting…" : "Building…"));
+            else if (bs.status === "running")  statusParts.push(el("span", {}, "Running — port " + (bs.serverPort || "?")));
+            else if (bs.status === "ready")    statusParts.push(el("span", {}, "Ready"));
+            else if (bs.status === "error")    statusParts.push(el("span", {}, branchMode === "server" ? "Server failed" : "Build failed"));
+            else statusParts.push(el("span", {}, "Idle"));
+
+            // 2) Single canonical pill — only for warn/error severities.
+            //    Healthy "ready"/"running" stay quiet. Click routes to
+            //    the relevant modal (errorsModal for runtime, logModal
+            //    for everything else — the build log is the canonical
+            //    place to investigate broken/secret/budget/error).
+            var signal = DV.branchRow && DV.branchRow.computeStatusSignal(bs, errCount);
+            if (signal && (signal.level === "error" || signal.level === "broken" ||
+                           signal.level === "secret" || signal.level === "budget" ||
+                           signal.level === "runtime")) {
+              statusParts.push(el("button", {
+                c: signal.className + " pill-clickable",
+                attr: { title: signal.title, "aria-label": signal.text },
+                on: { click: (function(sig) { return function(e) {
+                  e.stopPropagation();
+                  if (sig.level === "runtime") {
                     S.errorsModal = { owner: repo.owner, repo: repo.repo, slug: slug, loading: true, errors: [] };
                     DV.render();
                     api("GET", "/api/preview-errors/" + repo.owner + "/" + repo.repo + "/" + encodeURIComponent(slug)).then(function(r) {
@@ -321,24 +321,20 @@ DV.views.dashboard = function(app) {
                       S.errorsModal.errors = (r && r.errors) || [];
                       DV.render();
                     });
-                  } }
-                }, "⚠ " + ec.uniqueErrors));
-              }
-            } else if (bs.status === "error") {
-              // F2-003: surface "see Log" inline so users know how to recover.
-              statusParts.push(el("span", {}, branchMode === "server" ? "Server failed" : "Build failed"));
-              statusParts.push(el("span", { c: "color-tx3 text-10" }, "— open Log for details"));
-            } else {
-              statusParts.push(el("span", {}, "Idle"));
+                  } else {
+                    S.logModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: ek };
+                    DV.render();
+                  }
+                }; })(signal) }
+              }, signal.text));
             }
+
+            // 3) Info chips — duration · bundle size + delta · time-ago · short sha
             if (bs.duration && bs.status !== "building") {
               statusParts.push(el("span", { c: "duration-badge" }, bs.duration + "s"));
             }
-            // I1: bundle-size + delta vs previous build
             if (bs.outputBytes && bs.status !== "building") {
-              var sizeStr = bs.outputBytes < 1024 ? bs.outputBytes + " B"
-                : bs.outputBytes < 1048576 ? (bs.outputBytes / 1024).toFixed(1) + " KB"
-                : (bs.outputBytes / 1048576).toFixed(2) + " MB";
+              var sizeStr = (DV.branchRow && DV.branchRow.formatBytes) ? DV.branchRow.formatBytes(bs.outputBytes) : (bs.outputBytes + " B");
               statusParts.push(el("span", { c: "color-tx3 text-11 font-mono" }, sizeStr));
               if (bs.outputBytesDeltaPct != null && Math.abs(bs.outputBytesDeltaPct) >= 0.1) {
                 var sign = bs.outputBytesDelta > 0 ? "▲" : "▼";
