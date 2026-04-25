@@ -52,7 +52,9 @@ function defineTool(def) {
     description: def.description || "",
     schema: def.schema || { type: "object", properties: {}, required: [] },
     requires: Array.isArray(def.requires) ? def.requires : [],
-    handler: def.handler
+    handler: def.handler,
+    cache: (def.cache && typeof def.cache === "object" && Number(def.cache.ttlMs) > 0) ? { ttlMs: Number(def.cache.ttlMs) } : null,
+    deprecatedFor: typeof def.deprecatedFor === "string" ? def.deprecatedFor : null
   });
 }
 
@@ -153,6 +155,43 @@ function failCode(code, message, extra) {
     (extra && typeof extra === "object") ? extra : {}
   );
   return makeResult([{ type: "text", text: JSON.stringify(body, null, 2) }], true);
+}
+
+// ── Result cache (memoize hot read-only tools) ────────────────────────────
+// Small TTL cache keyed by (tool, stable JSON(args)). Tools that opt in
+// via `cache: { ttlMs }` in their defineTool call get automatic memoization.
+// Dashboard polling and sandbox_exec batches hammer the same read-only
+// endpoints repeatedly; caching eliminates that duplicate work.
+
+const _toolCache = new Map(); // key → { result, expiresAt }
+const _CACHE_MAX = 256;
+
+function _cacheKey(name, args) {
+  try { return name + "|" + JSON.stringify(args || {}); }
+  catch (_) { return name + "|<unserializable>"; }
+}
+
+function _cacheGet(key) {
+  const e = _toolCache.get(key);
+  if (!e) return null;
+  if (e.expiresAt <= Date.now()) { _toolCache.delete(key); return null; }
+  return e.result;
+}
+
+function _cachePut(key, result, ttlMs) {
+  if (_toolCache.size >= _CACHE_MAX) {
+    // Cheap eviction: drop the oldest-looking entry
+    const firstKey = _toolCache.keys().next().value;
+    if (firstKey) _toolCache.delete(firstKey);
+  }
+  _toolCache.set(key, { result, expiresAt: Date.now() + ttlMs });
+}
+
+function invalidateCache(prefix) {
+  if (!prefix) { _toolCache.clear(); return; }
+  for (const k of _toolCache.keys()) {
+    if (k.startsWith(prefix + "|")) _toolCache.delete(k);
+  }
 }
 
 /**
@@ -256,6 +295,14 @@ async function callTool(name, args) {
   const tool = registry.get(name);
   if (!tool) return fail("Unknown tool: " + name);
 
+  // Cache hit?
+  let cacheKey = null;
+  if (tool.cache) {
+    cacheKey = _cacheKey(name, args);
+    const hit = _cacheGet(cacheKey);
+    if (hit) return hit;
+  }
+
   // Capability checks
   for (const req of tool.requires) {
     const failure = checkRequirement(req);
@@ -271,14 +318,21 @@ async function callTool(name, args) {
   }
 
   // Normalize: if handler returned MCP shape, pass through. Otherwise wrap.
-  if (result && Array.isArray(result.content)) return result;
-  // Primitive returned a raw error object — upgrade to fail()
-  if (result && typeof result === "object" && result.error && !result.content) {
-    return fail(String(result.error), Object.keys(result).length > 1
+  let normalized;
+  if (result && Array.isArray(result.content)) normalized = result;
+  else if (result && typeof result === "object" && result.error && !result.content) {
+    normalized = fail(String(result.error), Object.keys(result).length > 1
       ? Object.fromEntries(Object.entries(result).filter(([k]) => k !== "error"))
       : undefined);
+  } else {
+    normalized = jsonText(result);
   }
-  return jsonText(result);
+
+  // Write-through cache: only cache successes
+  if (cacheKey && !normalized.isError) {
+    _cachePut(cacheKey, normalized, tool.cache.ttlMs);
+  }
+  return normalized;
 }
 
 // ── Engine status / introspection ─────────────────────────────────────────
@@ -331,6 +385,8 @@ module.exports = {
   fail,
   failCode,
   failFromBrowser,
+  // cache
+  invalidateCache,
   // capability
   checkRequirement,
   // introspection

@@ -24,8 +24,9 @@ const SLUG  = { type: "string" };
 dv.defineTool({
   name: "list_previews",
   category: "deploy",
-  description: "List all deployed app previews with status, URLs, and metadata. Use first to discover what's available.",
+  description: "List all deployed app previews with status, URLs, and metadata. Use first to discover what's available. Cached for 2s.",
   requires: [],
+  cache: { ttlMs: 2000 },
   schema: { type: "object", properties: {}, required: [] },
   async handler() {
     const previews = browser.listPreviews();
@@ -46,8 +47,9 @@ dv.defineTool({
 dv.defineTool({
   name: "build_status",
   category: "deploy",
-  description: "Get the build status of a specific branch deployment, including commit SHA, server port (if running), and preview URL.",
+  description: "Get the build status of a specific branch deployment, including commit SHA, server port (if running), and preview URL. Cached for 1s.",
   requires: [],
+  cache: { ttlMs: 1000 },
   schema: {
     type: "object",
     properties: { owner: OWNER, repo: REPO, slug: SLUG },
@@ -99,6 +101,10 @@ dv.defineTool({
       });
     }
     deployBranch(repoConfig, bc);
+    // Invalidate read-only caches so next dv_state / build_status sees the new state.
+    dv.invalidateCache("dv_state");
+    dv.invalidateCache("list_previews");
+    dv.invalidateCache("build_status");
     return dv.text(
       (bc.mode === "server" ? "Server restart" : "Build") +
       " triggered for " + args.owner + "/" + args.repo + ":" + args.slug

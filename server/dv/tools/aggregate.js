@@ -23,8 +23,9 @@ dv.defineTool({
   name: "dv_state",
   category: "engine",
   description:
-    "One-shot snapshot of the full DeployView state: every repo, every configured branch, build/server status, ports, preview URLs, and the short tail of the last error (if any). Use this instead of list_previews + build_status per branch — it's one call.",
+    "One-shot snapshot of the full DeployView state: every repo, every configured branch, build/server status, ports, preview URLs, and the short tail of the last error (if any). Use this instead of list_previews + build_status per branch — it's one call. Results are cached for 2s (invalidated on any build trigger).",
   requires: [],
+  cache: { ttlMs: 2000 },
   schema: { type: "object", properties: {}, required: [] },
   async handler() {
     const config = getConfig();
