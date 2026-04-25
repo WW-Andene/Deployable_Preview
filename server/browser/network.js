@@ -78,7 +78,28 @@ async function captureDownload(opts) {
   const browser = await session.getBrowser();
   const { page, url } = await session.getSessionPage(browser, owner, repo, slug, opts.width, opts.height);
 
-  const timeout = Math.max(1000, Math.min(Number(opts.timeout) || 30000, 120000));
+  // No upper cap — let the caller decide how long to wait. Pass 0 to wait
+  // forever (clamped to 24h to avoid genuinely-stuck Playwright handles).
+  const rawTimeout = Number(opts.timeout);
+  const timeout = (Number.isFinite(rawTimeout) && rawTimeout > 0)
+    ? rawTimeout
+    : (rawTimeout === 0 ? 24 * 60 * 60 * 1000 : 30000);
+
+  // Heartbeat: emit a progress notification every 5s so the MCP client
+  // doesn't 60-second-timeout the call. No-op if onProgress wasn't supplied.
+  const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : null;
+  let _heartbeat = null;
+  let _ticks = 0;
+  if (onProgress) {
+    onProgress(0, null, "download: waiting");
+    _heartbeat = setInterval(() => {
+      _ticks++;
+      try { onProgress(_ticks, null, "download: waiting (" + (_ticks * 5) + "s)"); } catch (_) {}
+    }, 5000);
+  }
+  function stopHeartbeat() {
+    if (_heartbeat) { clearInterval(_heartbeat); _heartbeat = null; }
+  }
 
   // ── Playwright path ──
   if (typeof page.waitForEvent === "function") {
@@ -89,6 +110,7 @@ async function captureDownload(opts) {
       } else if (opts.selector) {
         await page.click(opts.selector).catch(() => {});
       } else {
+        stopHeartbeat();
         throw new Error("trigger requires selector or code");
       }
       const download = await downloadPromise;
@@ -96,9 +118,12 @@ async function captureDownload(opts) {
       const os = require("os");
       const crypto = require("crypto");
       const tmp = path.join(os.tmpdir(), "dv-download-" + crypto.randomBytes(6).toString("hex"));
+      if (onProgress) onProgress(_ticks, null, "download: saving");
       await download.saveAs(tmp);
       const buf = await fsp.readFile(tmp);
       await fsp.unlink(tmp).catch(() => {});
+      stopHeartbeat();
+      if (onProgress) onProgress(_ticks, _ticks, "download: complete (" + buf.length + " B)");
       return {
         suggestedFilename: download.suggestedFilename ? download.suggestedFilename() : null,
         byteLength: buf.length,
@@ -106,6 +131,7 @@ async function captureDownload(opts) {
         url
       };
     } catch (e) {
+      stopHeartbeat();
       return { error: "download capture failed: " + e.message, url };
     }
   }
@@ -131,6 +157,7 @@ async function captureDownload(opts) {
     } else if (opts.selector) {
       await page.click(opts.selector).catch(() => {});
     } else {
+      stopHeartbeat();
       return { error: "trigger requires selector or code", url };
     }
     // Poll downloadDir for a non-crdownload file
@@ -141,10 +168,12 @@ async function captureDownload(opts) {
       if (files.length) { fileName = files[0]; break; }
       await new Promise((r) => setTimeout(r, 250));
     }
-    if (!fileName) return { error: "download timed out", url };
+    if (!fileName) { stopHeartbeat(); return { error: "download timed out", url }; }
     const full = path.join(downloadDir, fileName);
     const buf = fs.readFileSync(full);
     try { fs.unlinkSync(full); fs.rmdirSync(downloadDir); } catch (_) {}
+    stopHeartbeat();
+    if (onProgress) onProgress(_ticks, _ticks, "download: complete (" + buf.length + " B)");
     return {
       suggestedFilename: fileName,
       byteLength: buf.length,
@@ -152,6 +181,7 @@ async function captureDownload(opts) {
       url
     };
   } catch (e) {
+    stopHeartbeat();
     return { error: "download capture failed: " + e.message, url };
   }
 }

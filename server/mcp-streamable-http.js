@@ -71,6 +71,20 @@ function setupStreamableHTTP(app, endpoint) {
     }
 
     try {
+      // sendNotification: write a JSON-RPC notification to every open SSE
+      // client on this session. MCP clients (Claude.ai) reset their
+      // per-request 60s timeout each time one of these arrives.
+      function makeSender(sessionId) {
+        return function send(payload) {
+          const sess = sessions.get(sessionId);
+          if (!sess) return;
+          for (const c of sess.sseClients) {
+            if (c.closed) continue;
+            try { c.res.write("data: " + payload + "\n\n"); } catch (_) {}
+          }
+        };
+      }
+
       // ── Initialize: create a new session ──
       if (body.method === "initialize") {
         const sessionId = crypto.randomUUID();
@@ -81,7 +95,7 @@ function setupStreamableHTTP(app, endpoint) {
         });
         res.setHeader("Mcp-Session-Id", sessionId);
 
-        const result = await handleMessage(body);
+        const result = await handleMessage(body, makeSender(sessionId));
         if (result) {
           res.setHeader("Content-Type", "application/json");
           return res.send(result);
@@ -95,7 +109,7 @@ function setupStreamableHTTP(app, endpoint) {
         if (sessionId && sessions.has(sessionId)) {
           sessions.get(sessionId).lastActivity = Date.now();
         }
-        await handleMessage(body);
+        await handleMessage(body, sessionId ? makeSender(sessionId) : null);
         return res.sendStatus(202);
       }
 
@@ -111,7 +125,7 @@ function setupStreamableHTTP(app, endpoint) {
       sessions.get(sessionId).lastActivity = Date.now();
       res.setHeader("Mcp-Session-Id", sessionId);
 
-      const result = await handleMessage(body);
+      const result = await handleMessage(body, makeSender(sessionId));
       if (result) {
         res.setHeader("Content-Type", "application/json");
         return res.send(result);
