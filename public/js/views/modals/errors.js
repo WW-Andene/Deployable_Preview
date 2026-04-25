@@ -14,7 +14,7 @@ DV._modal.errors = function render(app) {
     var ebox = el("div", { c: "modal modal-errors", attr: { role: "dialog", "aria-modal": "true", "aria-labelledby": "modal-errors-title" } });
     ebox.appendChild(el("h3", { c: "modal-title", attr: { id: "modal-errors-title" } }, "Runtime errors — " + em.owner + "/" + em.repo + " · " + em.slug));
     if (em.loading) {
-      ebox.appendChild(el("div", { c: "text-center pad-md" }, [el("span", { c: "spin" })]));
+      ebox.appendChild(DV.skeleton ? DV.skeleton.rows(3) : el("div", { c: "text-center pad-md" }, [el("span", { c: "spin" })]));
     } else if (!em.errors.length) {
       ebox.appendChild(el("div", { c: "color-tx3 text-12 pad-md" }, "No runtime errors captured. Open the preview and trigger one to see it here."));
     } else {

@@ -1613,6 +1613,46 @@ button:disabled, button[disabled] {
   font-weight: 600;
 }
 
+/* ─── Skeleton loaders (D2) ─── */
+/* Use as: <div class="skeleton skeleton-text"></div> for a single line,
+   or stack multiples for paragraphs. The shimmer is a single keyframe
+   moving a soft gradient across a semi-transparent background. Pure
+   CSS — no JS, no extra DOM. */
+@keyframes skel-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--sf1) 0%,
+    var(--sf2) 50%,
+    var(--sf1) 100%
+  );
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--r-btn);
+}
+.skeleton-text { height: 14px; margin: 6px 0; }
+.skeleton-text:nth-child(odd) { width: 75%; }
+.skeleton-text:nth-child(even) { width: 92%; }
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.skeleton-row:last-child { border-bottom: 0; }
+.skeleton-circle { width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0; }
+.skeleton-flex   { flex: 1; min-width: 0; }
+.skeleton-pill   { width: 60px; height: 20px; border-radius: var(--r-pill); }
+
+/* Honour reduced-motion — show a flat shimmer-less surface instead */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background: var(--sf1); }
+}
+
 /* ─── Settings tab bar (D1) ─── */
 .settings-tab-bar {
   display: flex;

@@ -368,6 +368,32 @@ function iconBtn(label, opts, icon) {
   return el("button", opts, typeof icon === "string" ? (window.DV && DV.iconEl ? DV.iconEl(icon) : icon) : icon);
 }
 
+// D2: skeleton placeholder factory. Renders N "row" placeholders inside
+// a container so async lists show structure while loading instead of
+// blank space → pop-in. Use:
+//   container.appendChild(DV.skeleton.rows(3))   // 3 list-rows
+//   container.appendChild(DV.skeleton.lines(4))  // 4 text-only lines
+function skeletonRows(n) {
+  var wrap = el("div", { c: "skeleton-list", attr: { "aria-label": "Loading", role: "status" } });
+  for (var i = 0; i < (n || 3); i++) {
+    var row = el("div", { c: "skeleton-row" }, [
+      el("div", { c: "skeleton skeleton-circle" }),
+      el("div", { c: "skeleton-flex" }, [
+        el("div", { c: "skeleton skeleton-text" }),
+        el("div", { c: "skeleton skeleton-text" })
+      ]),
+      el("div", { c: "skeleton skeleton-pill" })
+    ]);
+    wrap.appendChild(row);
+  }
+  return wrap;
+}
+function skeletonLines(n) {
+  var wrap = el("div", { c: "skeleton-list", attr: { "aria-label": "Loading", role: "status" } });
+  for (var i = 0; i < (n || 4); i++) wrap.appendChild(el("div", { c: "skeleton skeleton-text" }));
+  return wrap;
+}
+
 // Expose globals for view modules
 window.DV = {
   S: S, el: el, api: api, statusClass: statusClass, render: render,
@@ -452,6 +478,7 @@ window.DV = {
     render();
   },
   loadMcpTools: loadMcpTools, showToast: showToast, iconBtn: iconBtn,
+  skeleton: { rows: skeletonRows, lines: skeletonLines },
   views: views, VIEW_PRESETS: VIEW_PRESETS,
   getDropdownHandler: function() { return _dropdownCloseHandler; },
   setDropdownHandler: function(h) { _dropdownCloseHandler = h; }

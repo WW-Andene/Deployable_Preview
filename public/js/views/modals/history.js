@@ -15,7 +15,7 @@ DV._modal.history = function render(app) {
     hbox.appendChild(el("h3", { c: "modal-title", attr: { id: "modal-history-title" } }, "Deployment history — " + hm.owner + "/" + hm.repo + " · " + hm.slug));
 
     if (hm.loading) {
-      hbox.appendChild(el("div", { c: "text-center pad-md" }, [el("span", { c: "spin" })]));
+      hbox.appendChild(DV.skeleton ? DV.skeleton.rows(4) : el("div", { c: "text-center pad-md" }, [el("span", { c: "spin" })]));
     } else if (hm.error) {
       hbox.appendChild(el("div", { c: "color-err font-mono text-12" }, hm.error));
     } else if (!hm.history.length) {
