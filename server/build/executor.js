@@ -32,7 +32,9 @@ const {
   branchSlug,
   getBranchDir,
   buildKey,
-  createLogger
+  createLogger,
+  appendHistory,
+  snapshotBuildOutput
 } = require("./state");
 
 const {
@@ -247,6 +249,22 @@ async function buildBranch(repoConfig, branchConfig) {
     buildStatus[key].outputDir = outName;
     saveLog(key, addLog.getLog());
     captureThumbAsync(repoConfig.owner, repoConfig.repo, branchSlug(branchConfig));
+
+    // Deployment history: snapshot the just-built output so future
+    // rollbacks can restore it byte-for-byte. Best-effort — failure
+    // doesn't break the build.
+    try {
+      const snap = snapshotBuildOutput(key, finalOut);
+      appendHistory(key, {
+        commitSha: buildStatus[key].commitSha || "",
+        timestamp: Date.now(),
+        duration: parseFloat(duration),
+        outputPath: finalOut,
+        snapshotDir: snap,
+        mode: "static",
+        by: "build"
+      });
+    } catch (e) { addLog("WARNING: history append failed: " + e.message); }
   } catch (e) {
     addLog("BUILD FAILED: " + e.message);
     buildStatus[key].status = "error";

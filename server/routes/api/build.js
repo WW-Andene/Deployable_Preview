@@ -116,6 +116,22 @@ router.get("/thumb/:owner/:repo", (req, res) => {
   res.end(r.buffer);
 });
 
+// Deployment history (newest first).
+router.get("/history/:owner/:repo", (req, res) => {
+  const slug = req.query.slug || req.query.branch || "";
+  const r = deployment.listHistory(req.params.owner, req.params.repo, slug);
+  if (!r.ok) return res.status(STATUS[r.code] || 500).json({ error: r.error });
+  res.json({ history: r.history, currentOutput: r.current });
+});
+
+// Roll back to a prior history entry. Body: { slug, historyId }.
+router.post("/rollback/:owner/:repo", (req, res) => {
+  const { slug, historyId } = req.body || {};
+  const r = deployment.rollback(req.params.owner, req.params.repo, slug, historyId);
+  if (!r.ok) return res.status(STATUS[r.code] || 500).json({ error: r.error });
+  res.json({ ok: true, message: r.message, entry: r.entry });
+});
+
 // Diff heatmap — PNG showing pixel changes vs. the previous build's thumb.
 router.get("/thumb-diff/:owner/:repo", (req, res) => {
   const slug = req.query.slug || req.query.branch || "";

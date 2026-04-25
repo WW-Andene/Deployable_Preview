@@ -94,6 +94,64 @@ try {
   });
 } catch (_) { /* config module not yet loaded — pruning will not register */ }
 
+// ── Deployment history ──────────────────────────────────────────────────────
+// Track every successful (status=ready or running) build so users + Claude
+// can see a timeline and roll back to a previous SHA. Bounded per-key to
+// avoid unbounded growth; persisted via logs.js sidecar file so it survives
+// restarts. Each entry: { commitSha, timestamp, duration, outputPath,
+// snapshotDir, mode, by ("build"|"webhook"|"manual") }.
+const HISTORY_DIR = path.join(WORKSPACE, ".history");
+if (!fs.existsSync(HISTORY_DIR)) fs.mkdirSync(HISTORY_DIR, { recursive: true });
+const MAX_HISTORY_PER_KEY = parseInt(process.env.DV_MAX_HISTORY_PER_KEY, 10) || 10;
+
+function _historyFile(key) { return path.join(HISTORY_DIR, key.replace(/[\/\:]/g, "__") + ".json"); }
+
+function getHistory(key) {
+  try {
+    const raw = fs.readFileSync(_historyFile(key), "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) { return []; }
+}
+
+function appendHistory(key, entry) {
+  const arr = getHistory(key);
+  arr.unshift(Object.assign({ id: Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8) }, entry));
+  // Keep newest N. Older snapshot dirs are cleaned up by the caller.
+  while (arr.length > MAX_HISTORY_PER_KEY) {
+    const evicted = arr.pop();
+    if (evicted && evicted.snapshotDir) {
+      try { fs.rmSync(evicted.snapshotDir, { recursive: true, force: true }); } catch (_) {}
+    }
+  }
+  try { fs.writeFileSync(_historyFile(key), JSON.stringify(arr, null, 2)); } catch (_) {}
+  return arr;
+}
+
+// snapshotBuildOutput copies the current outputPath into a versioned
+// directory under WORKSPACE/<owner__repo__slug>/.snapshots/<id>/. We copy
+// rather than move so the live preview keeps serving while history grows.
+function snapshotBuildOutput(key, outputPath) {
+  if (!outputPath || !fs.existsSync(outputPath)) return null;
+  const id = Date.now().toString(36);
+  const branchDir = path.dirname(outputPath); // workspace/<owner__repo__slug>/[…]
+  const snapsRoot = path.join(branchDir, ".snapshots");
+  const dest = path.join(snapsRoot, id);
+  try {
+    fs.mkdirSync(snapsRoot, { recursive: true });
+    // fs.cpSync recursive — Node 16.7+. Fallback to spawn cp on older nodes.
+    if (typeof fs.cpSync === "function") {
+      fs.cpSync(outputPath, dest, { recursive: true, force: true });
+    } else {
+      require("child_process").execSync("cp -R " + JSON.stringify(outputPath) + " " + JSON.stringify(dest));
+    }
+    return dest;
+  } catch (e) {
+    console.warn("[history] snapshot failed for " + key + ": " + e.message);
+    return null;
+  }
+}
+
 module.exports = {
   WORKSPACE,
   MAX_CONCURRENT_BUILDS,
@@ -103,5 +161,10 @@ module.exports = {
   branchSlug,
   getBranchDir,
   buildKey,
-  createLogger
+  createLogger,
+  // ── deployment history ──
+  getHistory,
+  appendHistory,
+  snapshotBuildOutput,
+  MAX_HISTORY_PER_KEY
 };
