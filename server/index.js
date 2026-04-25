@@ -1,3 +1,30 @@
+// F-M015: best-effort dotenv loader. Reads .env from the project root if the
+// dotenv module is available; falls back to a hand-rolled parser so users
+// don't need to install it. Order: .env then .env.local (local overrides).
+(function loadDotenv() {
+  const fsLocal = require("fs");
+  const pathLocal = require("path");
+  const root = pathLocal.join(__dirname, "..");
+  const files = [".env", ".env.local"];
+  for (const f of files) {
+    const file = pathLocal.join(root, f);
+    if (!fsLocal.existsSync(file)) continue;
+    try {
+      const lines = fsLocal.readFileSync(file, "utf8").split(/\r?\n/);
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith("#")) continue;
+        const eq = line.indexOf("=");
+        if (eq < 1) continue;
+        const k = line.slice(0, eq).trim();
+        let v = line.slice(eq + 1).trim();
+        if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+        if (process.env[k] === undefined) process.env[k] = v;
+      }
+    } catch (_) { /* ignore */ }
+  }
+})();
+
 // ── MCP stdio mode (checked first to avoid loading HTTP modules / timers) ──
 if (process.argv.includes("--mcp-only")) {
   // Run as pure MCP stdio server (no HTTP)
@@ -39,10 +66,11 @@ if (isTermux) {
 
 // ── Startup validation ──
 (function checkPrerequisites() {
-  // Node version check
+  // Node version check (F-O005: bumped to 20 — node:test is used in tests
+  // and the http.lookup option is widely available since 16+ but cleaner on 20+)
   const nodeVersion = parseInt(process.versions.node.split(".")[0], 10);
-  if (nodeVersion < 18) {
-    console.error("  ✗ Node.js 18+ required (found v" + process.versions.node + ")");
+  if (nodeVersion < 20) {
+    console.error("  ✗ Node.js 20+ required (found v" + process.versions.node + ")");
     process.exit(1);
   }
   // git check

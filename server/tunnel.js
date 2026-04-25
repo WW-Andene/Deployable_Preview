@@ -21,6 +21,7 @@ const path   = require("path");
 const fs     = require("fs");
 const https  = require("https");
 const os     = require("os");
+const crypto = require("crypto");
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -372,7 +373,11 @@ function start(port) {
       settled = true;
       clearTimeout(timeout);
       state = { running: true, url, provider, error: null };
-      log("\u2713 " + provider + " tunnel active: " + url);
+      // F-C028: don't print the full tunnel URL \u2014 anyone reading server logs
+      // would instantly own the /api surface. Print a SHA prefix so the
+      // operator can recognise their own tunnel without leaking it.
+      const tag = crypto.createHash("sha256").update(url).digest("hex").slice(0, 8);
+      log("\u2713 " + provider + " tunnel active (id " + tag + ") \u2014 see Settings for full URL");
       resolve({ url });
     }
 

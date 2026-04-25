@@ -83,7 +83,7 @@ function buildCommands() {
   // Global actions
   cmds.push({ id: "action.refresh", label: "Refresh repo list", hint: "action · r", section: "Actions",
               run: function() { DV.loadRepos(); } });
-  cmds.push({ id: "action.rebuildAll", label: "Rebuild ALL branches", hint: "action · destructive", section: "Actions",
+  cmds.push({ id: "action.rebuildAll", label: "Rebuild All branches", hint: "action · destructive", section: "Actions",
               run: function() {
                 if (!confirm("Rebuild every branch across every repo?")) return;
                 for (var i = 0; i < S.repos.length; i++) {
@@ -196,13 +196,19 @@ DV.renderPalette = function(root) {
   if (S.paletteIndex < 0) S.paletteIndex = ranked.length - 1;
 
   var bg = el("div", { c: "modal-bg palette-bg", on: { click: function(e){ if (e.target === bg) DV.closePalette(); } } });
-  var modal = el("div", { c: "modal palette-modal" });
+  var modal = el("div", { c: "modal palette-modal", attr: { role: "dialog", "aria-modal": "true", "aria-label": "Command palette" } });
 
   var input = document.createElement("input");
   input.className = "palette-input";
   input.placeholder = "Search repos, branches, actions…";
   input.value = S.paletteQuery;
   input.autocomplete = "off"; input.spellcheck = false;
+  // G1-006: combobox pattern so screen readers announce option count + selection
+  input.setAttribute("role", "combobox");
+  input.setAttribute("aria-controls", "palette-listbox");
+  input.setAttribute("aria-autocomplete", "list");
+  input.setAttribute("aria-expanded", "true");
+  input.setAttribute("aria-label", "Search repos, branches, actions");
 
   input.addEventListener("input", function() {
     S.paletteQuery = input.value;
@@ -224,7 +230,7 @@ DV.renderPalette = function(root) {
   });
   modal.appendChild(input);
 
-  var list = el("div", { c: "palette-list" });
+  var list = el("div", { c: "palette-list", attr: { id: "palette-listbox", role: "listbox", "aria-label": "Command results" } });
   if (!ranked.length) {
     list.appendChild(el("div", { c: "palette-empty" }, q ? "No commands match “" + q + "”" : "No commands available"));
   } else {
@@ -237,6 +243,7 @@ DV.renderPalette = function(root) {
         }
         var row = el("div", {
           c: "palette-row" + (idx === S.paletteIndex ? " palette-row-active" : ""),
+          attr: { role: "option", "aria-selected": idx === S.paletteIndex ? "true" : "false", id: "palette-opt-" + idx },
           on: {
             click: function() { mruTouch(hit.c.id); DV.closePalette(); try { hit.c.run(); } catch (e) { console.error(e); } },
             mouseenter: function() { S.paletteIndex = idx; DV.render(); var n = document.querySelector(".palette-input"); if (n) n.focus(); }

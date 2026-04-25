@@ -1,9 +1,10 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 const CONFIG_FILE = path.join(__dirname, "..", "deployview.json");
 
-let config = { token: "", repos: [], secrets: {}, preferences: {} };
+let config = { token: "", repos: [], secrets: {}, preferences: {}, apiSecret: "" };
 
 // Last schema validation report — exposed via /api/health.
 let _lastValidation = { ok: true, fixes: [], errors: [] };
@@ -154,4 +155,15 @@ function getSecret(key, envKey) {
   return "";
 }
 
-module.exports = { loadConfig, saveConfig, getConfig, migrateConfig, parseEnvVars, getSecret, getValidationReport, validateAndRepairConfig, onConfigSaved };
+// Auto-generated API auth token used to gate /api when reached via tunnel.
+// Localhost requests bypass it; non-localhost callers must supply it via
+// X-DV-Token header, ?dv_token= query, or dv_token= cookie.
+function getApiSecret() {
+  if (!config.apiSecret) {
+    config.apiSecret = crypto.randomBytes(24).toString("base64url");
+    try { saveConfig(); } catch (_) {}
+  }
+  return config.apiSecret;
+}
+
+module.exports = { loadConfig, saveConfig, getConfig, migrateConfig, parseEnvVars, getSecret, getApiSecret, getValidationReport, validateAndRepairConfig, onConfigSaved };

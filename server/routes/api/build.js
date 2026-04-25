@@ -26,16 +26,21 @@ router.post("/stop/:owner/:repo", (req, res) => {
 
 // Webhook — kept inline because the HMAC verification is HTTP-specific
 // (uses req.headers + req.rawBody) and has no service-layer equivalent.
+// F-C002: WEBHOOK_SECRET is mandatory. Reject unsigned webhooks fail-secure
+// rather than accepting forged ones from anyone reaching the tunnel URL.
 router.post("/webhook", (req, res) => {
   const config = getConfig();
   const secret = getSecret("WEBHOOK_SECRET", "WEBHOOK_SECRET");
-  if (secret) {
-    const sig = req.headers["x-hub-signature-256"] || "";
-    const rawBody = req.rawBody || Buffer.from(JSON.stringify(req.body));
-    const expected = "sha256=" + crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
-    if (!sig || sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
-      return res.status(401).json({ error: "Invalid webhook signature" });
-    }
+  if (!secret) {
+    console.warn("[WEBHOOK] Rejected: WEBHOOK_SECRET is unset (set it in Settings → Secrets to enable webhooks)");
+    return res.status(403).json({ error: "WEBHOOK_SECRET not configured on server" });
+  }
+  const sig = req.headers["x-hub-signature-256"] || "";
+  const rawBody = req.rawBody || Buffer.from(JSON.stringify(req.body));
+  const expected = "sha256=" + crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+  if (!sig || sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+    console.warn("[WEBHOOK] Signature mismatch from " + (req.ip || "unknown"));
+    return res.status(401).json({ error: "Invalid webhook signature" });
   }
   if (req.headers["x-github-event"] !== "push") return res.json({ ok: true, skipped: true });
   const ref = (req.body.ref || "").replace("refs/heads/", "");

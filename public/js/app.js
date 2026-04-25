@@ -43,7 +43,14 @@ var S = {
   paletteOpen: false,
   paletteQuery: "",
   paletteIndex: 0,
-  shortcutsOpen: false
+  shortcutsOpen: false,
+
+  // GitHub repo picker (addRepo view)
+  ghRepos: null,             // null = not fetched, [] = empty, [{...}] = loaded
+  ghReposError: "",
+  ghReposLoading: false,
+  ghReposFilter: "",
+  ghReposType: "all"         // all | owner | member
 };
 
 var _dropdownCloseHandler = null;
@@ -103,6 +110,27 @@ function fetchAvailableBranches() {
   api("GET", "/api/github/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/branches").then(function(r) {
     if (r.branches) { S.availableBranches = r.branches; render(); }
   }).catch(function() {});
+}
+
+// Fetch the user's GitHub repositories. Cached server-side for 5 min;
+// pass force=true to bust the cache.
+function fetchGhRepos(force) {
+  if (S.ghReposLoading) return;
+  S.ghReposLoading = true; S.ghReposError = "";
+  if (force) S.ghRepos = null;
+  render();
+  var url = "/api/github/repos?type=" + encodeURIComponent(S.ghReposType || "all") + (force ? "&refresh=1" : "");
+  api("GET", url).then(function(r) {
+    S.ghReposLoading = false;
+    if (r.error) { S.ghReposError = r.error; S.ghRepos = []; render(); return; }
+    S.ghRepos = Array.isArray(r.repos) ? r.repos : [];
+    render();
+  }).catch(function(e) {
+    S.ghReposLoading = false;
+    S.ghReposError = e.message || "Failed to load repositories";
+    S.ghRepos = [];
+    render();
+  });
 }
 
 function addBranchToRepo(branch, baseDir, mode, startCommand, language) {
@@ -191,17 +219,37 @@ function loadMcpTools() {
 }
 
 // ── Toast notification system ──
+// G1-007: errors get role=alert (announced immediately by screen readers);
+// info/success get role=status (polite). Errors don't auto-dismiss; the
+// user has to close them so a low-vision reader doesn't miss the message.
 var _toastContainer = null;
 function showToast(message, type) {
   if (!_toastContainer) {
     _toastContainer = document.createElement("div");
     _toastContainer.className = "toast-container";
+    _toastContainer.setAttribute("aria-live", "polite");
     document.body.appendChild(_toastContainer);
   }
-  var toast = el("div", { c: "toast toast-" + (type || "info") }, message);
+  var role = type === "error" ? "alert" : "status";
+  var toast = el("div", { c: "toast toast-" + (type || "info"), attr: { role: role, "aria-atomic": "true" } });
+  toast.appendChild(document.createTextNode(message));
+  var close = el("button", { c: "toast-close", attr: { "aria-label": "Dismiss notification", title: "Dismiss" }, on: { click: function() { toast.remove(); } } }, "×");
+  toast.appendChild(close);
   _toastContainer.appendChild(toast);
-  setTimeout(function() { toast.classList.add("toast-exit"); }, 3500);
-  setTimeout(function() { if (toast.parentNode) toast.remove(); }, 4000);
+  if (type !== "error") {
+    setTimeout(function() { toast.classList.add("toast-exit"); }, 3500);
+    setTimeout(function() { if (toast.parentNode) toast.remove(); }, 4000);
+  }
+}
+
+// G1-001: helper for icon-only buttons. Always emits aria-label so screen
+// readers announce a name (the inner SVG is aria-hidden). Use this instead
+// of bare el("button", {attr:{title:…}}, DV.iconEl(...)).
+function iconBtn(label, opts, icon) {
+  opts = opts || {};
+  opts.attr = Object.assign({ "aria-label": label, title: label }, opts.attr || {});
+  if (icon == null && opts.icon) { icon = opts.icon; delete opts.icon; }
+  return el("button", opts, typeof icon === "string" ? (window.DV && DV.iconEl ? DV.iconEl(icon) : icon) : icon);
 }
 
 // Expose globals for view modules
@@ -209,7 +257,8 @@ window.DV = {
   S: S, el: el, api: api, statusClass: statusClass, render: render,
   loadRepos: loadRepos,
   fetchAvailableBranches: fetchAvailableBranches, addBranchToRepo: addBranchToRepo,
-  loadMcpTools: loadMcpTools, showToast: showToast,
+  fetchGhRepos: fetchGhRepos,
+  loadMcpTools: loadMcpTools, showToast: showToast, iconBtn: iconBtn,
   views: views, VIEW_PRESETS: VIEW_PRESETS,
   getDropdownHandler: function() { return _dropdownCloseHandler; },
   setDropdownHandler: function(h) { _dropdownCloseHandler = h; }

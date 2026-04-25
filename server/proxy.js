@@ -27,7 +27,13 @@ function proxyTo(port, req, res, stripPrefix) {
         // Remove content-length since we modified the body
         const headers = { ...proxyRes.headers };
         delete headers["content-length"];
-        headers["content-security-policy"] = "";
+        // F-K001: only strip directives that block iframe embedding
+        // (frame-ancestors / X-Frame-Options). Preserve script-src and
+        // friends so the user's own CSP still protects the preview.
+        if (headers["content-security-policy"]) {
+          headers["content-security-policy"] = String(headers["content-security-policy"])
+            .split(/;\s*/).filter((d) => !/^frame-ancestors/i.test(d)).join("; ");
+        }
         res.removeHeader("X-Frame-Options");
         res.writeHead(proxyRes.statusCode, headers);
         res.end(body);
@@ -44,11 +50,17 @@ function proxyTo(port, req, res, stripPrefix) {
   req.pipe(proxyReq);
 }
 
+// F-K002: hide sensitive paths from the file browser. .env / lock-files /
+// node_modules / SSH keys / cert material are not "preview content" and
+// must never appear in the listing — they may contain secrets that the
+// /api auth gate is supposed to protect.
+var FILE_BROWSER_HIDE_RE = /^(\.git|\.env|\.env\..*|\.npmrc|\.aws|\.ssh|\.gnupg|\.netrc|node_modules|deployview\.json|deployview\.json\.bak|.*\.pem|.*\.key|.*\.crt|id_rsa.*|id_ed25519.*)$/i;
+
 function serveFileBrowser(outDir, res, previewBase) {
   var files = [];
   try { files = fs.readdirSync(outDir); } catch (e) { files = []; }
   // Separate dirs and files, get sizes
-  var items = files.filter(function(f) { return f !== ".git"; }).map(function(f) {
+  var items = files.filter(function(f) { return !FILE_BROWSER_HIDE_RE.test(f); }).map(function(f) {
     try {
       var st = fs.statSync(path.join(outDir, f));
       return { name: f, isDir: st.isDirectory(), size: st.size, mtime: st.mtimeMs };
@@ -103,7 +115,10 @@ return new B(p,o);};window.Blob.prototype=B.prototype;
 
   html = html.replace(/<head([^>]*)>/i, '<head$1>' + pwaShim);
   res.removeHeader("X-Frame-Options");
-  res.setHeader("Content-Security-Policy", "");
+  // F-K001: scrub only frame-ancestors. The static HTML may have its own
+  // <meta http-equiv="Content-Security-Policy"> tag that we don't touch.
+  // Setting an empty CSP header here drops anything the upstream layer
+  // might have set, which is fine because static files don't have one.
   res.setHeader("Content-Type", "text/html");
   res.send(html);
 }

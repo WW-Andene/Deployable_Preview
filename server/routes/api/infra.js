@@ -53,10 +53,10 @@ router.get("/browser/test", async (req, res) => {
     res.json({ ok: true, steps });
   } catch (e) {
     steps.push("ERROR: " + e.message);
-    // Only include stack outside production — leaks file paths / usernames otherwise.
-    const out = { ok: false, error: e.message, steps };
-    if (process.env.NODE_ENV !== "production" && e.stack) out.stack = e.stack.split("\n").slice(0, 3);
-    res.json(out);
+    // F-C026: never return stack to clients — leaks $HOME, usernames, module
+    // layout. Operator can read the full trace from server logs.
+    if (e.stack) console.error("[browser/test]", e.stack);
+    res.json({ ok: false, error: e.message, steps });
   }
 });
 
@@ -137,36 +137,44 @@ router.post("/tunnel/stop", (req, res) => {
 //
 // Auth: a short-lived token is required (issued by POST /api/live/token).
 // This prevents random strangers on the tunnel URL from watching previews.
-const _liveTokens = new Map(); // token → expiresAt
+// F-C004: tokens are now scoped to a specific (owner, repo, slug) triple.
+// A leaked token can no longer be replayed against a different preview.
+const _liveTokens = new Map(); // token → { scope, exp }
 const LIVE_TOKEN_TTL_MS = 10 * 60 * 1000;
-function mintLiveToken() {
+function scopeKey(owner, repo, slug) { return owner + "/" + repo + "/" + slug; }
+function mintLiveToken(scope) {
   const crypto = require("crypto");
   const t = crypto.randomBytes(16).toString("base64url");
-  _liveTokens.set(t, Date.now() + LIVE_TOKEN_TTL_MS);
+  _liveTokens.set(t, { scope, exp: Date.now() + LIVE_TOKEN_TTL_MS });
   // Opportunistic GC
   if (_liveTokens.size > 100) {
     const now = Date.now();
-    for (const [k, exp] of _liveTokens) if (exp < now) _liveTokens.delete(k);
+    for (const [k, v] of _liveTokens) if (v.exp < now) _liveTokens.delete(k);
   }
   return t;
 }
-function checkLiveToken(t) {
+function checkLiveToken(t, expectedScope) {
   if (!t) return false;
-  const exp = _liveTokens.get(t);
-  if (!exp) return false;
-  if (exp < Date.now()) { _liveTokens.delete(t); return false; }
+  const entry = _liveTokens.get(t);
+  if (!entry) return false;
+  if (entry.exp < Date.now()) { _liveTokens.delete(t); return false; }
+  if (entry.scope !== expectedScope) return false;
   return true;
 }
 
 // POST /api/live/token → { token, expiresAt }
+// Body: { owner, repo, slug } — the triple this token will be valid for.
 router.post("/live/token", (req, res) => {
-  const token = mintLiveToken();
-  res.json({ token, expiresInMs: LIVE_TOKEN_TTL_MS, hint: "Append ?token=... to the /api/live/... URL. Tokens are single-origin and expire after 10 minutes." });
+  const { owner, repo, slug } = req.body || {};
+  if (!owner || !repo || !slug) return res.status(400).json({ error: "owner, repo, slug required" });
+  const token = mintLiveToken(scopeKey(owner, repo, slug));
+  res.json({ token, expiresInMs: LIVE_TOKEN_TTL_MS, scope: { owner, repo, slug }, hint: "Append ?token=... to the /api/live/" + owner + "/" + repo + "/" + slug + " URL. Token is bound to this preview only and expires after 10 minutes." });
 });
 
 router.get("/live/:owner/:repo/:slug", async (req, res) => {
-  if (!checkLiveToken(req.query.token)) {
-    res.status(401).json({ error: "Unauthorized", hint: "POST /api/live/token to mint a short-lived token, then append ?token=... to this URL." });
+  const expectedScope = scopeKey(req.params.owner, req.params.repo, req.params.slug);
+  if (!checkLiveToken(req.query.token, expectedScope)) {
+    res.status(401).json({ error: "Unauthorized", hint: "POST /api/live/token with this preview's owner/repo/slug to mint a scoped token." });
     return;
   }
   const { owner, repo, slug } = req.params;

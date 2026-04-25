@@ -214,27 +214,35 @@ async function buildApk(owner, repo, slug, workingDir) {
     addLog(key, "ERROR: " + e.message); apkStatus[key].status = "error"; return;
   }
 
-  // ── 2. upsert workflow file ───────────────────────────────────────────────
-  addLog(key, "Pushing build workflow to repo...");
-  const content = Buffer.from(makeWorkflow(appId, appName, buildCmd, outputDir, workDir)).toString("base64");
-  let existingSha = null;
+  // ── 2. upsert workflow file (idempotent — F-A015) ────────────────────────
+  // Don't pollute the user's git history with no-op commits when nothing
+  // has changed. Compare the existing file's contents byte-for-byte first.
+  addLog(key, "Checking build workflow in repo...");
+  const newContent = makeWorkflow(appId, appName, buildCmd, outputDir, workDir);
+  const newContentB64 = Buffer.from(newContent).toString("base64");
+  let existingSha = null, existingContent = "";
   try {
     const f = await ghReq("GET", "/repos/" + owner + "/" + repo + "/contents/" + WORKFLOW_FILE + "?ref=" + defaultBranch, null, token);
     existingSha = f.sha;
+    if (f.content) existingContent = Buffer.from(f.content, "base64").toString("utf8");
   } catch (e) { /* new file */ }
 
-  try {
-    await ghReq("PUT", "/repos/" + owner + "/" + repo + "/contents/" + WORKFLOW_FILE, {
-      message: "chore: DeployView APK workflow [skip ci]",
-      content,
-      branch: defaultBranch,
-      ...(existingSha ? { sha: existingSha } : {})
-    }, token);
-    addLog(key, "Workflow file pushed.");
-  } catch (e) {
-    addLog(key, "ERROR pushing workflow: " + e.message);
-    addLog(key, "Tip: re-save your GitHub token with the 'workflow' scope enabled.");
-    apkStatus[key].status = "error"; return;
+  if (existingContent === newContent) {
+    addLog(key, "Workflow already up-to-date — skipping commit.");
+  } else {
+    try {
+      await ghReq("PUT", "/repos/" + owner + "/" + repo + "/contents/" + WORKFLOW_FILE, {
+        message: "chore: DeployView APK workflow [skip ci]",
+        content: newContentB64,
+        branch: defaultBranch,
+        ...(existingSha ? { sha: existingSha } : {})
+      }, token);
+      addLog(key, existingSha ? "Workflow updated." : "Workflow file added.");
+    } catch (e) {
+      addLog(key, "ERROR pushing workflow: " + e.message);
+      addLog(key, "Tip: re-save your GitHub token with the 'workflow' scope enabled. If main is branch-protected, the token must also have permission to push to it (or use a fine-grained PAT scoped to this repo).");
+      apkStatus[key].status = "error"; return;
+    }
   }
 
   await sleep(4000); // let GitHub register the workflow

@@ -11,12 +11,47 @@ document.addEventListener("keydown", function(e) {
   if (changed) DV.render();
 });
 
+// G1-004 / G3-002: real focus trap. Records the element that had focus
+// before the modal opened, focuses the first interactive child, and on
+// Tab cycles within the modal so keyboard users can't escape into the
+// background. Returns a cleanup function that restores prior focus.
+var _modalRestoreStack = [];
 function focusTrap(root) {
+  var prevFocus = document.activeElement;
+  function focusables() {
+    return Array.prototype.slice.call(root.querySelectorAll(
+      'input:not([disabled]), button:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+    ));
+  }
   setTimeout(function() {
-    var target = root.querySelector("input, button, textarea");
-    if (target) target.focus();
+    var fs = focusables();
+    if (fs.length) fs[0].focus();
   }, 0);
+  function trap(e) {
+    if (e.key !== "Tab") return;
+    var fs = focusables();
+    if (!fs.length) return;
+    var first = fs[0], last = fs[fs.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+  root.addEventListener("keydown", trap);
+  _modalRestoreStack.push(function() {
+    root.removeEventListener("keydown", trap);
+    if (prevFocus && typeof prevFocus.focus === "function") {
+      try { prevFocus.focus(); } catch (_) {}
+    }
+  });
 }
+
+// Called by render() when modals close — pops + invokes the cleanups.
+function flushModalRestores() {
+  while (_modalRestoreStack.length) {
+    var fn = _modalRestoreStack.pop();
+    try { fn(); } catch (_) {}
+  }
+}
+DV._flushModalRestores = flushModalRestores;
 
 DV.views.modals = function(app) {
 
@@ -24,8 +59,8 @@ DV.views.modals = function(app) {
   if (S.editModal) {
     var m = S.editModal;
     var bg = el("div", { c: "modal-bg", on: { click: function(e) { if (e.target === bg) { S.editModal = null; DV.render(); } } } });
-    var box = el("div", { c: "modal" });
-    box.appendChild(el("h3", { c: "modal-title" }, "Edit: " + m.branch + (m.baseDir ? " \u2192 " + m.baseDir : "")));
+    var box = el("div", { c: "modal", attr: { role: "dialog", "aria-modal": "true", "aria-labelledby": "modal-edit-title" } });
+    box.appendChild(el("h3", { c: "modal-title", attr: { id: "modal-edit-title" } }, "Edit: " + m.branch + (m.baseDir ? " \u2192 " + m.baseDir : "")));
 
     var langPlaceholders = {
       auto: { build: "auto-detected", output: "auto-detected", start: "auto-detected" },
@@ -100,8 +135,8 @@ DV.views.modals = function(app) {
     var userDisengaged = false;
 
     var bg2 = el("div", { c: "modal-bg", on: { click: function(e) { if (e.target === bg2) { S.logModal = null; if (S._logSSE) { S._logSSE.close(); S._logSSE = null; } DV.render(); } } } });
-    var box2 = el("div", { c: "modal modal-log" });
-    box2.appendChild(el("h3", { c: "modal-title" }, "Log: " + lm.slug));
+    var box2 = el("div", { c: "modal modal-log", attr: { role: "dialog", "aria-modal": "true", "aria-labelledby": "modal-log-title" } });
+    box2.appendChild(el("h3", { c: "modal-title", attr: { id: "modal-log-title" } }, "Log: " + lm.slug));
 
     var logDiv = el("div", { c: "live-log", attr: { id: "live-log-content" } }, "Loading...");
     // Track scroll engagement so SSE doesn't yank the view out from under the user.
@@ -209,12 +244,12 @@ DV.views.modals = function(app) {
     var apkBg = el("div", { c: "modal-bg", on: { click: function(e) {
       if (e.target === apkBg) { S.apkModal = null; if (S._apkSSE) { S._apkSSE.close(); S._apkSSE = null; } DV.render(); }
     } } });
-    var apkBox = el("div", { c: "modal" });
+    var apkBox = el("div", { c: "modal", attr: { role: "dialog", "aria-modal": "true", "aria-labelledby": "modal-apk-title" } });
 
     /* Header */
     apkBox.appendChild(el("div", { c: "apk-header" }, [
-      el("span", { c: "apk-icon" }, "\uD83D\uDCE6"),
-      el("h3", { c: "apk-title flex-1" }, "Build Android APK"),
+      el("span", { c: "apk-icon", attr: { "aria-hidden": "true" } }, "\uD83D\uDCE6"),
+      el("h3", { c: "apk-title flex-1", attr: { id: "modal-apk-title" } }, "Build Android APK"),
       el("span", { c: "apk-meta" }, am.slug)
     ]));
 

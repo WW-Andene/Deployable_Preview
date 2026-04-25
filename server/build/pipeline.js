@@ -15,14 +15,33 @@
 
 const { execSync } = require("child_process");
 const fs   = require("fs");
+const os   = require("os");
 const path = require("path");
 
 const { runCmd } = require("../process");
 const { getConfig } = require("../config");
 const { detectPygame } = require("./detect");
 
+// F-C007: write token to a 0600 temp file and load it via git's
+// credential.helper=store --file=… Token never appears in argv (so `ps`
+// can't see it) and the file is unlinked synchronously on success or
+// failure. The remote URL itself stays clean.
+function withTokenCredentials(token, fn) {
+  const tmpFile = path.join(os.tmpdir(), "dv-git-cred-" + process.pid + "-" + Date.now() + ".txt");
+  const cleanup = () => { try { fs.unlinkSync(tmpFile); } catch (_) {} };
+  try {
+    fs.writeFileSync(tmpFile, "https://x-access-token:" + token + "@github.com\n", { mode: 0o600 });
+    const helper = "store --file=" + tmpFile;
+    return Promise.resolve(fn(helper)).finally(cleanup);
+  } catch (e) {
+    cleanup();
+    return Promise.reject(e);
+  }
+}
+
 async function updateRepo(owner, repo, branch, branchDir, addLog) {
   const config = getConfig();
+  const remoteUrl = "https://github.com/" + owner + "/" + repo + ".git";
   if (!fs.existsSync(path.join(branchDir, ".git"))) {
     // Clean up if dir exists but has no .git (corrupt/partial clone)
     if (fs.existsSync(branchDir)) {
@@ -31,10 +50,14 @@ async function updateRepo(owner, repo, branch, branchDir, addLog) {
     }
     addLog("Cloning " + owner + "/" + repo + " (branch: " + branch + ")...");
     fs.mkdirSync(branchDir, { recursive: true });
-    await runCmd("git clone --branch " + JSON.stringify(branch) + " --single-branch --depth 1 https://" + config.token + "@github.com/" + owner + "/" + repo + ".git .", branchDir);
+    await withTokenCredentials(config.token, (helper) =>
+      runCmd("git -c credential.helper= -c credential.helper=" + JSON.stringify(helper) + " clone --branch " + JSON.stringify(branch) + " --single-branch --depth 1 " + JSON.stringify(remoteUrl) + " .", branchDir)
+    );
   } else {
     addLog("Updating branch: " + branch);
-    await runCmd("git fetch origin " + JSON.stringify(branch), branchDir);
+    await withTokenCredentials(config.token, (helper) =>
+      runCmd("git -c credential.helper= -c credential.helper=" + JSON.stringify(helper) + " fetch origin " + JSON.stringify(branch), branchDir)
+    );
     await runCmd("git reset --hard origin/" + JSON.stringify(branch), branchDir);
   }
   let sha = "unknown";
@@ -43,9 +66,10 @@ async function updateRepo(owner, repo, branch, branchDir, addLog) {
   } catch (e) {
     addLog("WARNING: Could not read commit SHA: " + e.message);
   }
-  // Remove token from git remote to avoid credential leakage in workspace
+  // Belt-and-braces: ensure remote URL has no token even if a previous
+  // pre-fix clone left one embedded. Safe to run on a fresh clone too.
   try {
-    execSync("git remote set-url origin https://github.com/" + owner + "/" + repo + ".git", { cwd: branchDir, stdio: "ignore" });
+    execSync("git remote set-url origin " + JSON.stringify(remoteUrl), { cwd: branchDir, stdio: "ignore" });
   } catch (_) {}
   addLog("Commit: " + sha.slice(0, 7));
   return sha;

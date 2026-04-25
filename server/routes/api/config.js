@@ -45,10 +45,13 @@ const SUGGESTED_KEYS = [
 ];
 const SAFE_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 
+// F-C015: don't leak the leading bytes \u2014 token-type prefixes (ghp_, sk-, \u2026)
+// already shrink the search space; combined with the trailing 4 they hand
+// an attacker a useful brute-force prefix. Show only the trailing 4.
 function maskValue(val) {
   if (!val) return "";
-  if (val.length <= 8) return val.slice(0, 2) + "...";
-  return val.slice(0, 4) + "\u2022\u2022\u2022" + val.slice(-4);
+  if (val.length <= 4) return "\u2022\u2022\u2022\u2022";
+  return "\u2022\u2022\u2022\u2022" + val.slice(-4);
 }
 
 router.get("/secrets", (req, res) => {
@@ -82,6 +85,10 @@ router.get("/secrets/suggestions", (req, res) => {
   res.json(SUGGESTED_KEYS);
 });
 
+// F-C018: cap the number of stored secrets so a misbehaving caller can't
+// fill deployview.json with junk and OOM the parser on next load.
+const MAX_SECRETS = 200;
+
 router.post("/secrets", (req, res) => {
   const config = getConfig();
   if (!config.secrets) config.secrets = {};
@@ -89,6 +96,10 @@ router.post("/secrets", (req, res) => {
   if (!key || typeof key !== "string") return res.status(400).json({ error: "key required" });
   if (!SAFE_KEY_RE.test(key)) return res.status(400).json({ error: "Invalid key name \u2014 use A-Z, 0-9, _ only" });
   if (value === undefined || value === null) return res.status(400).json({ error: "value required" });
+  // Block adding new keys when at cap; updates to existing keys still allowed.
+  if (!Object.prototype.hasOwnProperty.call(config.secrets, key) && Object.keys(config.secrets).length >= MAX_SECRETS) {
+    return res.status(429).json({ error: "Secret cap reached (" + MAX_SECRETS + ")" });
+  }
   const trimmed = String(value).trim();
   if (trimmed) {
     config.secrets[key] = trimmed;
@@ -153,6 +164,53 @@ function _cachePutDate(sha, date) {
   }
   _commitDateCache.set(sha, date);
 }
+
+// ── User's GitHub repositories ──────────────────────────────────────────────
+// GET /api/github/repos?type=all|owner|member&search=foo
+// Returns the authenticated user's repos (own + collaborator + org member),
+// sorted by recent activity. 5-minute cache so polling the picker stays cheap.
+let _reposCache = null; // { fetchedAt, type, data }
+const REPOS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+router.get("/github/repos", async (req, res) => {
+  try {
+    const config = getConfig();
+    if (!config.token) return res.status(401).json({ error: "GitHub token not set" });
+    const type = (req.query.type || "all").toLowerCase();
+    const force = req.query.refresh === "1";
+    const now = Date.now();
+    if (!force && _reposCache && _reposCache.type === type && (now - _reposCache.fetchedAt) < REPOS_CACHE_TTL_MS) {
+      return res.json({ repos: _reposCache.data, cached: true, ageMs: now - _reposCache.fetchedAt });
+    }
+    // Pull up to 3 pages (300 repos). GitHub caps per_page at 100.
+    // sort=updated puts recently-touched repos first.
+    const all = [];
+    for (let page = 1; page <= 3; page++) {
+      const path = "/user/repos?per_page=100&sort=updated&type=" + encodeURIComponent(type) + "&page=" + page;
+      const batch = await ghApi(path, config.token);
+      if (!Array.isArray(batch) || batch.length === 0) break;
+      for (const r of batch) {
+        all.push({
+          owner: r.owner && r.owner.login,
+          repo: r.name,
+          fullName: r.full_name,
+          description: r.description || "",
+          private: !!r.private,
+          fork: !!r.fork,
+          archived: !!r.archived,
+          defaultBranch: r.default_branch,
+          updatedAt: r.updated_at,
+          pushedAt: r.pushed_at,
+          stars: r.stargazers_count || 0,
+          language: r.language || null
+        });
+      }
+      if (batch.length < 100) break;
+    }
+    _reposCache = { fetchedAt: now, type, data: all };
+    res.json({ repos: all, cached: false, count: all.length });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
 
 router.get("/github/:owner/:repo/branches", async (req, res) => {
   try {
@@ -401,8 +459,8 @@ const SAFE_NAME_RE = /^[a-zA-Z0-9._-]+$/;
 
 router.get("/config/export", (req, res) => {
   const config = getConfig();
-  // Strip secrets and token for safety — export only structure
-  const safe = { ...config, token: config.token ? "[redacted]" : "", secrets: undefined, preferences: config.preferences || {} };
+  // Strip secrets, token, and apiSecret for safety — export only structure
+  const safe = { ...config, token: config.token ? "[redacted]" : "", secrets: undefined, apiSecret: undefined, preferences: config.preferences || {}, __version: "1.1" };
   res.setHeader("Content-Disposition", 'attachment; filename="deployview-config.json"');
   res.json(safe);
 });
