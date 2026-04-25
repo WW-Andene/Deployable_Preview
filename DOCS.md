@@ -443,3 +443,200 @@ Every MCP tool is reachable via REST (CORS-open) for non-MCP clients:
 | `GET`  | `/badge/:owner/:repo/:slug`            | Shields-shaped status badge SVG |
 | `*`    | `/mcp` (`POST`/`GET`/`DELETE`/`OPTIONS`) | MCP Streamable HTTP transport for claude.ai |
 | `GET`  | `/sw.js`, `/manifest.webmanifest`, `/icon.svg` | PWA shell |
+
+---
+
+## §5 · MCP tools reference (95 tools)
+
+Every tool is registered once in `server/dv/tools/*.js` via
+`dv.defineTool({ name, category, description, requires, schema, handler })`
+and reachable via:
+
+- **MCP stdio** (`server/mcp.js`) — for Claude Desktop
+- **MCP Streamable HTTP** (`/mcp` endpoint) — for claude.ai web
+- **REST aliases** (`POST /api/dv/call/<name>` or legacy `/api/mcp/*`) — for curl/scripts
+
+Capability gates: tools declare `requires: [{kind: "browser"}, {kind: "library", name: "..."}]`.
+A missing capability returns a structured `MISSING_BROWSER` / `MISSING_LIBRARY` error
+with the exact `npm install` hint, never a stack trace.
+
+Every tool result is one of:
+
+```ts
+{ content: [{ type: "image"|"text", data?: base64, text?: string }], isError?: boolean }
+```
+
+Tools that need a deployment take the (`owner`, `repo`, `slug`) triple.
+Tools that produce screenshots accept `{ width, height, fullPage }`.
+
+### §5.1 Engine introspection
+
+| Tool | What it does |
+|---|---|
+| `dv_status` | Engine state: tool count, browser availability, library status, Groq auth |
+| `dv_tools` | Full tool registry with descriptions + categories |
+| `dv_state` | Cross-cutting snapshot: previews + browser + tunnel + last build |
+| `dv_toolbox` | Curated "what tool should I use for X" guide |
+| `dv_workflow` | Multi-step orchestrator (deploy → verify → audit chain) |
+
+### §5.2 Deploy / lifecycle
+
+| Tool | What it does |
+|---|---|
+| `list_previews` | All deployed previews with status, URLs, ports (2s cache) |
+| `build_status` | Status for one (owner, repo, slug) — sha, port, last build |
+| `trigger_build` | Kick off a rebuild or server restart |
+| `get_build_log` | Full build log text |
+| `deploy_and_verify` | One-shot: trigger → wait until ready → screenshot + console |
+| `deploy_repo` | End-to-end: add repo → detect framework → build default branch |
+| `run_test` | Built-in test harness — clicks every interactive element, captures errors |
+| `read_deployed_file` | Read any file from a built outputDir without re-cloning |
+
+### §5.3 History / rollback / annotation
+
+| Tool | What it does |
+|---|---|
+| `deployment_history` | Newest-first list of past builds with stable IDs |
+| `rollback` | Point the live URL at a prior snapshot — instant, no rebuild |
+| `compare_deployments` | File-level diff between two history entries |
+| `bisect_builds` | Binary-search history for a regression (returns time-travel URL) |
+| `annotate_deployment` | Attach a free-text note to a history entry |
+| `analyze_build_failure` | Regex-classify a failed log into one of 11 known causes + fix suggestion |
+| `commit_changelog` | GitHub commit list between two refs |
+| `compare_branches` | Diff two branches (commits + files) |
+
+### §5.4 Observation / browse
+
+| Tool | What it does |
+|---|---|
+| `screenshot` | PNG of a deployed preview (sized, full-page optional) |
+| `screenshot_multi` | Many screenshots in parallel — different viewports / paths |
+| `inspect` | Accessibility tree + DOM structure + computed roles |
+| `dom_query` | CSS-selector query, returns matched elements |
+| `find_all` | Find all elements matching a description |
+| `meta` | Title, OG tags, link tags, viewport, lang, favicon |
+| `framework_data` | Detect React/Vue/Svelte/etc. + version + dev-tools state |
+| `data_attrs` | All `data-*` attributes on the page |
+| `cross_viewport` | Render at multiple breakpoints, detect responsive issues |
+| `structure_analyze` | Heading outline + landmark regions for accessibility |
+
+### §5.5 Interaction (single tool, many actions)
+
+| Tool | What it does |
+|---|---|
+| `interact` | One tool, sub-actions: `click`, `type`, `fill`, `select`, `hover`, `focus`, `blur`, `back`, `forward`, `reload`, `key`, `tap`, `swipe`, `drag`, `scroll`, `pinch`, `dialog`, `evaluate`, `toggle`, `file-upload` |
+
+Iframe-scoped via `frame: <selector|url-substring|name>`. `actionTimeout`
+opt fails fast on missing selectors.
+
+### §5.6 Visual / pixel
+
+| Tool | What it does |
+|---|---|
+| `get_pixel_color` | RGB(A) at a single (x, y) — exact colour verification |
+| `get_element_rect` | Bounding box + computed styles (structured, not screenshot) |
+| `measure` | Distance / delta between two points or selectors |
+| `screenshot_diff` | Pixel-compare two PNGs, returns count + heatmap |
+| `tolerance_diff` | Anti-alias-tolerant diff via `looks-same` |
+| `visual_similarity` | SSIM index — better than pixel diff for perceptual change |
+| `palette` | Dominant colour palette (colorthief) |
+| `color_stats` | Vibrancy + luminance distribution |
+| `render_overlay` | Draw rectangles / labels on a screenshot for debug |
+| `image_info` | Dimensions + EXIF metadata |
+
+### §5.7 Audit / quality
+
+| Tool | What it does |
+|---|---|
+| `accessibility` | Full axe-core WCAG 2.1 audit |
+| `lighthouse` | Lighthouse perf / SEO / best-practices / a11y scores |
+| `vitals` | Core Web Vitals (CLS, LCP, INP, FCP, TTFB) live collection |
+| `performance` | Navigation timing, paint timings, resource counts, heap |
+| `code_coverage` | V8 coverage data for executed JS |
+| `validate_html` | W3C Nu HTML validator |
+| `computed_styles` | Computed style map; optional structural diff (css-tree) |
+| `css_specificity` | Specificity (A, B, C, D) for a selector |
+| `csp_check` | Content-Security-Policy parser + issue report |
+| `vuln_scan` | Known-vuln scan for shipped JS libs (retire) |
+| `security_audit` | Composite: CSP + headers + cookies + mixed content |
+
+### §5.8 Network / fetch
+
+| Tool | What it does |
+|---|---|
+| `capture_requests` | Record every network request the preview makes for N seconds |
+| `har_capture` | Same but in HAR format |
+| `download` | Trigger + capture a file download as base64 |
+| `web_fetch` | Universal URL fetcher (HTML, JSON, RSS, binaries, JS-rendered) |
+| `robots` | robots.txt fetch + parse |
+| `service_workers` | List + state of service workers in the page |
+| `resource_timing` | PerformanceResourceTiming entries (start, ttfb, duration) |
+| `cookies_full` | All cookies with full flag set (httpOnly, secure, sameSite) |
+
+### §5.9 Content / parsing
+
+| Tool | What it does |
+|---|---|
+| `ocr` | Read text from a screenshot (Tesseract or Groq vision) |
+| `text_diff` | Structured diff (chars / words / sentences / lines) |
+| `text_analysis` | Tokenize + sentiment + readability |
+| `lang_detect` | Detect language of a text snippet |
+| `broken_links` | Crawl-based broken-link scan (linkinator) |
+| `stack_trace` | Parse raw JS stack trace into structured frames |
+| `unminify` | Resolve minified positions back to original via source maps |
+| `convert_format` | JSON ⇄ YAML ⇄ XML ⇄ CSV |
+| `decode` | Base64 / URL / HTML-entity / JWT decoders |
+| `file_sniff` | Detect file type from magic bytes |
+
+### §5.10 Devtools / runtime
+
+| Tool | What it does |
+|---|---|
+| `page_eval` | Run arbitrary JS in the page (DevTools console equivalent), with `writeFilesTo` for bulk binary dumps |
+| `page_errors` | Always-on runtime error log (uncaught + console.error + requestfailed) |
+| `console_logs` | Capture console output for N seconds |
+| `get_last_error` | Last unhandled exception in the preview session |
+| `clipboard` | Read/write the browser clipboard |
+| `canvas_data` | Extract `<canvas>` pixels (2D `getImageData` / WebGL `toDataURL`) |
+| `idb_inspect` | Read all IndexedDB databases / object stores |
+| `browser_apis` | Detect which Web APIs the page is actually using |
+
+### §5.11 State / emulation / sessions
+
+| Tool | What it does |
+|---|---|
+| `emulate` | DPR, dark/light, reduced-motion, touch, geolocation, throttling, UA |
+| `storage` | Read/write cookies, localStorage, sessionStorage |
+| `reset_session` | Reset persistent browser session (clear all state) |
+| `list_pages` | All open pages/tabs in the current browser context |
+| `close_page` | Close a specific page by URL match |
+
+### §5.12 Sandbox (isolated session)
+
+| Tool | What it does |
+|---|---|
+| `sandbox_start` | Spin up an isolated browser context for a preview |
+| `sandbox_exec` | Run a step (interact / eval / screenshot) inside the sandbox |
+| `sandbox_state` | Inspect a sandbox's current state |
+| `sandbox_log` | Console + network log for a sandbox |
+| `sandbox_list` | List all active sandboxes |
+| `sandbox_close` | Tear down a sandbox |
+
+### §5.13 Live + composite
+
+| Tool | What it does |
+|---|---|
+| `live_burst` | Capture a burst of frames as a filmstrip (closest MCP equivalent of live video) |
+
+### §5.14 AI-augmented (Groq, requires `GROQ_API_KEY`)
+
+| Tool | What it does |
+|---|---|
+| `visual_query` | Ask Groq a natural-language question about a screenshot |
+| `find_element` | Groq locates an element by description, returns bounding box |
+| `visual_diff` | Two screenshots → Groq describes what changed in words |
+| `verify_loop` | Iterate evaluate → screenshot → Groq check until a condition is met |
+
+**Authorization model**: setting `GROQ_API_KEY` IS the permission grant.
+To revoke: set `preferences.claudeGroqAccess = false` in `deployview.json`.
+Single source of truth: `isClaudeGroqAuthorized()` in `mcp-groq.js`.
