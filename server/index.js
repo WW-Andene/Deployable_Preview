@@ -244,6 +244,9 @@ if (certPath && keyPath) {
   }
 }
 
+// I3: kick off the periodic preview health monitor + scheduled rebuilds.
+try { require("./monitor").start(); } catch (e) { console.warn("[monitor] start failed:", e.message); }
+
 httpServer = app.listen(PORT, () => {
   console.log("");
   console.log("  ⚡ DeployView running on http://localhost:" + PORT);

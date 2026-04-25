@@ -267,6 +267,63 @@ dv.defineTool({
   }
 });
 
+// ── read_deployed_file ────────────────────────────────────────────────────
+// Read any file from a deployed preview's output directory without
+// re-cloning the repo. Lets Claude inspect the bytes that are actually
+// being served (post-build artifacts, source maps, generated HTML).
+const fsLocal = require("fs");
+const pathLocal = require("path");
+dv.defineTool({
+  name: "read_deployed_file",
+  category: "deploy",
+  description:
+    "Read a file from a branch's deployed output directory. Use the path AS SERVED — e.g. " +
+    "'index.html' or 'assets/app.js' — relative to the preview root. Path traversal is rejected. " +
+    "Binary files come back base64-encoded with a `binary: true` flag; text files come back as-is.",
+  requires: [],
+  schema: {
+    type: "object",
+    properties: {
+      owner: OWNER, repo: REPO, slug: SLUG,
+      path: { type: "string", description: "Relative path within the deployed output directory" },
+      maxBytes: { type: "number", description: "Cap the returned bytes (default 1 MiB)" }
+    },
+    required: ["owner", "repo", "slug", "path"]
+  },
+  async handler(args) {
+    const key = args.owner + "/" + args.repo + ":" + args.slug;
+    const slot = buildStatus[key];
+    if (!slot || !slot.outputPath) return dv.failCode("NOT_BUILT", "No build output for " + key);
+    if (!fsLocal.existsSync(slot.outputPath)) return dv.failCode("OUTPUT_GONE", "Output dir missing on disk");
+    const root = pathLocal.resolve(slot.outputPath);
+    const requested = pathLocal.resolve(root, args.path);
+    if (!requested.startsWith(root + pathLocal.sep) && requested !== root) {
+      return dv.failCode("PATH_TRAVERSAL", "Path escapes the output directory: " + args.path);
+    }
+    let stat;
+    try { stat = fsLocal.statSync(requested); }
+    catch (e) { return dv.failCode("NOT_FOUND", "File not found: " + args.path); }
+    if (!stat.isFile()) return dv.failCode("NOT_A_FILE", "Path is a directory: " + args.path);
+    const cap = Math.max(1024, Math.min(Number(args.maxBytes) || (1024 * 1024), 50 * 1024 * 1024));
+    let buf;
+    try { buf = fsLocal.readFileSync(requested); }
+    catch (e) { return dv.failCode("READ_FAILED", e.message); }
+    const truncated = buf.length > cap;
+    if (truncated) buf = buf.slice(0, cap);
+    // Heuristic text/binary sniff: NUL byte in the first 8 KB → binary.
+    const sniff = buf.slice(0, Math.min(buf.length, 8192));
+    let isBinary = false;
+    for (let i = 0; i < sniff.length; i++) { if (sniff[i] === 0) { isBinary = true; break; } }
+    return dv.ok({
+      path: args.path,
+      bytes: stat.size,
+      truncated,
+      binary: isBinary,
+      content: isBinary ? buf.toString("base64") : buf.toString("utf8")
+    });
+  }
+});
+
 // ── annotate_deployment ───────────────────────────────────────────────────
 // Attach a free-text note to a specific history entry. Useful for AI to
 // record "what changed in this deploy" or for humans to mark a release

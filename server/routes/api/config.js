@@ -345,6 +345,23 @@ router.post("/repos", (req, res) => {
   res.json(newRepo);
 });
 
+// I2: repo-level PATCH for top-level toggles like autoPRPreviews.
+// Whitelisted to avoid accidental schema drift via unknown keys.
+const PATCHABLE_REPO_KEYS = ["autoPRPreviews", "description", "buildCommand", "outputDir", "baseDir", "startCommand", "mode"];
+router.patch("/repos/:owner/:repo", (req, res) => {
+  const config = getConfig();
+  const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
+  if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
+  for (const k of PATCHABLE_REPO_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, k)) {
+      if (k === "autoPRPreviews") repoConfig[k] = !!req.body[k];
+      else if (typeof req.body[k] === "string") repoConfig[k] = req.body[k];
+    }
+  }
+  saveConfig();
+  res.json({ ok: true, repo: repoConfig });
+});
+
 router.post("/repos/:owner/:repo/branch", (req, res) => {
   const config = getConfig();
   const { branch, baseDir, buildCommand, outputDir, mode, startCommand, envVars, language } = req.body;
@@ -408,6 +425,11 @@ router.put("/repos/:owner/:repo/branch", (req, res) => {
   if (language !== undefined) bc.language = language;
   if (previewPassword !== undefined) bc.previewPassword = String(previewPassword || "");
   if (req.body.injectSecrets !== undefined) bc.injectSecrets = !!req.body.injectSecrets;
+  if (req.body.schedule !== undefined) {
+    // I5: number = seconds between auto-rebuilds. 0 / null / "" disables.
+    const n = Number(req.body.schedule);
+    bc.schedule = (Number.isFinite(n) && n >= 30) ? n : 0;
+  }
   if (req.body.edge !== undefined) {
     // Light validation — accept the shape, ignore garbage. Redirect
     // statuses get coerced to a known set; missing arrays default to [].

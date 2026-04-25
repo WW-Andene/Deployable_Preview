@@ -144,10 +144,30 @@ DV.views.dashboard = function(app) {
         if (repo.description) headerLeft.appendChild(el("p", { c: "repo-meta" }, repo.description));
         headerLeft.appendChild(el("p", { c: "repo-meta" }, (repo.buildCommand || "npm run build") + " \u2192 " + (repo.outputDir || "dist")));
         header.appendChild(headerLeft);
-        header.appendChild(el("button", { c: "bd bs", attr: { title: "Delete repository" }, on: { click: function() {
+        var headerRight = el("div", { c: "flex-row gap-6 items-center" });
+        // I2: auto PR previews toggle. When ON, GitHub pull_request
+        // webhook events auto-add the head branch as pr-<N> + build it,
+        // and remove it on close. Off by default.
+        headerRight.appendChild(el("button", {
+          c: "bg bs",
+          attr: {
+            title: "Auto preview every PR (uses pull_request webhook)",
+            "aria-pressed": repo.autoPRPreviews ? "true" : "false"
+          },
+          on: { click: function() {
+            api("PATCH", "/api/repos/" + repo.owner + "/" + repo.repo, { autoPRPreviews: !repo.autoPRPreviews }).then(function(r) {
+              if (r.error) { DV.showToast(r.error, "error"); return; }
+              repo.autoPRPreviews = !!repo.autoPRPreviews ? false : true;
+              DV.showToast("Auto-PR previews " + (repo.autoPRPreviews ? "enabled" : "disabled"), "success");
+              DV.render();
+            });
+          } }
+        }, repo.autoPRPreviews ? "✓ Auto-PR" : "Auto-PR off"));
+        headerRight.appendChild(el("button", { c: "bd bs", attr: { title: "Delete repository" }, on: { click: function() {
           if (!confirm("Delete this repository?")) return;
           api("DELETE", "/api/repos/" + repo.owner + "/" + repo.repo).then(DV.loadRepos);
         } } }, "x"));
+        header.appendChild(headerRight);
         card.appendChild(header);
 
         var slugs = Object.keys(repo.branchStatuses || {});
@@ -235,6 +255,11 @@ DV.views.dashboard = function(app) {
               statusParts.push(el("span", {}, "Running \u2014 port " + (bs.serverPort || "?")));
             } else if (bs.status === "ready") {
               statusParts.push(el("span", {}, "Ready"));
+              // I3: surface health-monitor result. Healthy = silent;
+              // broken = red badge with reason on hover.
+              if (bs.health === "broken") {
+                statusParts.push(el("span", { c: "pill pill-err", attr: { title: "Health check failed: " + (bs.healthReason || "unknown") } }, "broken"));
+              }
             } else if (bs.status === "error") {
               // F2-003: surface "see Log" inline so users know how to recover.
               statusParts.push(el("span", {}, branchMode === "server" ? "Server failed" : "Build failed"));
@@ -328,7 +353,8 @@ DV.views.dashboard = function(app) {
                 previewPassword: bcLive.previewPassword || "",
                 injectSecrets: !!bcLive.injectSecrets,
                 envGroupIds: Array.isArray(bcLive.envGroupIds) ? bcLive.envGroupIds.slice() : [],
-                edge: bcLive.edge || { redirects: [], headers: [] }
+                edge: bcLive.edge || { redirects: [], headers: [] },
+                schedule: bcLive.schedule || 0
               };
               DV.render();
             } } }, DV.iconEl("edit")));

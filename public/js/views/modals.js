@@ -84,7 +84,8 @@ DV.views.modals = function(app) {
       { label: "Env-var groups", key: "envGroupIds", type: "envGroups", hint: "Reusable named bundles. Manage them in Settings → Env Groups." },
       { label: "Inject ALL stored secrets as env", key: "injectSecrets", type: "toggle", hint: "Exports every key from Settings → Secrets to the build/server. Use sparingly." },
       { label: "Preview password (optional)", key: "previewPassword", type: "password", placeholder: "leave blank for public preview", hint: "Visitors must enter this before the preview loads. Stored on this server only." },
-      { label: "Edge rules (advanced — JSON)", key: "edgeJson", type: "textarea", placeholder: '{ "redirects": [{ "from": "/old", "to": "/new", "status": 301 }], "headers": [{ "pathPattern": "/api/*", "headers": { "Access-Control-Allow-Origin": "*" } }] }', hint: "Per-branch redirects + response headers, applied at the proxy layer. Supports trailing /* in patterns." }
+      { label: "Edge rules (advanced — JSON)", key: "edgeJson", type: "textarea", placeholder: '{ "redirects": [{ "from": "/old", "to": "/new", "status": 301 }], "headers": [{ "pathPattern": "/api/*", "headers": { "Access-Control-Allow-Origin": "*" } }] }', hint: "Per-branch redirects + response headers, applied at the proxy layer. Supports trailing /* in patterns." },
+      { label: "Auto-rebuild schedule (seconds)", key: "schedule", placeholder: "0 = disabled, e.g. 3600 for hourly", hint: "Re-run this branch's build every N seconds. Minimum 30s, 0 disables." }
     ];
 
     // Hydrate edgeJson from m.edge once on first render
@@ -183,7 +184,8 @@ DV.views.modals = function(app) {
           slug: m.slug, baseDir: m.baseDir, buildCommand: m.buildCommand, outputDir: m.outputDir,
           mode: m.mode, startCommand: m.startCommand, envVars: m.envVars, language: m.language,
           customSlug: m.customSlug, previewPassword: m.previewPassword,
-          injectSecrets: m.injectSecrets, envGroupIds: m.envGroupIds || []
+          injectSecrets: m.injectSecrets, envGroupIds: m.envGroupIds || [],
+          schedule: Number(m.schedule) || 0
         };
         if (edge !== undefined) payload.edge = edge;
         api("PUT", "/api/repos/" + m.owner + "/" + m.repo + "/branch", payload).then(function(r) {
