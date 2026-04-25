@@ -42,6 +42,7 @@
   "optionalDependencies": {
     "playwright": "^1.40.0",
     "puppeteer-core": "^24.0.0",
+    "@ngrok/ngrok": "^1.4.0",
     "pixelmatch": "^6.0.0",
     "pngjs": "^7.0.0",
     "sharp": "^0.33.5",

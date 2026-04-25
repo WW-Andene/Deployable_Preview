@@ -235,7 +235,17 @@ function tryNgrok(port, onUrl, onFail) {
       }
       proc = {
         kill: () => {
-          try { if (typeof listener.close === "function") listener.close(); else ngrok.disconnect(url); } catch (_) {}
+          try {
+            if (typeof listener.close === "function") {
+              // close() returns a Promise in recent @ngrok/ngrok versions.
+              // Catch async rejection too — ERR_NGROK_333 (tunnel already
+              // closed) is a noisy non-error we want to swallow.
+              const p = listener.close();
+              if (p && typeof p.catch === "function") p.catch(() => {});
+            } else {
+              ngrok.disconnect(url);
+            }
+          } catch (_) {}
           try { ngrok.kill(); } catch (_) {}
         }
       };
