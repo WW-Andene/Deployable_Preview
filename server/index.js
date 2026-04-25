@@ -109,6 +109,11 @@ if (process.env.LOG_REQUESTS !== "false") {
   });
 }
 
+// H4: custom domains — must come BEFORE static + router so that a
+// CNAMEd hostname (preview.example.com) gets rewritten to its target
+// /preview/owner/repo/slug/ path before any other matching happens.
+app.use(require("./custom-domains").customDomainsMiddleware);
+
 app.use(express.static(path.join(__dirname, "..", "public")));
 
 // ── Health check ──

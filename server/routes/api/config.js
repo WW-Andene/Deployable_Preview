@@ -532,6 +532,44 @@ router.delete("/env-groups/:id", (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Custom domains (H4) ────────────────────────────────────────────────────
+// Map hostnames → (owner, repo, slug). Server-side this is just a
+// lookup the customDomainsMiddleware does on every request. The user
+// owns the DNS — they CNAME their domain at the DV host.
+const HOST_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+
+router.get("/domains", (req, res) => {
+  const cfg = getConfig();
+  const map = (cfg && cfg.domains) || {};
+  res.json({ domains: Object.keys(map).map(function(host){ return Object.assign({ host: host }, map[host]); }) });
+});
+
+router.post("/domains", (req, res) => {
+  const { host, owner, repo, slug } = req.body || {};
+  const h = String(host || "").toLowerCase().trim();
+  if (!HOST_RE.test(h)) return res.status(400).json({ error: "Invalid host (must be a real DNS name)" });
+  if (!owner || !repo || !slug) return res.status(400).json({ error: "owner, repo, slug required" });
+  const cfg = getConfig();
+  // Validate the target points at a configured branch.
+  const r = (cfg.repos || []).find(function(x){ return x.owner === owner && x.repo === repo; });
+  if (!r) return res.status(404).json({ error: "Repo not configured: " + owner + "/" + repo });
+  const bc = (r.activeBranches || []).find(function(b){ return branchSlug(b) === slug; });
+  if (!bc) return res.status(404).json({ error: "Branch not configured for slug: " + slug });
+  if (!cfg.domains) cfg.domains = {};
+  cfg.domains[h] = { owner, repo, slug };
+  saveConfig();
+  res.json({ ok: true, host: h, target: { owner, repo, slug }, hint: "Point '" + h + "' at this server via DNS A or CNAME, then visit https://" + h });
+});
+
+router.delete("/domains/:host", (req, res) => {
+  const cfg = getConfig();
+  const h = String(req.params.host || "").toLowerCase().trim();
+  if (!cfg.domains || !cfg.domains[h]) return res.status(404).json({ error: "host not mapped" });
+  delete cfg.domains[h];
+  saveConfig();
+  res.json({ ok: true });
+});
+
 // ── Workspace cleanup ─────────────────────────────────────────────────────
 router.get("/workspace/stats", (req, res) => {
   const { WORKSPACE, buildStatus: bs, buildKey, branchSlug } = require("../../build");
