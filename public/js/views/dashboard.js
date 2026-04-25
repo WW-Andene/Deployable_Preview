@@ -319,6 +319,17 @@ DV.views.dashboard = function(app) {
               };
               DV.render();
             } } }, DV.iconEl("edit")));
+            // H3: Download artifact (.zip of the current outputDir)
+            if (isLive) {
+              actions.appendChild(el("a", {
+                c: "bg bs", attr: {
+                  href: "/api/artifact/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug),
+                  download: "",
+                  title: "Download build artifact (.zip)",
+                  "aria-label": "Download build artifact"
+                }
+              }, "⤓"));
+            }
             // History viewer + rollback button
             actions.appendChild(el("button", { c: "bg bs", attr: { title: "Deployment history & rollback", "aria-label": "Deployment history" }, on: { click: function() {
               S.historyModal = { owner: repo.owner, repo: repo.repo, slug: slug, loading: true, history: [] };

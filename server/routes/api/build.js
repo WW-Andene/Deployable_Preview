@@ -219,6 +219,54 @@ router.post("/webhooks/:id/test", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// H3: Build artifact ZIP download. Streams a STORED-only ZIP of the
+// current outputDir so users can deploy the same bytes elsewhere or
+// hand them to a customer for offline review.
+const fsLocal = require("fs");
+const pathLocal = require("path");
+const { createZipStream } = require("../../zip-stream");
+const { buildStatus: bs2 } = require("../../build");
+
+function _walk(rootDir, sub, out) {
+  const cur = sub ? pathLocal.join(rootDir, sub) : rootDir;
+  let entries;
+  try { entries = fsLocal.readdirSync(cur, { withFileTypes: true }); }
+  catch (_) { return; }
+  for (const e of entries) {
+    const rel = sub ? pathLocal.posix.join(sub, e.name) : e.name;
+    if (e.isDirectory()) _walk(rootDir, rel, out);
+    else if (e.isFile())  out.push(rel);
+  }
+}
+
+router.get("/artifact/:owner/:repo", async (req, res) => {
+  const slug = req.query.slug || req.query.branch || "";
+  if (!slug) return res.status(400).json({ error: "slug required" });
+  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  const slot = bs2[key];
+  if (!slot || !slot.outputPath) return res.status(404).json({ error: "No build output for " + key });
+  if (!fsLocal.existsSync(slot.outputPath)) return res.status(410).json({ error: "Output dir missing on disk" });
+
+  const filename = req.params.repo + "-" + slug + "-" + (slot.commitSha || "").slice(0, 7) + ".zip";
+  res.setHeader("Content-Type", "application/zip");
+  res.setHeader("Content-Disposition", 'attachment; filename="' + filename.replace(/[^A-Za-z0-9._-]/g, "_") + '"');
+  res.setHeader("Cache-Control", "no-store");
+
+  const files = [];
+  _walk(slot.outputPath, "", files);
+
+  const z = createZipStream(res);
+  try {
+    for (const rel of files) {
+      await z.addFile(rel, pathLocal.join(slot.outputPath, rel));
+    }
+    await z.end();
+  } catch (e) {
+    console.error("[artifact] zip stream error:", e.message);
+    try { res.end(); } catch (_) {}
+  }
+});
+
 // Diff heatmap — PNG showing pixel changes vs. the previous build's thumb.
 router.get("/thumb-diff/:owner/:repo", (req, res) => {
   const slug = req.query.slug || req.query.branch || "";
