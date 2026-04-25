@@ -50,7 +50,10 @@ var S = {
   ghReposError: "",
   ghReposLoading: false,
   ghReposFilter: "",
-  ghReposType: "all"         // all | owner | member
+  ghReposType: "all",        // all | owner | member
+
+  // Share modal — { url, title } when open, null otherwise.
+  shareModal: null
 };
 
 var _dropdownCloseHandler = null;
@@ -258,6 +261,20 @@ window.DV = {
   loadRepos: loadRepos,
   fetchAvailableBranches: fetchAvailableBranches, addBranchToRepo: addBranchToRepo,
   fetchGhRepos: fetchGhRepos,
+  // openShare(url, title?) — preferred entry point. Uses native share sheet
+  // on supported devices (Android/iOS/macOS Safari), falls back to the QR
+  // modal on desktop / unsupported browsers. Always also offers clipboard.
+  openShare: function(url, title) {
+    if (!url) return;
+    var fullUrl = /^https?:\/\//i.test(url) ? url : (location.origin + url);
+    if (navigator.share && /Mobi|Android|iPhone|iPad/.test(navigator.userAgent)) {
+      navigator.share({ title: title || "DeployView preview", url: fullUrl })
+        .catch(function(){ S.shareModal = { url: fullUrl, title: title || "" }; render(); });
+      return;
+    }
+    S.shareModal = { url: fullUrl, title: title || "" };
+    render();
+  },
   loadMcpTools: loadMcpTools, showToast: showToast, iconBtn: iconBtn,
   views: views, VIEW_PRESETS: VIEW_PRESETS,
   getDropdownHandler: function() { return _dropdownCloseHandler; },

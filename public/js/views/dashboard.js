@@ -271,17 +271,10 @@ DV.views.dashboard = function(app) {
               actions.appendChild(el("button", { c: "bg bs", attr: { title: "New tab" }, on: { click: function() {
                 window.open(previewUrl, "_blank");
               } } }, DV.iconEl("arrow_out")));
-              actions.appendChild(el("button", { c: "bg bs", attr: { title: "Copy shareable URL (uses tunnel when active)" }, on: { click: function() {
+              actions.appendChild(el("button", { c: "bg bs", attr: { title: "Share (QR / native sheet / copy link)", "aria-label": "Share preview URL" }, on: { click: function() {
                 var origin = (S._tunnelStatus && S._tunnelStatus.url) ? S._tunnelStatus.url : window.location.origin;
                 var full = origin.replace(/\/$/, "") + previewUrl;
-                var done = function(ok){ DV.showToast(ok ? "Copied: " + full : "Copy failed", ok ? "success" : "error"); };
-                if (navigator.clipboard) {
-                  navigator.clipboard.writeText(full).then(function(){ done(true); }, function(){ done(false); });
-                } else {
-                  var ta = document.createElement("textarea"); ta.value = full; document.body.appendChild(ta);
-                  ta.select(); try { done(document.execCommand("copy")); } catch (e) { done(false); }
-                  document.body.removeChild(ta);
-                }
+                DV.openShare(full, repo.owner + "/" + repo.repo + " · " + slug);
               } } }, DV.iconEl("link")));
             }
 

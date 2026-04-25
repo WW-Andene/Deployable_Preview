@@ -1220,6 +1220,63 @@ button:disabled, button[disabled] {
 }
 .repo-picker-status .ml-8 { margin-left: 8px; }
 
+/* ─── Share modal (modals.js) ─── */
+.modal-share {
+  max-width: 380px;
+  text-align: center;
+}
+.share-qr-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 16px auto;
+  padding: 12px;
+  background: var(--sf2, rgba(255,255,255,0.04));
+  border-radius: var(--r-card);
+  max-width: 240px;
+}
+.share-qr {
+  width: 100%;
+  height: auto;
+  max-width: 220px;
+  display: block;
+}
+.share-url-input {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 10px 12px;
+  margin-top: 8px;
+  background: var(--sf1);
+  color: var(--tx1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+}
+.share-btn-row {
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 12px;
+  gap: 8px;
+}
+
+/* ─── Touch targets: ≥44px on touch devices (WCAG 2.5.5 Level AAA) ─── */
+@media (hover: none) and (pointer: coarse) {
+  button, .chip, [role="button"], .topbar-icon {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  /* Smaller "bs" buttons get padding bumped instead of width — keeps
+     them readable inline alongside text. */
+  .bs {
+    padding: 10px 14px;
+    font-size: 13px;
+  }
+  /* Compact chips inside picker rows still look right */
+  .repo-picker-types .chip,
+  .chip-row .chip {
+    padding: 8px 14px;
+  }
+}
+
 /* ─── preview.js ─── */
 .preview-controls {
   padding: 10px 16px;

@@ -104,6 +104,13 @@ DV.views.topbar = function(app) {
   if (S.view === "preview") {
     right.appendChild(el("button", { c: "bg bs", on: { click: function() { S.compareMode = !S.compareMode; S.compareBranch = ""; DV.render(); } } }, S.compareMode ? "Single" : "Compare"));
     right.appendChild(el("button", { c: "bg bs", on: { click: function() { S.refreshKey++; DV.render(); } } }, "Refresh"));
+    // Share button — uses native share sheet on mobile, QR + clipboard
+    // modal on desktop. Especially useful for opening a desktop preview
+    // on a phone via QR scan.
+    right.appendChild(el("button", { c: "bg bs", attr: { title: "Share preview", "aria-label": "Share preview URL" }, on: { click: function() {
+      var url = "/preview/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/" + S.activeBranch + "/";
+      DV.openShare(url, S.activeRepo.owner + "/" + S.activeRepo.repo + " · " + S.activeBranch);
+    } } }, "Share"));
     right.appendChild(el("button", { c: "bg bs", on: { click: function() {
       window.open("/test/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/" + S.activeBranch, "_blank");
     } } }, "Test"));
