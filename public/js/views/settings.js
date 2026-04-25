@@ -356,6 +356,210 @@ DV.views.settings = function(app) {
   }).catch(function() { wsBody.textContent = "Could not load."; });
   page.appendChild(section("Workspace", [wsBody]));
 
+  /* ══════════ Section: Outgoing webhooks ══════════ */
+  // Slack/Discord/custom URL receivers for build events. Lets a team
+  // wire DV into their existing channels without polling /api/repos.
+  var whBody = el("div", {});
+  whBody.appendChild(el("div", { c: "text-center pad-md" }, [el("span", { c: "spin" })]));
+
+  function loadWebhooks() {
+    api("GET", "/api/webhooks").then(function(r) {
+      whBody.innerHTML = "";
+      var list = (r && r.webhooks) || [];
+      var validEvents = (r && r.validEvents) || [];
+
+      // Existing webhooks
+      if (list.length === 0) {
+        whBody.appendChild(el("div", { c: "color-tx3 text-12 mb-12" }, "No webhooks configured."));
+      } else {
+        for (var i = 0; i < list.length; i++) {
+          (function(wh) {
+            var card = el("div", { c: "settings-key-row" });
+            card.appendChild(el("div", { c: "flex-row gap-8 items-center" }, [
+              el("span", { c: "settings-key-name" }, wh.label || wh.url),
+              el("span", { c: "pill " + (wh.enabled ? "pill-ok" : "pill-warn") }, wh.enabled ? "on" : "off"),
+              el("span", { c: "pill pill-info" }, wh.format),
+              el("span", { c: "color-tx3 text-11 font-mono" }, wh.events.join(","))
+            ]));
+            card.appendChild(el("div", { c: "color-tx3 text-12 font-mono mt-4" }, wh.url));
+            card.appendChild(el("div", { c: "flex-row gap-6 mt-6" }, [
+              el("button", { c: "bg bs", on: { click: function() {
+                api("POST", "/api/webhooks/" + wh.id + "/test").then(function(r) {
+                  DV.showToast(r.ok ? "Test event dispatched" : (r.error || "Failed"), r.ok ? "success" : "error");
+                });
+              } } }, "Test"),
+              el("button", { c: "bg bs", on: { click: function() {
+                api("PUT", "/api/webhooks/" + wh.id, { enabled: !wh.enabled }).then(loadWebhooks);
+              } } }, wh.enabled ? "Disable" : "Enable"),
+              el("button", { c: "bd bs", on: { click: function() {
+                if (!confirm("Delete this webhook?")) return;
+                api("DELETE", "/api/webhooks/" + wh.id).then(loadWebhooks);
+              } } }, "×")
+            ]));
+            whBody.appendChild(card);
+          })(list[i]);
+        }
+      }
+
+      // Add new
+      var form = el("div", { c: "settings-key-row" });
+      form.appendChild(el("div", { c: "label" }, "Add webhook"));
+      var urlInp = document.createElement("input");
+      urlInp.placeholder = "https://hooks.slack.com/services/… or https://discord.com/api/webhooks/…";
+      urlInp.className = "flex-1 font-mono text-12 mb-6";
+      form.appendChild(urlInp);
+      var labelInp = document.createElement("input");
+      labelInp.placeholder = "Label (optional, e.g. #builds Slack)";
+      labelInp.className = "flex-1 font-mono text-12 mb-6";
+      form.appendChild(labelInp);
+      // Format chips
+      var fmt = "json";
+      var fmtRow = el("div", { c: "chip-row mb-6" });
+      ["json", "slack", "discord"].forEach(function(f){
+        var chip = el("div", { c: "chip" + (fmt === f ? " on" : ""), on: { click: function(){
+          fmt = f;
+          [].forEach.call(fmtRow.children, function(c){ c.classList.toggle("on", c.textContent === f); });
+        } } }, f);
+        fmtRow.appendChild(chip);
+      });
+      form.appendChild(fmtRow);
+      // Event chips (multi-select)
+      var selectedEvents = ["*"];
+      var evRow = el("div", { c: "chip-row mb-6" });
+      ["*"].concat(validEvents).forEach(function(e){
+        var chip = el("div", { c: "chip" + (selectedEvents.indexOf(e) !== -1 ? " on" : ""), on: { click: function(){
+          var idx = selectedEvents.indexOf(e);
+          if (idx !== -1) selectedEvents.splice(idx, 1); else selectedEvents.push(e);
+          chip.classList.toggle("on", selectedEvents.indexOf(e) !== -1);
+        } } }, e);
+        evRow.appendChild(chip);
+      });
+      form.appendChild(evRow);
+      var secretInp = document.createElement("input");
+      secretInp.placeholder = "Optional HMAC secret (X-DV-Signature header)";
+      secretInp.type = "password";
+      secretInp.className = "flex-1 font-mono text-12 mb-6";
+      form.appendChild(secretInp);
+      form.appendChild(el("button", { c: "bp bs", on: { click: function() {
+        if (!urlInp.value.trim()) { DV.showToast("URL required", "error"); return; }
+        api("POST", "/api/webhooks", {
+          url: urlInp.value.trim(), label: labelInp.value.trim(),
+          format: fmt, events: selectedEvents.length ? selectedEvents : ["*"],
+          secret: secretInp.value.trim()
+        }).then(function(r) {
+          if (r.error) { DV.showToast(r.error, "error"); return; }
+          DV.showToast("Webhook added", "success");
+          urlInp.value = ""; labelInp.value = ""; secretInp.value = "";
+          loadWebhooks();
+        });
+      } } }, "Add"));
+      whBody.appendChild(form);
+    }).catch(function() { whBody.textContent = "Could not load."; });
+  }
+  loadWebhooks();
+  page.appendChild(section("Outgoing Webhooks", [whBody]));
+
+  /* ══════════ Section: Env-var groups ══════════ */
+  // Reusable named bundles of KEY=value, attached per-branch via the
+  // Edit modal. Values are masked (last 4) in the UI; full values only
+  // exist server-side.
+  var egBody = el("div", {});
+  egBody.appendChild(el("div", { c: "text-center pad-md" }, [el("span", { c: "spin" })]));
+
+  function loadEnvGroups() {
+    // Drop the modal-side cache so the next Edit modal pulls fresh.
+    delete S._envGroupsCache;
+    api("GET", "/api/env-groups").then(function(r) {
+      egBody.innerHTML = "";
+      var groups = (r && r.groups) || [];
+      if (groups.length === 0) {
+        egBody.appendChild(el("div", { c: "color-tx3 text-12 mb-12" }, "No env groups defined."));
+      } else {
+        for (var i = 0; i < groups.length; i++) {
+          (function(g) {
+            var card = el("div", { c: "settings-key-row" });
+            card.appendChild(el("div", { c: "flex-row gap-8 items-center" }, [
+              el("span", { c: "settings-key-name" }, g.name),
+              el("span", { c: "pill pill-info" }, g.id),
+              el("span", { c: "color-tx3 text-11" }, g.keyCount + " keys")
+            ]));
+            if (g.keys && g.keys.length) {
+              card.appendChild(el("div", { c: "color-tx3 text-12 font-mono mt-4" }, g.keys.join(", ")));
+            }
+            // Edit + delete
+            card.appendChild(el("div", { c: "flex-row gap-6 mt-6" }, [
+              el("button", { c: "bg bs", on: { click: function() { editEnvGroup(g.id); } } }, "Edit values"),
+              el("button", { c: "bd bs", on: { click: function() {
+                if (!confirm("Delete env group '" + g.name + "'?")) return;
+                api("DELETE", "/api/env-groups/" + g.id).then(loadEnvGroups);
+              } } }, "×")
+            ]));
+            egBody.appendChild(card);
+          })(groups[i]);
+        }
+      }
+
+      // Add new group
+      var form = el("div", { c: "settings-key-row" });
+      form.appendChild(el("div", { c: "label" }, "New group"));
+      var idInp = document.createElement("input");
+      idInp.placeholder = "id (e.g. staging — letters, numbers, _ -)";
+      idInp.className = "flex-1 font-mono text-12 mb-6";
+      form.appendChild(idInp);
+      var nameInp = document.createElement("input");
+      nameInp.placeholder = "name (display label)";
+      nameInp.className = "flex-1 font-mono text-12 mb-6";
+      form.appendChild(nameInp);
+      var varsInp = document.createElement("textarea");
+      varsInp.rows = 4;
+      varsInp.placeholder = "KEY=value\nDATABASE_URL=postgres://…";
+      varsInp.className = "flex-1 font-mono text-12 mb-6";
+      form.appendChild(varsInp);
+      form.appendChild(el("button", { c: "bp bs", on: { click: function() {
+        if (!idInp.value.trim()) { DV.showToast("id required", "error"); return; }
+        var vars = {};
+        varsInp.value.split("\n").forEach(function(line){
+          var t = line.trim(); if (!t || t.startsWith("#")) return;
+          var eq = t.indexOf("="); if (eq < 1) return;
+          vars[t.slice(0, eq).trim()] = t.slice(eq + 1).trim();
+        });
+        api("POST", "/api/env-groups", {
+          id: idInp.value.trim(), name: nameInp.value.trim() || idInp.value.trim(), vars: vars
+        }).then(function(r){
+          if (r.error) { DV.showToast(r.error, "error"); return; }
+          DV.showToast("Group created", "success");
+          idInp.value = ""; nameInp.value = ""; varsInp.value = "";
+          loadEnvGroups();
+        });
+      } } }, "Create"));
+      egBody.appendChild(form);
+    }).catch(function() { egBody.textContent = "Could not load."; });
+  }
+
+  function editEnvGroup(id) {
+    api("GET", "/api/env-groups/" + id).then(function(g) {
+      if (g.error) { DV.showToast(g.error, "error"); return; }
+      var current = "";
+      Object.keys(g.vars || {}).forEach(function(k){ current += k + "=\n"; });
+      var newVars = prompt("Replace ALL values for '" + g.name + "'.\n\nFormat: KEY=value, one per line.\nMasked existing keys:\n" + Object.keys(g.vars || {}).join(", "), current);
+      if (newVars === null) return;
+      var vars = {};
+      newVars.split("\n").forEach(function(line){
+        var t = line.trim(); if (!t || t.startsWith("#")) return;
+        var eq = t.indexOf("="); if (eq < 1) return;
+        var v = t.slice(eq + 1).trim();
+        if (v) vars[t.slice(0, eq).trim()] = v;
+      });
+      api("PUT", "/api/env-groups/" + id, { vars: vars }).then(function(r){
+        if (r.error) { DV.showToast(r.error, "error"); return; }
+        DV.showToast("Saved", "success");
+        loadEnvGroups();
+      });
+    });
+  }
+  loadEnvGroups();
+  page.appendChild(section("Env-Var Groups", [egBody]));
+
   /* ══════════ Section: Actions ══════════ */
   page.appendChild(section("Actions", [
     el("div", { c: "settings-actions-grid" }, [

@@ -53,7 +53,10 @@ var S = {
   ghReposType: "all",        // all | owner | member
 
   // Share modal — { url, title } when open, null otherwise.
-  shareModal: null
+  shareModal: null,
+
+  // Deployment history modal — { owner, repo, slug, loading, history[], error }
+  historyModal: null
 };
 
 var _dropdownCloseHandler = null;

@@ -1258,6 +1258,28 @@ button:disabled, button[disabled] {
   gap: 8px;
 }
 
+/* ─── Deployment history modal ─── */
+.modal-history { max-width: 560px; }
+.history-list {
+  max-height: 420px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  background: var(--sf1);
+  margin: 12px 0;
+}
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.history-row:last-child { border-bottom: 0; }
+.history-row-rollback { background: var(--accent-bg-faint, rgba(212,160,48,0.04)); }
+.history-row-main { flex: 1; min-width: 0; }
+.history-row-sha { color: var(--accent); font-weight: 600; font-size: 12px; }
+
 /* ─── Pull-to-refresh indicator (app.js DV.installPullToRefresh) ─── */
 .ptr-indicator {
   height: 0;

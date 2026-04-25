@@ -291,8 +291,50 @@ DV.views.dashboard = function(app) {
               S.logModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: repo.owner + "/" + repo.repo + ":" + slug }; DV.render();
             } } }, DV.iconEl("log")));
             actions.appendChild(el("button", { c: "bg bs", attr: { title: "Edit" }, on: { click: function() {
-              S.editModal = { owner: repo.owner, repo: repo.repo, slug: slug, branch: bs.branch, baseDir: bs.baseDir || "", buildCommand: bs.buildCommand || "", outputDir: bs.outputDir || "", mode: bs.mode || "static", startCommand: bs.startCommand || "", envVars: bs.envVars || "", language: bs.language || "auto" }; DV.render();
+              // Pull the live branchConfig from S.repos so newly-added
+              // fields (customSlug, previewPassword, envGroupIds,
+              // injectSecrets) make it into the modal even if the
+              // server hasn't surfaced them via buildStatus.
+              var bcLive = (repo.activeBranches || []).find(function(b){
+                // match either by branch name + baseDir OR customSlug
+                if (b.customSlug && b.customSlug === slug) return true;
+                var auto = (b.branch || "").replace(/\//g, "__") + (b.baseDir ? "--" + b.baseDir.replace(/\//g, "__") : "");
+                return auto === slug;
+              }) || {};
+              S.editModal = {
+                owner: repo.owner, repo: repo.repo, slug: slug,
+                branch: bs.branch || bcLive.branch,
+                baseDir: bcLive.baseDir || "",
+                buildCommand: bcLive.buildCommand || "",
+                outputDir: bcLive.outputDir || "",
+                mode: bcLive.mode || bs.mode || "static",
+                startCommand: bcLive.startCommand || "",
+                envVars: bcLive.envVars || "",
+                language: bcLive.language || "auto",
+                customSlug: bcLive.customSlug || "",
+                previewPassword: bcLive.previewPassword || "",
+                injectSecrets: !!bcLive.injectSecrets,
+                envGroupIds: Array.isArray(bcLive.envGroupIds) ? bcLive.envGroupIds.slice() : []
+              };
+              DV.render();
             } } }, DV.iconEl("edit")));
+            // History viewer + rollback button
+            actions.appendChild(el("button", { c: "bg bs", attr: { title: "Deployment history & rollback", "aria-label": "Deployment history" }, on: { click: function() {
+              S.historyModal = { owner: repo.owner, repo: repo.repo, slug: slug, loading: true, history: [] };
+              DV.render();
+              api("GET", "/api/history/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(function(r) {
+                if (!S.historyModal) return;
+                S.historyModal.loading = false;
+                S.historyModal.history = (r && r.history) || [];
+                S.historyModal.error = r && r.error;
+                DV.render();
+              }).catch(function(e) {
+                if (!S.historyModal) return;
+                S.historyModal.loading = false;
+                S.historyModal.error = e.message || "Failed to load history";
+                DV.render();
+              });
+            } } }, "↶"));
             actions.appendChild(el("button", { c: "bg bs btn-accent-highlight", attr: { title: "APK" }, on: { click: function() {
               S.apkModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: repo.owner + "/" + repo.repo + ":" + slug }; DV.render();
             } } }, "APK"));

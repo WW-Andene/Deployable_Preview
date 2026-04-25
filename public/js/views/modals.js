@@ -9,6 +9,7 @@ document.addEventListener("keydown", function(e) {
   if (S.logModal) { S.logModal = null; if (S._logSSE) { S._logSSE.close(); S._logSSE = null; } changed = true; }
   if (S.editModal) { S.editModal = null; changed = true; }
   if (S.shareModal) { S.shareModal = null; changed = true; }
+  if (S.historyModal) { S.historyModal = null; changed = true; }
   if (changed) DV.render();
 });
 
@@ -485,6 +486,65 @@ DV.views.modals = function(app) {
     sg.appendChild(sb);
     app.appendChild(sg);
     focusTrap(sb);
+  }
+
+  /* ═══════════════ Deployment-history modal ═══════════════ */
+  if (S.historyModal) {
+    var hm = S.historyModal;
+    var hbg = el("div", { c: "modal-bg", on: { click: function(e) { if (e.target === hbg) { S.historyModal = null; DV.render(); } } } });
+    var hbox = el("div", { c: "modal modal-history", attr: { role: "dialog", "aria-modal": "true", "aria-labelledby": "modal-history-title" } });
+    hbox.appendChild(el("h3", { c: "modal-title", attr: { id: "modal-history-title" } }, "Deployment history — " + hm.owner + "/" + hm.repo + " · " + hm.slug));
+
+    if (hm.loading) {
+      hbox.appendChild(el("div", { c: "text-center pad-md" }, [el("span", { c: "spin" })]));
+    } else if (hm.error) {
+      hbox.appendChild(el("div", { c: "color-err font-mono text-12" }, hm.error));
+    } else if (!hm.history.length) {
+      hbox.appendChild(el("div", { c: "color-tx3 text-12 pad-md" }, "No deployment history yet — build the branch at least twice to see entries here."));
+    } else {
+      var listBody = el("div", { c: "history-list" });
+      for (var hi = 0; hi < hm.history.length; hi++) {
+        (function(entry) {
+          var rolledBack = entry.by === "rollback";
+          var row = el("div", { c: "history-row" + (rolledBack ? " history-row-rollback" : "") });
+
+          var meta = el("div", { c: "history-row-main" });
+          meta.appendChild(el("div", { c: "history-row-label" }, [
+            el("span", { c: "history-row-sha font-mono" }, entry.commitShort || "—"),
+            el("span", { c: "color-tx3 text-11" }, " · " + (entry.timestamp ? new Date(entry.timestamp).toLocaleString() : "?")),
+            entry.duration ? el("span", { c: "color-tx3 text-11" }, " · " + entry.duration + "s") : null,
+            rolledBack ? el("span", { c: "pill pill-warn" }, "rollback") : null
+          ].filter(Boolean)));
+          row.appendChild(meta);
+
+          // Don't offer rollback to the row that's already a rollback
+          // action (it's an audit entry, not a snapshot). Snapshots are
+          // entries with by="build".
+          if (entry.by === "build") {
+            row.appendChild(el("button", { c: "bg bs", on: { click: function() {
+              if (!confirm("Roll the live preview back to commit " + (entry.commitShort || entry.id) + "?\n\nDoes NOT re-run the build — instantly serves the older bytes.")) return;
+              api("POST", "/api/rollback/" + hm.owner + "/" + hm.repo, { slug: hm.slug, historyId: entry.id }).then(function(r) {
+                if (r.error) { DV.showToast(r.error, "error"); return; }
+                DV.showToast("Rolled back to " + (entry.commitShort || entry.id), "success");
+                S.historyModal = null;
+                DV.loadRepos();
+              });
+            } } }, "Rollback"));
+          }
+
+          listBody.appendChild(row);
+        })(hm.history[hi]);
+      }
+      hbox.appendChild(listBody);
+    }
+
+    hbox.appendChild(el("div", { c: "btn-row" }, [
+      el("button", { c: "bg flex-1", on: { click: function() { S.historyModal = null; DV.render(); } } }, "Close")
+    ]));
+
+    hbg.appendChild(hbox);
+    app.appendChild(hbg);
+    focusTrap(hbox);
   }
 };
 
