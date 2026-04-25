@@ -339,7 +339,10 @@ function createLogger(key) {
   let log = "";
   function addLog(msg) {
     log += msg + "\n";
-    buildStatus[key].log = log;
+    // Guard: buildStatus[key] may have been cleared if the repo/branch was
+    // deleted or the build was superseded mid-flight. Don't crash the
+    // whole build.js — just drop the log line silently.
+    if (buildStatus[key]) buildStatus[key].log = log;
     broadcastLog(key, msg);
     console.log("[" + key + "] " + msg);
   }
@@ -624,8 +627,8 @@ async function startServer(repoConfig, branchConfig, isRestart) {
     });
 
     runningServers[key] = { proc: child, port, status: "starting", restarts };
-    child.stdout.on("data", (d) => { addLog.setLog(addLog.getLog() + d.toString()); buildStatus[key].log = addLog.getLog(); broadcastLog(key, d.toString()); });
-    child.stderr.on("data", (d) => { addLog.setLog(addLog.getLog() + d.toString()); buildStatus[key].log = addLog.getLog(); broadcastLog(key, d.toString()); });
+    child.stdout.on("data", (d) => { addLog.setLog(addLog.getLog() + d.toString()); if (buildStatus[key]) buildStatus[key].log = addLog.getLog(); broadcastLog(key, d.toString()); });
+    child.stderr.on("data", (d) => { addLog.setLog(addLog.getLog() + d.toString()); if (buildStatus[key]) buildStatus[key].log = addLog.getLog(); broadcastLog(key, d.toString()); });
     child.on("exit", (code) => {
       addLog("Server exited with code " + code);
       saveLog(key, addLog.getLog());
