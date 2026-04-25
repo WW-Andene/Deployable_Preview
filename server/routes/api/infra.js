@@ -125,4 +125,76 @@ router.post("/tunnel/stop", (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Live preview stream (MJPEG) ──────────────────────────────────────────────
+// GET /api/live/:owner/:repo/:slug
+// Opens a long-lived multipart/x-mixed-replace response. Each frame is a PNG
+// captured from the persistent preview page via the existing session pool.
+// Human-facing: open in any <img src="…">, or paste the URL in a browser.
+// Closes automatically after 5 minutes or when the client disconnects.
+router.get("/live/:owner/:repo/:slug", async (req, res) => {
+  const { owner, repo, slug } = req.params;
+  const fps      = Math.max(0.5, Math.min(Number(req.query.fps) || 2, 10));
+  const maxSecs  = Math.max(5, Math.min(Number(req.query.seconds) || 300, 600));
+  const width    = Number(req.query.width)  || 1280;
+  const height   = Number(req.query.height) || 720;
+  const boundary = "dvframe";
+
+  let browserMod;
+  try { browserMod = require("../../browser"); } catch (e) { res.status(500).json({ error: "Browser module unavailable" }); return; }
+  if (!browserMod.hasPlaywright || !browserMod.hasPlaywright()) {
+    res.status(503).json({ error: "No browser available on this host. Install playwright or configure BROWSERLESS_API_KEY." });
+    return;
+  }
+
+  res.writeHead(200, {
+    "Content-Type": "multipart/x-mixed-replace; boundary=" + boundary,
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Connection": "close",
+    "Pragma": "no-cache"
+  });
+
+  const intervalMs = Math.round(1000 / fps);
+  const stopAt = Date.now() + maxSecs * 1000;
+  let aborted = false;
+
+  req.on("close", function() { aborted = true; });
+  res.on("error", function() { aborted = true; });
+
+  while (!aborted && Date.now() < stopAt) {
+    let shot;
+    try {
+      shot = await browserMod.takeScreenshot({ owner, repo, slug, width, height, fullPage: false });
+    } catch (e) {
+      shot = { error: e.message };
+    }
+    if (aborted) break;
+    if (shot && shot.base64) {
+      const buf = Buffer.from(shot.base64, "base64");
+      try {
+        res.write("--" + boundary + "\r\n");
+        res.write("Content-Type: image/png\r\n");
+        res.write("Content-Length: " + buf.length + "\r\n\r\n");
+        res.write(buf);
+        res.write("\r\n");
+      } catch (_) { aborted = true; break; }
+    } else if (shot && shot.error) {
+      // Send a tiny text frame carrying the error so the viewer sees something
+      const msg = Buffer.from("live stream error: " + shot.error, "utf8");
+      try {
+        res.write("--" + boundary + "\r\n");
+        res.write("Content-Type: text/plain\r\n");
+        res.write("Content-Length: " + msg.length + "\r\n\r\n");
+        res.write(msg);
+        res.write("\r\n");
+      } catch (_) { aborted = true; break; }
+      // Back off harder on repeated errors
+      await new Promise(function(r){ setTimeout(r, 1500); });
+      continue;
+    }
+    await new Promise(function(r){ setTimeout(r, intervalMs); });
+  }
+
+  try { res.end(); } catch (_) {}
+});
+
 module.exports = router;

@@ -22,3 +22,5 @@ require("./engine");
 require("./aggregate");
 require("./devtools");
 require("./codec");
+require("./sandbox");
+require("./live");
