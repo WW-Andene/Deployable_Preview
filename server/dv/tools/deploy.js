@@ -267,6 +267,100 @@ dv.defineTool({
   }
 });
 
+// ── compare_deployments ───────────────────────────────────────────────────
+// Compute a structured diff between two history snapshots: added,
+// removed, changed (size delta), unchanged-count, total bytes per side.
+// Lets Claude reason "what shipped between these two builds" at the
+// file level without downloading either side.
+const fsLocal2 = require("fs");
+const pathLocal2 = require("path");
+function _walkSizes(rootDir) {
+  const out = new Map();
+  function walk(d, sub) {
+    let entries;
+    try { entries = fsLocal2.readdirSync(d, { withFileTypes: true }); } catch (_) { return; }
+    for (const e of entries) {
+      const full = pathLocal2.join(d, e.name);
+      const rel = sub ? sub + "/" + e.name : e.name;
+      if (e.isDirectory()) walk(full, rel);
+      else if (e.isFile()) {
+        try { out.set(rel, fsLocal2.statSync(full).size); } catch (_) {}
+      }
+    }
+  }
+  walk(rootDir, "");
+  return out;
+}
+
+dv.defineTool({
+  name: "compare_deployments",
+  category: "deploy",
+  description:
+    "Diff two deployment-history snapshots at the file level. Returns lists of added, " +
+    "removed, and changed files (with byte deltas) plus aggregate sizes. Pass two `id`s from " +
+    "deployment_history. Perfect for AI-generated 'what changed in this release' summaries.",
+  requires: [],
+  schema: {
+    type: "object",
+    properties: {
+      owner: OWNER, repo: REPO, slug: SLUG,
+      base: { type: "string", description: "Older history entry id (or 'latest' for the most recent build)" },
+      head: { type: "string", description: "Newer history entry id (or 'current' for the live output)" },
+      maxFilesPerCategory: { type: "number", description: "Cap each of added/removed/changed (default 200)" }
+    },
+    required: ["owner", "repo", "slug", "base", "head"]
+  },
+  async handler(args) {
+    const key = args.owner + "/" + args.repo + ":" + args.slug;
+    const hist = require("../../build").getHistory(key) || [];
+    const slot = require("../../build").buildStatus[key] || {};
+    function resolveDir(token) {
+      if (token === "current") return slot.outputPath || null;
+      if (token === "latest") {
+        const h = hist.find(function(x){ return x && x.by === "build"; });
+        return h && h.snapshotDir;
+      }
+      const h = hist.find(function(x){ return x && x.id === token; });
+      return h && h.snapshotDir;
+    }
+    const baseDir = resolveDir(args.base);
+    const headDir = resolveDir(args.head);
+    if (!baseDir) return dv.failCode("BASE_NOT_FOUND", "Base snapshot not found / not on disk: " + args.base);
+    if (!headDir) return dv.failCode("HEAD_NOT_FOUND", "Head snapshot not found / not on disk: " + args.head);
+
+    const baseMap = _walkSizes(baseDir);
+    const headMap = _walkSizes(headDir);
+    const added = [], removed = [], changed = [];
+    let baseTotal = 0, headTotal = 0;
+    for (const [, v] of baseMap) baseTotal += v;
+    for (const [, v] of headMap) headTotal += v;
+
+    for (const [path, size] of headMap) {
+      if (!baseMap.has(path)) added.push({ path, bytes: size });
+      else if (baseMap.get(path) !== size) {
+        const before = baseMap.get(path);
+        changed.push({ path, before, after: size, delta: size - before });
+      }
+    }
+    for (const [path, size] of baseMap) {
+      if (!headMap.has(path)) removed.push({ path, bytes: size });
+    }
+    const cap = Math.max(1, Math.min(Number(args.maxFilesPerCategory) || 200, 5000));
+    return dv.ok({
+      base: { ref: args.base, files: baseMap.size, totalBytes: baseTotal },
+      head: { ref: args.head, files: headMap.size, totalBytes: headTotal },
+      delta: {
+        files: headMap.size - baseMap.size,
+        bytes: headTotal - baseTotal,
+        bytesPct: baseTotal > 0 ? +(((headTotal - baseTotal) / baseTotal) * 100).toFixed(2) : null
+      },
+      added:   { count: added.length,   shown: Math.min(added.length, cap),   items: added.slice(0, cap) },
+      removed: { count: removed.length, shown: Math.min(removed.length, cap), items: removed.slice(0, cap) },
+      changed: { count: changed.length, shown: Math.min(changed.length, cap), items: changed.sort(function(a,b){ return Math.abs(b.delta) - Math.abs(a.delta); }).slice(0, cap) }
+    });
+  }
+});
+
 // ── read_deployed_file ────────────────────────────────────────────────────
 // Read any file from a deployed preview's output directory without
 // re-cloning the repo. Lets Claude inspect the bytes that are actually
