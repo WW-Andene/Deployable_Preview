@@ -79,4 +79,43 @@ function snapshot() {
   return out;
 }
 
-module.exports = { inc, set, observe, snapshot };
+// F-M005: Prometheus text-format exporter. Names are sanitised to
+// [a-zA-Z_:][a-zA-Z0-9_:]*. Counters become _total; histograms expand to
+// _bucket / _sum / _count.
+function safeName(n) { return String(n).replace(/[^a-zA-Z0-9_:]/g, "_"); }
+function prometheus() {
+  const lines = [];
+  lines.push("# HELP dv_uptime_seconds Process uptime");
+  lines.push("# TYPE dv_uptime_seconds gauge");
+  lines.push("dv_uptime_seconds " + Math.round(process.uptime()));
+  lines.push("# HELP dv_memory_heap_bytes Resident heap size");
+  lines.push("# TYPE dv_memory_heap_bytes gauge");
+  lines.push("dv_memory_heap_bytes " + process.memoryUsage().heapUsed);
+  for (const k of Object.keys(counters)) {
+    const n = "dv_" + safeName(k) + "_total";
+    lines.push("# TYPE " + n + " counter");
+    lines.push(n + " " + counters[k]);
+  }
+  for (const k of Object.keys(gauges)) {
+    const n = "dv_" + safeName(k);
+    lines.push("# TYPE " + n + " gauge");
+    lines.push(n + " " + gauges[k]);
+  }
+  for (const k of Object.keys(hists)) {
+    const h = hists[k];
+    const n = "dv_" + safeName(k) + "_ms";
+    lines.push("# TYPE " + n + " histogram");
+    let cumulative = 0;
+    for (let i = 0; i < BUCKETS.length; i++) {
+      cumulative += h.buckets[i];
+      lines.push(n + '_bucket{le="' + BUCKETS[i] + '"} ' + cumulative);
+    }
+    cumulative += h.buckets[BUCKETS.length];
+    lines.push(n + '_bucket{le="+Inf"} ' + cumulative);
+    lines.push(n + "_sum " + h.sum);
+    lines.push(n + "_count " + h.count);
+  }
+  return lines.join("\n") + "\n";
+}
+
+module.exports = { inc, set, observe, snapshot, prometheus };

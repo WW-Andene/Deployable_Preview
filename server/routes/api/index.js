@@ -90,6 +90,10 @@ router.use("/", require("./fetch"));
 // ── Metrics + health ─────────────────────────────────────────────────────────
 const metrics = require("../../metrics");
 router.get("/metrics", (req, res) => { res.json(metrics.snapshot()); });
+// F-M005: Prometheus scrape endpoint
+router.get("/metrics/prometheus", (req, res) => {
+  res.type("text/plain; version=0.0.4").send(metrics.prometheus());
+});
 
 router.get("/health", (req, res) => {
   let validation = { ok: true };
