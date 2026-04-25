@@ -70,6 +70,8 @@ function buildCommands() {
               run: function() { S.view = "dashboard"; DV.render(); } });
   cmds.push({ id: "nav.settings",  label: "Go to Settings",    hint: "navigation · ,", section: "Nav",
               run: function() { S.view = "settings"; DV.render(); } });
+  cmds.push({ id: "nav.analytics", label: "Open Analytics",    hint: "navigation · live metrics", section: "Nav",
+              run: function() { S.view = "analytics"; DV.render(); } });
   cmds.push({ id: "nav.mcp",       label: "Open MCP Tools",    hint: "navigation", section: "Nav",
               run: function() { S.mcpAction = null; S.mcpResult = null; DV.loadMcpTools(); S.view = "mcp"; DV.render(); } });
   cmds.push({ id: "nav.addRepo",   label: "Add Repository",    hint: "navigation · n", section: "Nav",
@@ -144,6 +146,46 @@ function buildCommands() {
           run: function() {
             S.logModal = { owner: rr.owner, repo: rr.repo, slug: slug, key: rr.owner + "/" + rr.repo + ":" + slug };
             DV.render();
+          }
+        });
+        cmds.push({
+          id: "share." + rr.owner + "/" + rr.repo + "/" + slug,
+          label: "Share preview — " + label,
+          hint: "share · QR + clipboard",
+          section: "Previews",
+          run: function() {
+            var origin = (S._tunnelStatus && S._tunnelStatus.url) ? S._tunnelStatus.url : window.location.origin;
+            var url = origin.replace(/\/$/, "") + "/preview/" + rr.owner + "/" + rr.repo + "/" + slug + "/";
+            DV.openShare(url, rr.owner + "/" + rr.repo + " · " + slug);
+          }
+        });
+        cmds.push({
+          id: "history." + rr.owner + "/" + rr.repo + "/" + slug,
+          label: "Deployment history — " + label,
+          hint: "history · rollback",
+          section: "Previews",
+          run: function() {
+            S.historyModal = { owner: rr.owner, repo: rr.repo, slug: slug, loading: true, history: [] };
+            DV.render();
+            api("GET", "/api/history/" + rr.owner + "/" + rr.repo + "?slug=" + encodeURIComponent(slug)).then(function(r) {
+              if (!S.historyModal) return;
+              S.historyModal.loading = false;
+              S.historyModal.history = (r && r.history) || [];
+              DV.render();
+            }).catch(function(e) {
+              if (!S.historyModal) return;
+              S.historyModal.loading = false; S.historyModal.error = e.message;
+              DV.render();
+            });
+          }
+        });
+        cmds.push({
+          id: "artifact." + rr.owner + "/" + rr.repo + "/" + slug,
+          label: "Download artifact — " + label,
+          hint: "deploy · zip",
+          section: "Previews",
+          run: function() {
+            window.location.href = "/api/artifact/" + rr.owner + "/" + rr.repo + "?slug=" + encodeURIComponent(slug);
           }
         });
         if (bs.status === "running" || bs.status === "ready") {

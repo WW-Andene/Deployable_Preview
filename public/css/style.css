@@ -1310,6 +1310,52 @@ button:disabled, button[disabled] {
 .history-comment-text { grid-area: text; color: var(--tx2); white-space: pre-wrap; word-break: break-word; }
 .history-comment-del  { grid-area: del; align-self: start; padding: 2px 8px; font-size: 14px; line-height: 1; }
 
+/* ─── Visual diff slider (modals.js diffModal) ─── */
+.modal-diff { max-width: 720px; }
+.diff-stage {
+  position: relative;
+  width: 100%;
+  background: #000;
+  border-radius: var(--r-card);
+  overflow: hidden;
+  cursor: ew-resize;
+  user-select: none;
+  touch-action: none;
+}
+.diff-img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.diff-img-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* clipPath inset() set inline by JS */
+}
+.diff-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  pointer-events: none;
+  box-shadow: 0 0 12px rgba(212,160,48,0.8);
+}
+.diff-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translate(-50%, -50%);
+  border: 3px solid var(--bg);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+}
+
 /* ─── Analytics view (analytics.js) ─── */
 .stat-tile-grid {
   display: grid;
@@ -1381,6 +1427,35 @@ button:disabled, button[disabled] {
 .ptr-indicator.ptr-armed {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* ─── Floating Action Button (mobile palette shortcut) ─── */
+.dv-fab {
+  display: none;        /* desktop: not shown — Cmd/Ctrl+K already exists */
+}
+@media (hover: none) and (pointer: coarse) {
+  .dv-fab {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    position: fixed;
+    right: max(20px, env(safe-area-inset-right));
+    bottom: max(20px, env(safe-area-inset-bottom));
+    padding: 14px 20px;
+    background: var(--accent);
+    color: var(--bg);
+    border: 0;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(212,160,48,0.4);
+    z-index: 50;
+    transition: transform 120ms var(--ease-fast, ease);
+  }
+  .dv-fab:active { transform: scale(0.96); }
+  .dv-fab-glyph { font-size: 18px; line-height: 1; }
 }
 
 /* ─── Touch targets: ≥44px on touch devices (WCAG 2.5.5 Level AAA) ─── */

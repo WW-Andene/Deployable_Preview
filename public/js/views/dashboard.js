@@ -358,6 +358,17 @@ DV.views.dashboard = function(app) {
               };
               DV.render();
             } } }, DV.iconEl("edit")));
+            // I6: Visual diff slider — only show when we actually have
+            // a diff thumbnail (i.e. there's been at least one prior build).
+            if (isLive && bs.diff && typeof bs.diff.percent === "number" && bs.diff.percent > 0) {
+              actions.appendChild(el("button", {
+                c: "bg bs", attr: { title: "Visual diff (before / after slider)", "aria-label": "Visual diff" },
+                on: { click: function() {
+                  S.diffModal = { owner: repo.owner, repo: repo.repo, slug: slug, thumbAt: bs.thumbAt, diff: bs.diff };
+                  DV.render();
+                } }
+              }, "◐"));
+            }
             // H3: Download artifact (.zip of the current outputDir)
             if (isLive) {
               actions.appendChild(el("a", {

@@ -56,7 +56,10 @@ var S = {
   shareModal: null,
 
   // Deployment history modal — { owner, repo, slug, loading, history[], error }
-  historyModal: null
+  historyModal: null,
+
+  // Visual diff modal — { owner, repo, slug, thumbAt, diff } when open.
+  diffModal: null
 };
 
 var _dropdownCloseHandler = null;
@@ -209,6 +212,21 @@ function render() {
   // Global overlays — rendered on top of every view when open
   if (DV.renderPalette) DV.renderPalette(app);
   if (DV.renderShortcuts) DV.renderShortcuts(app);
+
+  // I7: Floating Action Button — mobile-only via CSS @media. Shortcut
+  // to the command palette. Hidden on the loading + setup views since
+  // there's nothing to do until auth's done.
+  if (S.view !== "loading" && S.view !== "setup" && !S.paletteOpen) {
+    var fab = el("button", {
+      c: "dv-fab",
+      attr: { title: "Open command palette", "aria-label": "Open command palette" },
+      on: { click: function() { DV.openPalette(); } }
+    }, [
+      el("span", { c: "dv-fab-glyph" }, "⌘"),
+      el("span", { c: "dv-fab-label" }, "Actions")
+    ]);
+    app.appendChild(fab);
+  }
 }
 
 // Init
