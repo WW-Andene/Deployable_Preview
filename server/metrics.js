@@ -11,11 +11,29 @@ const counters = Object.create(null);
 const gauges   = Object.create(null);
 const hists    = Object.create(null);
 
+/**
+ * Increment a counter. Default delta is 1.
+ * @param {string} name
+ * @param {number} [delta]
+ */
 function inc(name, delta) { counters[name] = (counters[name] || 0) + (delta == null ? 1 : delta); }
+
+/**
+ * Set a gauge to an absolute value.
+ * @param {string} name
+ * @param {number} value
+ */
 function set(name, value) { gauges[name] = value; }
 
 // Fixed-bucket histogram. Bucket boundaries in ms.
 const BUCKETS = [5, 25, 100, 250, 500, 1000, 2500, 10000, 30000];
+
+/**
+ * Record an observation in milliseconds against a histogram.
+ * Buckets: 5/25/100/250/500/1000/2500/10000/30000 (+inf).
+ * @param {string} name
+ * @param {number} ms
+ */
 function observe(name, ms) {
   if (!hists[name]) hists[name] = { count: 0, sum: 0, min: Infinity, max: -Infinity, buckets: new Array(BUCKETS.length + 1).fill(0) };
   const h = hists[name];
@@ -28,6 +46,17 @@ function observe(name, ms) {
   h.buckets[bi]++;
 }
 
+/**
+ * Snapshot the current metrics as a JSON-serializable object.
+ * @returns {{
+ *   uptimeSec: number,
+ *   timestamp: number,
+ *   memoryMB: number,
+ *   counters: Record<string, number>,
+ *   gauges: Record<string, number>,
+ *   histograms: Record<string, {count:number, mean:number, min:number, max:number, buckets: Array<{leMs:number|"+inf", count:number}>}>
+ * }}
+ */
 function snapshot() {
   const out = {
     uptimeSec: Math.round(process.uptime()),
