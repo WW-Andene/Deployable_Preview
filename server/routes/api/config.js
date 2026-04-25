@@ -408,6 +408,19 @@ router.put("/repos/:owner/:repo/branch", (req, res) => {
   if (language !== undefined) bc.language = language;
   if (previewPassword !== undefined) bc.previewPassword = String(previewPassword || "");
   if (req.body.injectSecrets !== undefined) bc.injectSecrets = !!req.body.injectSecrets;
+  if (req.body.edge !== undefined) {
+    // Light validation — accept the shape, ignore garbage. Redirect
+    // statuses get coerced to a known set; missing arrays default to [].
+    const e = req.body.edge && typeof req.body.edge === "object" ? req.body.edge : {};
+    bc.edge = {
+      redirects: Array.isArray(e.redirects) ? e.redirects.filter(function(r){ return r && r.from && r.to; }).map(function(r){
+        return { from: String(r.from), to: String(r.to), status: [301,302,307,308].indexOf(Number(r.status)) !== -1 ? Number(r.status) : 302 };
+      }) : [],
+      headers: Array.isArray(e.headers) ? e.headers.filter(function(h){ return h && typeof h.headers === "object"; }).map(function(h){
+        return { pathPattern: String(h.pathPattern || "/*"), headers: h.headers };
+      }) : []
+    };
+  }
   if (req.body.envGroupIds !== undefined) {
     bc.envGroupIds = Array.isArray(req.body.envGroupIds)
       ? req.body.envGroupIds.filter(function(x){ return typeof x === "string" && x; })

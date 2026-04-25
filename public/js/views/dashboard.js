@@ -314,7 +314,8 @@ DV.views.dashboard = function(app) {
                 customSlug: bcLive.customSlug || "",
                 previewPassword: bcLive.previewPassword || "",
                 injectSecrets: !!bcLive.injectSecrets,
-                envGroupIds: Array.isArray(bcLive.envGroupIds) ? bcLive.envGroupIds.slice() : []
+                envGroupIds: Array.isArray(bcLive.envGroupIds) ? bcLive.envGroupIds.slice() : [],
+                edge: bcLive.edge || { redirects: [], headers: [] }
               };
               DV.render();
             } } }, DV.iconEl("edit")));

@@ -83,8 +83,15 @@ DV.views.modals = function(app) {
       { label: "Environment variables", key: "envVars", type: "textarea", placeholder: "KEY=value", hint: "Highest priority — overrides anything from groups or secrets." },
       { label: "Env-var groups", key: "envGroupIds", type: "envGroups", hint: "Reusable named bundles. Manage them in Settings → Env Groups." },
       { label: "Inject ALL stored secrets as env", key: "injectSecrets", type: "toggle", hint: "Exports every key from Settings → Secrets to the build/server. Use sparingly." },
-      { label: "Preview password (optional)", key: "previewPassword", type: "password", placeholder: "leave blank for public preview", hint: "Visitors must enter this before the preview loads. Stored on this server only." }
+      { label: "Preview password (optional)", key: "previewPassword", type: "password", placeholder: "leave blank for public preview", hint: "Visitors must enter this before the preview loads. Stored on this server only." },
+      { label: "Edge rules (advanced — JSON)", key: "edgeJson", type: "textarea", placeholder: '{ "redirects": [{ "from": "/old", "to": "/new", "status": 301 }], "headers": [{ "pathPattern": "/api/*", "headers": { "Access-Control-Allow-Origin": "*" } }] }', hint: "Per-branch redirects + response headers, applied at the proxy layer. Supports trailing /* in patterns." }
     ];
+
+    // Hydrate edgeJson from m.edge once on first render
+    if (m.edge !== undefined && m.edgeJson === undefined) {
+      try { m.edgeJson = JSON.stringify(m.edge || { redirects: [], headers: [] }, null, 2); }
+      catch (_) { m.edgeJson = ""; }
+    }
 
     for (var fi = 0; fi < fields.length; fi++) {
       (function(f) {
@@ -161,12 +168,29 @@ DV.views.modals = function(app) {
     box.appendChild(el("div", { c: "btn-row" }, [
       el("button", { c: "bg", on: { click: function() { S.editModal = null; DV.render(); } } }, "Cancel"),
       el("button", { c: "bp flex-1", on: { click: function() {
-        api("PUT", "/api/repos/" + m.owner + "/" + m.repo + "/branch", {
+        // Parse edgeJson back to an object — empty string means clear.
+        var edge;
+        if (m.edgeJson !== undefined && m.edgeJson !== null) {
+          var trimmed = String(m.edgeJson).trim();
+          if (trimmed === "" || trimmed === "{}") {
+            edge = { redirects: [], headers: [] };
+          } else {
+            try { edge = JSON.parse(trimmed); }
+            catch (e) { DV.showToast("Edge rules JSON invalid: " + e.message, "error"); return; }
+          }
+        }
+        var payload = {
           slug: m.slug, baseDir: m.baseDir, buildCommand: m.buildCommand, outputDir: m.outputDir,
           mode: m.mode, startCommand: m.startCommand, envVars: m.envVars, language: m.language,
           customSlug: m.customSlug, previewPassword: m.previewPassword,
           injectSecrets: m.injectSecrets, envGroupIds: m.envGroupIds || []
-        }).then(function() { S.editModal = null; DV.loadRepos(); });
+        };
+        if (edge !== undefined) payload.edge = edge;
+        api("PUT", "/api/repos/" + m.owner + "/" + m.repo + "/branch", payload).then(function(r) {
+          if (r.error) { DV.showToast(r.error, "error"); return; }
+          S.editModal = null;
+          DV.loadRepos();
+        });
       } } }, "Save")
     ]));
     bg.appendChild(box);
