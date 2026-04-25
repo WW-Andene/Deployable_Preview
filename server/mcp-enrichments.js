@@ -86,7 +86,9 @@ function pixelDiff(a, b, opts) {
 
   const { width, height } = imgA;
   const diffPng = new pngjs.PNG({ width, height });
-  const threshold = opts && opts.threshold != null ? Number(opts.threshold) : 0.1;
+  // Clamp threshold to [0, 1] — pixelmatch contract; out-of-range silently broke diffs.
+  const _t = opts && opts.threshold != null ? Number(opts.threshold) : 0.1;
+  const threshold = Number.isFinite(_t) ? Math.max(0, Math.min(_t, 1)) : 0.1;
   const includeAA = !!(opts && opts.includeAA);
 
   const diffCount = pm(
@@ -511,11 +513,11 @@ async function extractPalette(pngBuf, count) {
       const CT = ColorThief.default || ColorThief;
       if (typeof CT.getColor === "function") {
         dominant = await CT.getColor(tmp);
-        palette  = await CT.getPalette(tmp, count || 6);
+        palette  = await CT.getPalette(tmp, count ?? 6);
       } else {
         const inst = new CT();
         dominant = await inst.getColor(tmp);
-        palette  = await inst.getPalette(tmp, count || 6);
+        palette  = await inst.getPalette(tmp, count ?? 6);
       }
     } finally {
       try { fs.unlinkSync(tmp); } catch (_) {}
@@ -540,7 +542,7 @@ async function colorStats(pngBuf, count) {
   if (!getColors) return missing("get-image-colors", "color_stats");
   try {
     const fn = typeof getColors === "function" ? getColors : getColors.default;
-    const colors = await fn(pngBuf, { count: count || 8, type: "image/png" });
+    const colors = await fn(pngBuf, { count: count ?? 8, type: "image/png" });
     return {
       count: colors.length,
       colors: colors.map((c) => ({

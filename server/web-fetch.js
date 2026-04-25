@@ -118,9 +118,10 @@ function webFetch(opts) {
     }
 
     const method = (opts.method || "GET").toUpperCase();
-    const timeout = Math.min(Math.max(opts.timeout || DEFAULT_TIMEOUT_MS, MIN_TIMEOUT_MS), MAX_TIMEOUT_MS);
-    const maxRedirects = Math.min(opts.maxRedirects || MAX_REDIRECTS, 15);
-    const maxSize = Math.min(opts.maxSize || MAX_RESPONSE_BYTES, MAX_RESPONSE_BYTES_HARD);
+    // Use ?? not || so callers can disable defaults with 0 (e.g. maxRedirects:0 → never follow).
+    const timeout = Math.min(Math.max(opts.timeout ?? DEFAULT_TIMEOUT_MS, MIN_TIMEOUT_MS), MAX_TIMEOUT_MS);
+    const maxRedirects = Math.min(opts.maxRedirects ?? MAX_REDIRECTS, 15);
+    const maxSize = Math.min(opts.maxSize ?? MAX_RESPONSE_BYTES, MAX_RESPONSE_BYTES_HARD);
     const retries  = Math.min(Math.max(opts.retries != null ? opts.retries : 2, 0), MAX_RETRIES);
 
     // Build the final headers: defaults first, then user overrides
