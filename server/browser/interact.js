@@ -97,21 +97,21 @@ async function interact(opts) {
 
     case "back":
       if (typeof page.goBack === "function") {
-        await page.goBack({ waitUntil: session.waitUntilIdle(), timeout: 30000 }).catch(() => {});
+        await page.goBack(Object.assign({ waitUntil: session.waitUntilIdle() }, session.navTimeout(opts) != null ? { timeout: session.navTimeout(opts) } : {})).catch(() => {});
       }
       result.navigated = "back";
       break;
 
     case "forward":
       if (typeof page.goForward === "function") {
-        await page.goForward({ waitUntil: session.waitUntilIdle(), timeout: 30000 }).catch(() => {});
+        await page.goForward(Object.assign({ waitUntil: session.waitUntilIdle() }, session.navTimeout(opts) != null ? { timeout: session.navTimeout(opts) } : {})).catch(() => {});
       }
       result.navigated = "forward";
       break;
 
     case "reload":
       if (typeof page.reload === "function") {
-        await page.reload({ waitUntil: session.waitUntilIdle(), timeout: 30000 });
+        await page.reload(Object.assign({ waitUntil: session.waitUntilIdle() }, session.navTimeout(opts) != null ? { timeout: session.navTimeout(opts) } : {}));
       }
       result.reloaded = true;
       break;
@@ -284,7 +284,7 @@ async function interact(opts) {
           if (parseErr.message.includes("restricted")) throw parseErr;
           throw new Error("Navigation restricted to preview origin only");
         }
-        await page.goto(navUrl, { waitUntil: session.waitUntilIdle(), timeout: 30000 });
+        await page.goto(navUrl, Object.assign({ waitUntil: session.waitUntilIdle() }, session.navTimeout(opts) != null ? { timeout: session.navTimeout(opts) } : {}));
       }
       result.navigatedTo = value;
       break;

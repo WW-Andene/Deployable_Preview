@@ -168,7 +168,12 @@ async function captureConsole(opts) {
       errors.push({ type: "network", url: req.url(), failure: req.failure(), timestamp: Date.now() });
     });
 
-    await page.goto(url, { waitUntil: session.waitUntilIdle(), timeout: 30000 });
+    {
+      const _t = session.navTimeout(opts);
+      const _go = { waitUntil: session.waitUntilIdle() };
+      if (_t != null) _go.timeout = _t;
+      await page.goto(url, _go);
+    }
 
     // Wait for specified duration to collect console output
     const waitMs = Math.min((duration || 3) * 1000, 30000);

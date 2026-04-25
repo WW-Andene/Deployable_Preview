@@ -18,7 +18,12 @@ async function performanceMetrics(opts) {
   const { page, url } = await session.getSessionPage(browser, owner, repo, slug, opts.width, opts.height);
 
   if (opts.reload) {
-    try { await page.reload({ waitUntil: session.waitUntilIdle(), timeout: 30000 }); } catch (_) {}
+    try {
+      const _t = session.navTimeout(opts);
+      const _r = { waitUntil: session.waitUntilIdle() };
+      if (_t != null) _r.timeout = _t;
+      await page.reload(_r);
+    } catch (_) {}
   }
 
   const metrics = await page.evaluate(() => {
@@ -332,7 +337,12 @@ async function getCodeCoverage(opts) {
     }
 
     if (opts.reload) {
-      try { await page.reload({ waitUntil: session.waitUntilIdle(), timeout: 30000 }); } catch (_) {}
+      try {
+      const _t = session.navTimeout(opts);
+      const _r = { waitUntil: session.waitUntilIdle() };
+      if (_t != null) _r.timeout = _t;
+      await page.reload(_r);
+    } catch (_) {}
     }
     await new Promise((r) => setTimeout(r, waitMs));
 

@@ -42,7 +42,7 @@ async function capturePreviewRequests(opts) {
   page.on("response", onResponse);
 
   if (opts.reload) {
-    try { await page.reload({ waitUntil: session.waitUntilIdle(), timeout: 30000 }); } catch (_) {}
+    try { await page.reload(Object.assign({ waitUntil: session.waitUntilIdle() }, session.navTimeout(opts) != null ? { timeout: session.navTimeout(opts) } : {})); } catch (_) {}
   }
   await new Promise((r) => setTimeout(r, duration));
   try { page.off("response", onResponse); } catch (_) {}
@@ -342,7 +342,11 @@ async function browseUrl(opts) {
     const navWaitUntil = opts.waitUntil || (session.waitUntilIdle() === "networkidle2" ? "networkidle2" : "networkidle");
     const navStart = Date.now();
     try {
-      await page.goto(parsed.href, { waitUntil: navWaitUntil, timeout: 45000 });
+      // F-NEW-T001: 45s default lifted; caller can pass navTimeout (0 = none).
+      const _t = session.navTimeout(opts);
+      const _go = { waitUntil: navWaitUntil };
+      if (_t != null) _go.timeout = _t;
+      await page.goto(parsed.href, _go);
     } catch (navErr) {
       // Navigation errors (timeouts) are common on heavy pages — keep whatever we captured
       errors.push({ type: "navigation", message: navErr.message });
@@ -462,7 +466,7 @@ async function captureHar(opts) {
   page.on("response", onResponse);
 
   if (opts.reload) {
-    try { await page.reload({ waitUntil: session.waitUntilIdle(), timeout: 30000 }); } catch (_) {}
+    try { await page.reload(Object.assign({ waitUntil: session.waitUntilIdle() }, session.navTimeout(opts) != null ? { timeout: session.navTimeout(opts) } : {})); } catch (_) {}
   }
   await new Promise((r) => setTimeout(r, duration));
   try { page.off("request", onRequest); } catch (_) {}

@@ -76,6 +76,23 @@ function waitUntilIdle() {
   return _lib && _lib.type === "puppeteer" ? "networkidle2" : "domcontentloaded";
 }
 
+// Resolve a navigation timeout from caller opts → env var → default. The
+// special value 0 means "no timeout" (returns undefined so Playwright
+// omits the option). Use the returned value like:
+//   const t = navTimeout(opts);
+//   const goOpts = { waitUntil: waitUntilIdle() };
+//   if (t != null) goOpts.timeout = t;
+//   await page.goto(url, goOpts);
+function navTimeout(opts) {
+  let v;
+  if (opts && Object.prototype.hasOwnProperty.call(opts, "navTimeout")) v = opts.navTimeout;
+  else if (opts && Object.prototype.hasOwnProperty.call(opts, "timeout")) v = opts.timeout;
+  else v = parseInt(process.env.DV_NAV_TIMEOUT_MS, 10);
+  if (!Number.isFinite(v)) return 30000;          // sane default
+  if (v <= 0) return undefined;                   // 0 = no cap
+  return v;
+}
+
 function hasPlaywright() {
   // Returns true if any browser method is available (local or remote)
   return !!loadLib() || !!getRemoteWSEndpoint();
@@ -320,6 +337,7 @@ module.exports = {
   setViewport,
   getViewport,
   waitUntilIdle,
+  navTimeout,
   newPage,
   getRemoteWSEndpoint,
   resolvePreviewUrl
