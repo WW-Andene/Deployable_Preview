@@ -310,5 +310,12 @@ DV.views.dashboard = function(app) {
     }
   }
   app.appendChild(ct);
+
+  // Mobile: drag-down from the top of the dashboard to refresh repos.
+  // No-op on desktop (touch-event listeners just never fire).
+  DV.installPullToRefresh(ct, function() {
+    DV.showToast("Refreshing…", "info");
+    DV.loadRepos();
+  });
 };
 })();

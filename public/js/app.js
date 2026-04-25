@@ -261,6 +261,69 @@ window.DV = {
   loadRepos: loadRepos,
   fetchAvailableBranches: fetchAvailableBranches, addBranchToRepo: addBranchToRepo,
   fetchGhRepos: fetchGhRepos,
+  // installPullToRefresh(rootEl, onRefresh) — wires touch handlers so the
+  // user can drag down from the top of `rootEl` to trigger onRefresh().
+  // Idempotent: if already installed on the same element, no-op. Returns
+  // the cleanup function.
+  installPullToRefresh: function(rootEl, onRefresh) {
+    if (!rootEl || rootEl._dvPTR) return rootEl && rootEl._dvPTR;
+    var startY = 0, dy = 0, dragging = false, indicator = null, threshold = 70;
+    function ensureIndicator() {
+      if (indicator) return indicator;
+      indicator = document.createElement("div");
+      indicator.className = "ptr-indicator";
+      indicator.textContent = "Pull to refresh";
+      rootEl.insertBefore(indicator, rootEl.firstChild);
+      return indicator;
+    }
+    function onStart(e) {
+      // Only engage when scrolled to the top — otherwise the user is
+      // scrolling the content normally.
+      if (window.scrollY > 4) return;
+      var t = e.touches && e.touches[0];
+      if (!t) return;
+      startY = t.clientY; dy = 0; dragging = true;
+    }
+    function onMove(e) {
+      if (!dragging) return;
+      var t = e.touches && e.touches[0];
+      if (!t) return;
+      dy = t.clientY - startY;
+      if (dy <= 0) { dragging = false; if (indicator) indicator.style.height = "0"; return; }
+      // Only swallow scroll once we've actually moved enough that this is
+      // intentional — keeps short flicks from blocking normal scroll.
+      if (dy > 6 && e.cancelable) e.preventDefault();
+      var ind = ensureIndicator();
+      var pulled = Math.min(dy, threshold * 1.4);
+      ind.style.height = pulled + "px";
+      ind.textContent = dy >= threshold ? "Release to refresh" : "Pull to refresh";
+      ind.classList.toggle("ptr-armed", dy >= threshold);
+    }
+    function onEnd() {
+      if (!dragging) return;
+      dragging = false;
+      var fired = dy >= threshold;
+      if (indicator) {
+        indicator.style.height = "0";
+        indicator.classList.remove("ptr-armed");
+      }
+      if (fired) try { onRefresh(); } catch (_) {}
+    }
+    rootEl.addEventListener("touchstart", onStart, { passive: true });
+    rootEl.addEventListener("touchmove",  onMove,  { passive: false });
+    rootEl.addEventListener("touchend",   onEnd,   { passive: true });
+    rootEl.addEventListener("touchcancel", onEnd,  { passive: true });
+    var cleanup = function() {
+      rootEl.removeEventListener("touchstart", onStart);
+      rootEl.removeEventListener("touchmove", onMove);
+      rootEl.removeEventListener("touchend", onEnd);
+      rootEl.removeEventListener("touchcancel", onEnd);
+      if (indicator && indicator.parentNode) indicator.parentNode.removeChild(indicator);
+      delete rootEl._dvPTR;
+    };
+    rootEl._dvPTR = cleanup;
+    return cleanup;
+  },
   // openShare(url, title?) — preferred entry point. Uses native share sheet
   // on supported devices (Android/iOS/macOS Safari), falls back to the QR
   // modal on desktop / unsupported browsers. Always also offers clipboard.

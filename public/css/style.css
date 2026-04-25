@@ -1258,6 +1258,24 @@ button:disabled, button[disabled] {
   gap: 8px;
 }
 
+/* ─── Pull-to-refresh indicator (app.js DV.installPullToRefresh) ─── */
+.ptr-indicator {
+  height: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--tx2);
+  background: linear-gradient(to bottom, var(--sf2, rgba(255,255,255,0.04)), transparent);
+  transition: height 80ms ease-out, color 120ms ease;
+}
+.ptr-indicator.ptr-armed {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 /* ─── Touch targets: ≥44px on touch devices (WCAG 2.5.5 Level AAA) ─── */
 @media (hover: none) and (pointer: coarse) {
   button, .chip, [role="button"], .topbar-icon {
