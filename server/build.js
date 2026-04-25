@@ -720,4 +720,27 @@ function cancelBuild(key) {
   return false;
 }
 
+// SSOT: when the config is saved, drop buildStatus entries for branches
+// that no longer exist in any repo. Otherwise removed branches keep stale
+// buildStatus + thumbs in memory forever (Agent B / D6 finding F-101).
+try {
+  const { onConfigSaved } = require("./config");
+  onConfigSaved(function pruneBuildStatusOnConfigChange(cfg) {
+    const valid = new Set();
+    for (const r of (cfg.repos || [])) {
+      for (const bc of (r.activeBranches || [])) {
+        valid.add(buildKey(r.owner, r.repo, bc));
+      }
+    }
+    for (const k of Object.keys(buildStatus)) {
+      if (!valid.has(k)) {
+        // Stop any running server for this key first.
+        try { killServer(k); } catch (_) {}
+        delete buildStatus[k];
+        console.log("[build] Pruned orphan buildStatus: " + k);
+      }
+    }
+  });
+} catch (_) { /* config module not yet loaded — pruning will not register */ }
+
 module.exports = { buildStatus, branchSlug, getBranchDir, buildKey, buildBranch, startServer, deployBranch, cancelBuild, WORKSPACE, detectLanguage, defaultBuildCommand, defaultStartCommand, defaultOutputDir };
