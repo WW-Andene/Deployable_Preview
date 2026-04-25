@@ -5,30 +5,80 @@ const CONFIG_FILE = path.join(__dirname, "..", "deployview.json");
 
 let config = { token: "", repos: [], secrets: {}, preferences: {} };
 
+// Last schema validation report — exposed via /api/health.
+let _lastValidation = { ok: true, fixes: [], errors: [] };
+
+function getValidationReport() { return _lastValidation; }
+
+// Schema: each field describes the expected shape. Fields are repaired in
+// place where possible; unrepairable inconsistencies go into errors.
+function validateAndRepairConfig(c, report) {
+  if (typeof c !== "object" || c === null || Array.isArray(c)) {
+    report.errors.push("root: expected object");
+    return { token: "", repos: [], secrets: {}, preferences: {} };
+  }
+  if (typeof c.token !== "string") { report.fixes.push("token: non-string → ''"); c.token = ""; }
+  if (typeof c.secrets !== "object" || c.secrets === null || Array.isArray(c.secrets)) {
+    report.fixes.push("secrets: non-object → {}"); c.secrets = {};
+  }
+  if (typeof c.preferences !== "object" || c.preferences === null || Array.isArray(c.preferences)) {
+    report.fixes.push("preferences: non-object → {}"); c.preferences = {};
+  }
+  if (!Array.isArray(c.repos)) { report.fixes.push("repos: non-array → []"); c.repos = []; }
+  c.repos = c.repos.filter(function(r, i) {
+    if (!r || typeof r !== "object") { report.errors.push("repos[" + i + "]: not an object, dropped"); return false; }
+    if (typeof r.owner !== "string" || !r.owner) { report.errors.push("repos[" + i + "]: missing owner, dropped"); return false; }
+    if (typeof r.repo  !== "string" || !r.repo)  { report.errors.push("repos[" + i + "]: missing repo, dropped"); return false; }
+    return true;
+  });
+  for (let i = 0; i < c.repos.length; i++) {
+    const r = c.repos[i];
+    if (!Array.isArray(r.activeBranches)) { report.fixes.push("repos[" + i + "].activeBranches: non-array → []"); r.activeBranches = []; }
+    r.activeBranches = r.activeBranches.filter(function(bc, j) {
+      if (typeof bc === "string") return true; // legacy format, migrated elsewhere
+      if (!bc || typeof bc !== "object" || typeof bc.branch !== "string" || !bc.branch) {
+        report.errors.push("repos[" + i + "].activeBranches[" + j + "]: missing branch name, dropped");
+        return false;
+      }
+      return true;
+    });
+    // Coerce nullable string fields
+    for (const k of ["baseDir", "buildCommand", "outputDir", "description", "startCommand", "envVars", "mode", "language"]) {
+      if (r[k] != null && typeof r[k] !== "string") { report.fixes.push("repos[" + i + "]." + k + ": non-string → ''"); r[k] = ""; }
+    }
+  }
+  return c;
+}
+
 function loadConfig() {
+  _lastValidation = { ok: true, fixes: [], errors: [] };
   try {
     if (fs.existsSync(CONFIG_FILE)) {
       const raw = fs.readFileSync(CONFIG_FILE, "utf8");
       const parsed = JSON.parse(raw);
-      // Validate basic structure
-      if (typeof parsed === "object" && parsed !== null) {
-        config = parsed;
-        if (!Array.isArray(config.repos)) config.repos = [];
-        if (typeof config.token !== "string") config.token = "";
-        if (typeof config.secrets !== "object" || config.secrets === null) config.secrets = {};
-        if (typeof config.preferences !== "object" || config.preferences === null) config.preferences = {};
-      } else {
-        throw new Error("Config is not an object");
+      config = validateAndRepairConfig(parsed, _lastValidation);
+      _lastValidation.ok = _lastValidation.errors.length === 0;
+      if (_lastValidation.fixes.length) {
+        console.log("  Config auto-repaired: " + _lastValidation.fixes.length + " field(s)");
+        for (const f of _lastValidation.fixes) console.log("    - " + f);
+        saveConfig(); // persist the repairs
+      }
+      if (_lastValidation.errors.length) {
+        console.warn("  Config validation errors (data dropped):");
+        for (const e of _lastValidation.errors) console.warn("    - " + e);
       }
     }
   } catch (e) {
     console.error("Config load error:", e.message);
+    _lastValidation.ok = false;
+    _lastValidation.errors.push("parse: " + e.message);
     // Try to recover from backup
     const backupFile = CONFIG_FILE + ".bak";
     if (fs.existsSync(backupFile)) {
       console.log("  Attempting recovery from backup...");
       try {
-        config = JSON.parse(fs.readFileSync(backupFile, "utf8"));
+        const parsed = JSON.parse(fs.readFileSync(backupFile, "utf8"));
+        config = validateAndRepairConfig(parsed, _lastValidation);
         console.log("  Recovered from backup.");
       } catch (_) { console.error("  Backup also corrupt. Starting fresh."); }
     }
@@ -82,4 +132,4 @@ function getSecret(key, envKey) {
   return "";
 }
 
-module.exports = { loadConfig, saveConfig, getConfig, migrateConfig, parseEnvVars, getSecret };
+module.exports = { loadConfig, saveConfig, getConfig, migrateConfig, parseEnvVars, getSecret, getValidationReport, validateAndRepairConfig };
