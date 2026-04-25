@@ -9,6 +9,7 @@ const { proxyTo, serveIndex } = require("../proxy");
 const { executeHandler } = require("../serverless");
 const { previewAuthMiddleware, previewAuthLogin } = require("../preview-auth");
 const { edgeMiddleware } = require("../edge");
+const imageOpt = require("../image-opt");
 
 // Login form POST handler — must be registered before the catch-all
 // preview routes so __auth doesn't get proxied to the user's app.
@@ -114,7 +115,12 @@ router.use("/preview/:owner/:repo/:branchSlug", (req, res, next) => {
   const reqPath = req.path;
   if (reqPath === "/" || reqPath === "" || (!path.extname(reqPath) && !reqPath.includes("."))) return serveIndex(outDir, res, previewPrefix(req));
   res.removeHeader("X-Frame-Options");
-  express.static(outDir)(req, res, next);
+  // H2: image optimization. Only kicks in when the client passed
+  // ?w=/?h=/?fmt=/?q= and sharp is installed; otherwise pass through.
+  const filePath = path.join(outDir, decodeURIComponent(reqPath));
+  Promise.resolve(imageOpt.maybeServeOptimized(filePath, req, res))
+    .then(function(handled) { if (!handled) express.static(outDir)(req, res, next); })
+    .catch(function() { express.static(outDir)(req, res, next); });
 });
 
 // SPA fallback
