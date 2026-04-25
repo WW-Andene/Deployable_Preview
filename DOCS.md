@@ -247,3 +247,199 @@ fallback (no external dep). `process.env` always wins over file values.
 `branchConfig.envVars` → `repoConfig.envVars` → `envGroupIds[]` (last
 group wins on collision) → `config.secrets[*]` *if and only if*
 `branchConfig.injectSecrets === true`.
+
+---
+
+## §4 · HTTP API reference
+
+Every route is auth-gated by the `/api` middleware described in §7
+**unless explicitly marked public**. The middleware is a no-op for
+loopback IPs, so localhost calls always succeed without a token.
+
+### §4.1 Identity / GitHub
+
+| Method | Path | Body / Query | Returns |
+|---|---|---|---|
+| `GET`    | `/api/token` | — | `{ hasToken }` |
+| `POST`   | `/api/token` | `{ token }` | `{ ok }` (rate-limited 10/min) |
+| `GET`    | `/api/github/repos?type=all\|owner\|member&refresh=1` | — | `{ repos[], cached, count }` (5-min cache) |
+| `GET`    | `/api/github/:owner/:repo/branches` | — | `{ branches[], defaultBranch, description }` |
+| `GET`    | `/api/github/:owner/:repo/detect?branch=&baseDir=` | — | `{ framework, confidence, buildCommand, outputDir, mode, … }` |
+| `GET`    | `/api/github/:owner/:repo/readme` | — | `{ md, cached, ageMs }` (10-min cache) |
+
+### §4.2 Secrets / preferences
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| `GET`    | `/api/secrets` | — | List of `{ key, label, hasValue, masked, source }` (mask = last-4 only) |
+| `GET`    | `/api/secrets/suggestions` | — | Built-in list of well-known secret keys |
+| `POST`   | `/api/secrets` | `{ key, value }` | `{ ok }` (audit-logged · 200-secret cap) |
+| `DELETE` | `/api/secrets/:key` | — | `{ ok }` (audit-logged) |
+| `GET`    | `/api/preferences` | — | `config.preferences` object |
+| `POST`   | `/api/preferences` | partial preferences | `{ ok }` |
+
+### §4.3 Repositories / branches
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| `GET`    | `/api/repos` | — | `{ repos[] }` with branch statuses + thumbs (lean shape) |
+| `POST`   | `/api/repos` | `{ owner, repo, activeBranches, mode, … }` | Created repo (rate-limited 20/min) |
+| `PATCH`  | `/api/repos/:owner/:repo` | whitelisted top-level keys | `{ ok, repo }` |
+| `DELETE` | `/api/repos/:owner/:repo` | — | `{ ok }` |
+| `POST`   | `/api/repos/:owner/:repo/branch` | `{ branch, baseDir?, mode?, language?, startCommand? }` | `{ ok, activeBranches }` |
+| `PUT`    | `/api/repos/:owner/:repo/branch` | `{ slug, baseDir?, buildCommand?, outputDir?, mode?, startCommand?, envVars?, language?, customSlug?, previewPassword?, injectSecrets?, envGroupIds?, edge?, schedule?, budgets? }` | `{ ok, branch }` |
+| `DELETE` | `/api/repos/:owner/:repo/branch?slug=` | — | `{ ok }` |
+
+### §4.4 Build lifecycle
+
+| Method | Path | Body / Query | Returns |
+|---|---|---|---|
+| `POST`   | `/api/build/:owner/:repo?slug=` | — | `{ ok, message, mode }` (audit-logged · rate-limited 5/30s) |
+| `POST`   | `/api/cancel/:owner/:repo?slug=` | — | `{ ok, cancelled }` |
+| `POST`   | `/api/stop/:owner/:repo?slug=` | — | `{ ok }` (server-mode only) |
+| `GET`    | `/api/status/:owner/:repo?slug=` | — | Lean buildStatus slot |
+| `GET`    | `/api/log/:owner/:repo?slug=` | — | Plain-text log |
+| `GET`    | `/api/logs/stream?key=` | SSE | `data: { connected: true, key }` then per-line log events |
+| `GET`    | `/api/status/stream` | SSE | `data: { connected: true }` then `data: { key, slot }` per state change |
+| `GET`    | `/api/thumb/:owner/:repo?slug=` | — | PNG (ETag + 30s cache) |
+| `GET`    | `/api/thumb-diff/:owner/:repo?slug=` | — | PNG diff heatmap |
+| `GET`    | `/api/artifact/:owner/:repo?slug=` | — | ZIP stream of the current outputDir |
+
+### §4.5 History / rollback / annotations
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| `GET`    | `/api/history/:owner/:repo?slug=` | — | `{ history[], currentOutput }` newest-first |
+| `POST`   | `/api/rollback/:owner/:repo` | `{ slug, historyId }` | `{ ok, message, entry }` (audit-logged) |
+| `POST`   | `/api/history/:owner/:repo/note` | `{ slug, historyId, note }` | `{ ok, entry }` (note ≤ 2000 chars; "" clears) |
+| `POST`   | `/api/history/:owner/:repo/tag` | `{ slug, historyId, tag }` | `{ ok, entry }` (tag a-z0-9_-/.; transfers off prior holder) |
+| `POST`   | `/api/history/:owner/:repo/comment` | `{ slug, historyId, by, text }` | `{ ok, comment }` |
+| `DELETE` | `/api/history/:owner/:repo/comment/:commentId?slug=&historyId=` | — | `{ ok }` |
+
+### §4.6 Webhooks (incoming + outgoing)
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| `POST`   | `/api/webhook` | GitHub `push` or `pull_request` payload | `{ ok, triggered, … }` — public, HMAC-verified via `WEBHOOK_SECRET` |
+| `GET`    | `/api/webhooks` | — | `{ webhooks[], validEvents }` (secrets stripped) |
+| `POST`   | `/api/webhooks` | `{ url, label?, events[]?, format?, secret?, enabled? }` | `{ ok, webhook }` |
+| `PUT`    | `/api/webhooks/:id` | partial | `{ ok, webhook }` |
+| `DELETE` | `/api/webhooks/:id` | — | `{ ok }` |
+| `POST`   | `/api/webhooks/:id/test` | — | `{ ok, message }` (fires synthetic event) |
+
+### §4.7 Env-var groups
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| `GET`    | `/api/env-groups` | — | `{ groups: [{ id, name, keys[], keyCount }] }` |
+| `GET`    | `/api/env-groups/:id` | — | `{ id, name, vars }` (values masked last-4) |
+| `POST`   | `/api/env-groups` | `{ id, name?, vars }` | `{ ok, id }` |
+| `PUT`    | `/api/env-groups/:id` | `{ name?, vars? }` | `{ ok, id }` |
+| `DELETE` | `/api/env-groups/:id` | — | `{ ok }` |
+
+### §4.8 Custom domains
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| `GET`    | `/api/domains` | — | `{ domains: [{ host, owner, repo, slug }] }` |
+| `POST`   | `/api/domains` | `{ host, owner, repo, slug }` | `{ ok, host, target, hint }` (audit-logged) |
+| `DELETE` | `/api/domains/:host` | — | `{ ok }` (audit-logged) |
+
+### §4.9 Preview-app callbacks (public, no auth)
+
+These are called from the user's deployed JS, not from operators.
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| `POST` | `/api/preview-errors/:owner/:repo/:slug` | `{ msg, file?, line?, col?, stack?, url?, userAgent? }` | `204` (deduped server-side, capped 50/branch) |
+| `GET`  | `/api/preview-errors/:owner/:repo/:slug` | — | `{ errors[], summary }` |
+| `DELETE` | `/api/preview-errors/:owner/:repo/:slug` | — | `{ ok }` |
+
+### §4.10 Tunnel / browser / live stream
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| `GET`    | `/api/tunnel/status` | — | `{ running, url, provider, error }` |
+| `POST`   | `/api/tunnel/start` | — | `{ ok, url }` |
+| `POST`   | `/api/tunnel/stop` | — | `{ ok }` |
+| `GET`    | `/api/browser/status` | — | `{ available, mode, … }` |
+| `GET`    | `/api/browser/test` | — | `{ ok, steps[] }` |
+| `POST`   | `/api/browser/setup` | — | `{ ok }` |
+| `POST`   | `/api/browser/disable` | — | `{ ok }` |
+| `POST`   | `/api/live/token` | `{ owner, repo, slug }` | `{ token, expiresInMs, scope }` (10-min, scoped to triple) |
+| `GET`    | `/api/live/:owner/:repo/:slug?token=&fps=&seconds=&width=&height=` | — | MJPEG `multipart/x-mixed-replace` stream |
+
+### §4.11 APK builder (GitHub Actions)
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| `POST` | `/api/apk/:owner/:repo` | `{ slug, appName? }` | `{ ok, key }` (kicks off the workflow push + dispatch) |
+| `GET`  | `/api/apk/:owner/:repo/status` | — | `{ status, log, apkUrl?, runUrl? }` |
+| `GET`  | `/api/apk/:owner/:repo/log-stream` | SSE | `data: { line }` for each new log line |
+| `GET`  | `/api/apk/:owner/:repo/download` | — | Binary APK download |
+
+### §4.12 Web fetch (universal scraper)
+
+| Method | Path | Body / Query | Returns |
+|---|---|---|---|
+| `POST` | `/api/fetch` | `{ url, ...opts }` | `{ ok, statusCode, body, headers, html?, json?, … }` |
+| `GET`  | `/api/fetch?url=&...` | — | same as POST |
+
+### §4.13 MCP REST surface (`/api/dv/*` + `/api/mcp/*` aliases)
+
+Every MCP tool is reachable via REST (CORS-open) for non-MCP clients:
+
+| Method | Path | Body / Query | Returns |
+|---|---|---|---|
+| `GET`  | `/api/dv/status` | — | DV engine status (tool count, browser, libraries) |
+| `GET`  | `/api/dv/tools` | — | Full tool registry (schemas, categories, requires) |
+| `POST` | `/api/dv/call` | `{ name, args }` | Tool result (MCP shape) |
+| `POST` | `/api/dv/call/:name` | `args` (raw) | Same |
+| `GET`  | `/api/mcp/tools` | — | Legacy alias |
+| `POST` | `/api/mcp/call` | `{ tool, args }` | Legacy alias |
+| `GET`  | `/api/mcp/screenshot/:owner/:repo/:slug?width=&height=&fullPage=` | — | PNG |
+| `GET`  | `/api/mcp/inspect/:owner/:repo/:slug?selector=` | — | A11y tree / DOM |
+| `GET`  | `/api/mcp/console/:owner/:repo/:slug?duration=` | — | Console capture |
+| `POST` | `/api/mcp/interact/:owner/:repo/:slug` | tool args | Interaction result |
+| `GET`  | `/api/mcp/pixel/:owner/:repo/:slug?x=&y=` | — | RGB(A) of one pixel |
+| `GET`  | `/api/mcp/rect/:owner/:repo/:slug?selector=` | — | Bounding box + computed styles |
+| `POST` | `/api/mcp/measure/:owner/:repo/:slug` | distance args | Distance result |
+| `POST` | `/api/mcp/screenshot-diff` | two base64 PNGs | Diff result |
+| `POST` | `/api/mcp/emulate/:owner/:repo/:slug` | DPR / dark / geo / throttle | `{ ok }` |
+| `POST` | `/api/mcp/storage/:owner/:repo/:slug` | cookies / localStorage / sessionStorage CRUD | `{ ok, value? }` |
+| `GET`  | `/api/mcp/perf/:owner/:repo/:slug` | — | Navigation + paint timing |
+| `GET`  | `/api/mcp/requests/:owner/:repo/:slug?duration=&maxRequests=` | — | Network capture |
+| `POST` | `/api/mcp/deploy-and-verify/:owner/:repo/:slug` | — | Build → wait → screenshot |
+| `GET`  | `/api/mcp/previews` | — | Active previews list |
+
+### §4.14 Workspace / config import-export
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| `GET`  | `/api/workspace/stats` | — | Per-dir size + active flag |
+| `POST` | `/api/workspace/cleanup` | — | `{ removed, freedBytes }` |
+| `GET`  | `/api/config/export` | — | JSON (token redacted, secrets stripped, apiSecret stripped) |
+| `POST` | `/api/config/import` | exported JSON | `{ ok, added }` |
+
+### §4.15 Observability + meta
+
+| Method | Path | Returns |
+|---|---|---|
+| `GET` | `/api/health` | `{ ok, uptimeSec, memoryMB, toolsLoaded, browser, config }` (public) |
+| `GET` | `/api/metrics` | `{ uptimeSec, counters, gauges, histograms }` (public) |
+| `GET` | `/api/metrics/prometheus` | Prometheus text format (public) |
+| `GET` | `/api/audit?n=200` | `{ entries[], max }` newest-first |
+
+### §4.16 Top-level (not under `/api`)
+
+| Method | Path | Returns |
+|---|---|---|
+| `GET`  | `/`                                    | SPA shell (`public/index.html`) |
+| `GET`  | `/preview/:owner/:repo/:slug/*`        | Live preview (proxied or static) |
+| `GET`  | `/preview/:owner/:repo/:slug/__snapshot/:id/*` | Time-travel preview from history snapshot or tag (`X-DV-Snapshot` header) |
+| `POST` | `/preview/:owner/:repo/:slug/__auth`   | Password-protected preview login |
+| `GET`  | `/test/:owner/:repo/:slug`             | Built-in test harness page |
+| `GET`  | `/deploy?repo=&branches=`              | One-click deploy template — bounces to addRepo |
+| `GET`  | `/badge/:owner/:repo/:slug`            | Shields-shaped status badge SVG |
+| `*`    | `/mcp` (`POST`/`GET`/`DELETE`/`OPTIONS`) | MCP Streamable HTTP transport for claude.ai |
+| `GET`  | `/sw.js`, `/manifest.webmanifest`, `/icon.svg` | PWA shell |
