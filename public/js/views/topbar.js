@@ -128,6 +128,10 @@ DV.views.topbar = function(app) {
       S.mcpAction = null; S.mcpResult = null; DV.loadMcpTools(); S.view = "mcp"; DV.render();
     } } }, DV.iconEl("plug")));
 
+    right.appendChild(el("button", { c: "topbar-icon" + (S.view === "analytics" ? " topbar-icon-active" : ""), attr: { title: "Analytics" }, on: { click: function() {
+      S.view = "analytics"; DV.render();
+    } } }, DV.iconEl("chart")));
+
     right.appendChild(el("button", { c: "topbar-icon" + (S.view === "settings" ? " topbar-icon-active" : ""), attr: { title: "Settings (,)" }, on: { click: function() {
       S.view = "settings"; DV.render();
     } } }, "\u2699"));

@@ -200,6 +200,8 @@ function render() {
     views.mcp(app);
   } else if (S.view === "settings" && views.settings) {
     views.settings(app);
+  } else if (S.view === "analytics" && views.analytics) {
+    views.analytics(app);
   } else if (S.view === "preview" && views.preview) {
     views.preview(app); if (views.modals) views.modals(app);
   }
