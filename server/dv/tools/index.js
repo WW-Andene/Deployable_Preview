@@ -24,3 +24,4 @@ require("./devtools");
 require("./codec");
 require("./sandbox");
 require("./live");
+require("./workflow");
