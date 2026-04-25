@@ -493,6 +493,61 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
   animation: modalIn var(--dur-enter) var(--ease-physical);
 }
 
+/* B3 — Modal width variants. Add one of these to the .modal element
+   to opt into a standard size instead of bespoke max-width values:
+   .modal-sm   380px   confirm / share / errors-list
+   .modal-md   560px   history / log / standard forms
+   .modal-lg   720px   diff slider / edit / advanced composers
+   .modal-xl   920px   full-page editors
+
+   Existing .modal-share/history/diff/errors classes still apply
+   their per-modal extras (background colour, padding) but inherit
+   width from the size variant. */
+.modal-sm { max-width: var(--modal-w-sm); }
+.modal-md { max-width: var(--modal-w-md); }
+.modal-lg { max-width: var(--modal-w-lg); }
+.modal-xl { max-width: var(--modal-w-xl); }
+
+/* B3 — Structural skeleton. Optional but recommended for new modals:
+   <div class="modal modal-md">
+     <header class="modal-header">…</header>
+     <div class="modal-body">…</div>
+     <footer class="modal-footer">…</footer>
+   </div>
+
+   Header has the title (use .modal-title) and an optional close
+   button. Body scrolls; header/footer are sticky so they stay
+   visible on long lists.
+*/
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 0 14px;
+  margin: 0 0 14px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: calc(var(--sp) * -3); /* offset against parent .modal padding */
+  background: var(--sf1);
+  z-index: 1;
+}
+.modal-body {
+  /* Body scrolls within the modal's max-height. Default: no extra padding. */
+}
+.modal-footer {
+  display: flex;
+  gap: 8px;
+  padding: 14px 0 0;
+  margin: 14px 0 0;
+  border-top: 1px solid var(--border);
+  position: sticky;
+  bottom: calc(var(--sp) * -3);
+  background: var(--sf1);
+  z-index: 1;
+}
+.modal-footer.modal-footer-end { justify-content: flex-end; }
+
 /* ── Stagger — choreographed entrances ── */
 .stagger-in {
   opacity: 0;
@@ -1275,7 +1330,7 @@ button:disabled, button[disabled] {
 
 /* ─── Share modal (modals.js) ─── */
 .modal-share {
-  max-width: 380px;
+  max-width: var(--modal-w-sm);
   text-align: center;
 }
 .share-qr-wrap {
@@ -1312,7 +1367,7 @@ button:disabled, button[disabled] {
 }
 
 /* ─── Deployment history modal ─── */
-.modal-history { max-width: 560px; }
+.modal-history { max-width: var(--modal-w-md); }
 .history-list {
   max-height: 420px;
   overflow-y: auto;
@@ -1410,7 +1465,7 @@ button:disabled, button[disabled] {
 .repo-readme-body a       { color: var(--accent); text-decoration: underline; }
 
 /* ─── Runtime-errors modal (J3) ─── */
-.modal-errors { max-width: 640px; }
+.modal-errors { max-width: var(--modal-w-md); }
 .errors-list {
   max-height: 480px;
   overflow-y: auto;
@@ -1440,7 +1495,7 @@ button:disabled, button[disabled] {
 .pill-clickable { cursor: pointer; border: 0; }
 
 /* ─── Visual diff slider (modals.js diffModal) ─── */
-.modal-diff { max-width: 720px; }
+.modal-diff { max-width: var(--modal-w-lg); }
 .diff-stage {
   position: relative;
   width: 100%;
