@@ -67,7 +67,11 @@ var S = {
   // Open action-overflow menu key (C2). The dashboard uses this to decide
   // which row's "•••" menu is currently open; clicking another row's menu
   // (or clicking outside) closes it. Format: "owner/repo:slug".
-  openActionMenu: null
+  openActionMenu: null,
+
+  // Active Settings tab (D1). One of: keys / browser / tunnel / workspace
+  // / webhooks / envgroups / domains / actions / about. Defaults to keys.
+  settingsTab: "keys"
 };
 
 var _dropdownCloseHandler = null;

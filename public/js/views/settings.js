@@ -2,12 +2,49 @@
 var S = DV.S, el = DV.el, api = DV.api;
 
 /* ── Helpers ── */
-function section(title, children) {
+// section(title, children, tabId?) — when tabId is provided, the section
+// only renders when S.settingsTab matches it (D1: tabs). Sections without
+// tabId render unconditionally — used for the implicit "all" view if any.
+function section(title, children, tabId) {
+  if (tabId && S.settingsTab && S.settingsTab !== tabId) return null;
   var s = el("div", { c: "settings-section" });
   s.appendChild(el("h3", { c: "settings-section-title" }, title));
   if (Array.isArray(children)) children.forEach(function(c) { if (c) s.appendChild(c); });
   return s;
 }
+
+// Tab bar — sticky at the top of the settings page. Clicks switch
+// S.settingsTab and re-render. Each tab corresponds to one section()
+// callsite below.
+var SETTINGS_TABS = [
+  { id: "keys",       label: "API Keys" },
+  { id: "browser",    label: "Browser" },
+  { id: "tunnel",     label: "Tunnel" },
+  { id: "webhooks",   label: "Webhooks" },
+  { id: "envgroups",  label: "Env Groups" },
+  { id: "domains",    label: "Domains" },
+  { id: "workspace",  label: "Workspace" },
+  { id: "actions",    label: "Actions" },
+  { id: "about",      label: "About" }
+];
+function tabBar() {
+  var bar = el("div", { c: "settings-tab-bar", attr: { role: "tablist", "aria-label": "Settings sections" } });
+  for (var i = 0; i < SETTINGS_TABS.length; i++) {
+    (function(t) {
+      var active = S.settingsTab === t.id;
+      bar.appendChild(el("button", {
+        c: "settings-tab" + (active ? " settings-tab-active" : ""),
+        attr: { role: "tab", "aria-selected": active ? "true" : "false", title: t.label },
+        on: { click: function() { S.settingsTab = t.id; DV.render(); } }
+      }, t.label));
+    })(SETTINGS_TABS[i]);
+  }
+  return bar;
+}
+
+// appendIfExists — used to swallow null returns from section() so the
+// page-level appends in the body below don't crash.
+function appendIfExists(parent, child) { if (child) parent.appendChild(child); }
 
 function keyRow(secret, onSave, onDelete) {
   var card = el("div", { c: "settings-key-row" });
@@ -60,6 +97,7 @@ function keyRow(secret, onSave, onDelete) {
 DV.views.settings = function(app) {
   var page = el("div", { c: "settings-page" });
   page.appendChild(el("h2", { c: "page-title" }, "Settings"));
+  page.appendChild(tabBar());
 
   /* ══════════ Section: API Keys ══════════ */
   var keysBody = el("div", {});
@@ -195,10 +233,10 @@ DV.views.settings = function(app) {
     });
   }
   loadKeys();
-  page.appendChild(section("API Keys & Secrets", [
+  appendIfExists(page, section("API Keys & Secrets", [
     el("div", { c: "settings-hint mb-8" }, "Saved to this server only. Env vars work as fallback. All keys are injected into build environments."),
     keysBody
-  ]));
+  ], "keys"));
 
   /* ══════════ Section: Browser Engine ══════════ */
   var browserBody = el("div", {});
@@ -277,7 +315,7 @@ DV.views.settings = function(app) {
     }).catch(function() { browserBody.textContent = "Could not load."; });
   }
   refreshBrowser();
-  page.appendChild(section("Browser Engine", [browserBody]));
+  appendIfExists(page, section("Browser Engine", [browserBody], "browser"));
 
   /* ══════════ Section: HTTPS Tunnel ══════════ */
   var tunnelBody = el("div", {});
@@ -338,7 +376,7 @@ DV.views.settings = function(app) {
     }).catch(function() { tunnelBody.textContent = "Could not reach API."; });
   }
   refreshTunnel();
-  page.appendChild(section("HTTPS Tunnel", [tunnelBody]));
+  appendIfExists(page, section("HTTPS Tunnel", [tunnelBody], "tunnel"));
 
   /* ══════════ Section: Workspace ══════════ */
   var wsBody = el("div", {});
@@ -354,7 +392,7 @@ DV.views.settings = function(app) {
       } } }, "Clean " + stats.orphaned + " orphaned"));
     }
   }).catch(function() { wsBody.textContent = "Could not load."; });
-  page.appendChild(section("Workspace", [wsBody]));
+  appendIfExists(page, section("Workspace", [wsBody], "workspace"));
 
   /* ══════════ Section: Outgoing webhooks ══════════ */
   // Slack/Discord/custom URL receivers for build events. Lets a team
@@ -457,7 +495,7 @@ DV.views.settings = function(app) {
     }).catch(function() { whBody.textContent = "Could not load."; });
   }
   loadWebhooks();
-  page.appendChild(section("Outgoing Webhooks", [whBody]));
+  appendIfExists(page, section("Outgoing Webhooks", [whBody], "webhooks"));
 
   /* ══════════ Section: Env-var groups ══════════ */
   // Reusable named bundles of KEY=value, attached per-branch via the
@@ -558,7 +596,7 @@ DV.views.settings = function(app) {
     });
   }
   loadEnvGroups();
-  page.appendChild(section("Env-Var Groups", [egBody]));
+  appendIfExists(page, section("Env-Var Groups", [egBody], "envgroups"));
 
   /* ══════════ Section: Custom Domains (H4) ══════════ */
   // Map a hostname → (owner, repo, slug). Users CNAME their domain at
@@ -645,10 +683,10 @@ DV.views.settings = function(app) {
     }).catch(function() { domBody.textContent = "Could not load."; });
   }
   loadDomains();
-  page.appendChild(section("Custom Domains", [domBody]));
+  appendIfExists(page, section("Custom Domains", [domBody], "domains"));
 
   /* ══════════ Section: Actions ══════════ */
-  page.appendChild(section("Actions", [
+  appendIfExists(page, section("Actions", [
     el("div", { c: "settings-actions-grid" }, [
       el("button", { c: "bg bs", on: { click: function() {
         if (!confirm("Rebuild all branches?")) return;
@@ -680,7 +718,7 @@ DV.views.settings = function(app) {
         api("POST", "/api/token", { token: "" }).then(function() { S.hasToken = false; S.view = "setup"; DV.render(); });
       } } }, "Logout")
     ])
-  ]));
+  ], "actions"));
 
   /* ══════════ Section: About ══════════ */
   var aboutBody = el("div", { c: "settings-about" });
@@ -695,7 +733,7 @@ DV.views.settings = function(app) {
       ]));
     });
   }).catch(function() {});
-  page.appendChild(section("About", [aboutBody]));
+  appendIfExists(page, section("About", [aboutBody], "about"));
 
   app.appendChild(page);
 };

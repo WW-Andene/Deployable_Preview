@@ -1613,6 +1613,40 @@ button:disabled, button[disabled] {
   font-weight: 600;
 }
 
+/* ─── Settings tab bar (D1) ─── */
+.settings-tab-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px;
+  margin: 0 0 24px;
+  background: var(--sf1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-popover);
+  backdrop-filter: blur(8px);
+}
+.settings-tab {
+  background: transparent;
+  color: var(--tx2);
+  border: 0;
+  padding: 7px 14px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--r-btn);
+  cursor: pointer;
+  transition: background var(--dur-micro) var(--ease-fast), color var(--dur-micro) var(--ease-fast);
+}
+.settings-tab:hover { background: var(--sf2); color: var(--tx1); }
+.settings-tab-active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.settings-tab-active:hover { background: var(--accent-mid); color: var(--accent); }
+
 /* ─── Action overflow menu (C2 — branch-row "•••" popover) ─── */
 .branch-actions {
   position: relative;
