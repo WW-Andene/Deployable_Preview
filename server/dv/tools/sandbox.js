@@ -87,7 +87,8 @@ dv.defineTool({
       note: args.note || "",
       createdAt: Date.now(),
       lastUsed: Date.now(),
-      execCount: 0
+      execCount: 0,
+      transcript: [] // ring buffer of recent {tool, args, ok, textPreview, t}
     });
 
     // Warm the page so subsequent calls are fast.
@@ -144,7 +145,9 @@ dv.defineTool({
         }
       },
       stopOnError: { type: "boolean", description: "Abort on first failure (default false)" },
-      includeImages: { type: "boolean", description: "Include image content from image-returning tools (default true). Set false to save tokens when only metadata matters." }
+      includeImages: { type: "boolean", description: "Include image content from image-returning tools (default true). Set false to save tokens when only metadata matters." },
+      maxImages:    { type: "number",  description: "Cap total images in the response (oldest dropped). Default 12." },
+      maxBytes:     { type: "number",  description: "Cap total base64 bytes across images. Default 8 MB." }
     },
     required: ["sandboxId", "calls"]
   },
@@ -164,9 +167,13 @@ dv.defineTool({
     }
     const stopOnError = !!args.stopOnError;
     const includeImages = args.includeImages !== false;
+    const maxImages = Math.max(0, Math.min(Number(args.maxImages) || 12, 60));
+    const maxBytes  = Math.max(256 * 1024, Number(args.maxBytes) || 8 * 1024 * 1024);
 
     const results = [];
     const aggregated = [];
+    let aggregatedBytes = 0;
+    let droppedImages = 0;
     let failedAt = -1;
 
     for (let i = 0; i < calls.length; i++) {
@@ -180,6 +187,7 @@ dv.defineTool({
         { owner: sb.owner, repo: sb.repo, slug: sb.slug, width: sb.width, height: sb.height },
         c.args || {}
       );
+      const tStart = Date.now();
       let r;
       try { r = await dv.callTool(c.tool, callArgs); }
       catch (e) { r = dv.failCode("INTERNAL", e.message); }
@@ -188,18 +196,40 @@ dv.defineTool({
       // Extract the text payload for the summary; keep images for the aggregated content (but only if desired)
       const textBlocks = (r.content || []).filter(function(x){ return x.type === "text"; }).map(function(x){ return x.text; });
       const imageCount = (r.content || []).filter(function(x){ return x.type === "image"; }).length;
+      const firstText = textBlocks[0] || null;
 
-      results.push({
+      const row = {
         index: i,
         tool: c.tool,
         ok,
         text: textBlocks.length ? textBlocks.join("\n") : null,
+        images: imageCount,
+        durationMs: Date.now() - tStart
+      };
+      results.push(row);
+
+      // Append to sandbox transcript (ring buffer, 50 entries)
+      sb.transcript.push({
+        t: Date.now(),
+        tool: c.tool,
+        args: c.args || null,
+        ok,
+        durationMs: row.durationMs,
+        textPreview: firstText ? String(firstText).slice(0, 300) : null,
         images: imageCount
       });
+      if (sb.transcript.length > 50) sb.transcript.splice(0, sb.transcript.length - 50);
 
       if (includeImages) {
         for (const block of (r.content || [])) {
-          if (block.type === "image") aggregated.push(block);
+          if (block.type !== "image") continue;
+          const size = block.data ? block.data.length : 0;
+          if (aggregated.length >= maxImages || aggregatedBytes + size > maxBytes) {
+            droppedImages++;
+            continue;
+          }
+          aggregated.push(block);
+          aggregatedBytes += size;
         }
       }
 
@@ -216,7 +246,13 @@ dv.defineTool({
       succeeded: results.filter(function(r){ return r.ok; }).length,
       failed: results.filter(function(r){ return !r.ok; }).length,
       stoppedEarly: failedAt >= 0,
-      results
+      imagesIncluded: aggregated.length,
+      imagesDropped: droppedImages,
+      imageBytes: aggregatedBytes,
+      results,
+      hint: droppedImages > 0
+        ? "Some images were dropped to stay under maxImages/maxBytes. Re-run individual calls or raise the cap."
+        : undefined
     };
 
     if (aggregated.length) {
@@ -224,6 +260,32 @@ dv.defineTool({
       return dv.makeResult(aggregated);
     }
     return dv.ok(summary);
+  }
+});
+
+// ── sandbox_log ───────────────────────────────────────────────────────────
+
+dv.defineTool({
+  name: "sandbox_log",
+  category: "sandbox",
+  description: "Return the transcript (last 50 calls) for a sandbox: tool name, args, ok/fail, duration, 300-char text preview. Useful when you want to remind yourself what you already ran before issuing the next call.",
+  requires: [],
+  schema: {
+    type: "object",
+    properties: {
+      sandboxId: { type: "string" },
+      limit:     { type: "number", description: "Max entries to return (default 20, max 50)" }
+    },
+    required: ["sandboxId"]
+  },
+  async handler(args) {
+    const sb = getSandbox(args.sandboxId);
+    if (!sb) return dv.failCode("SANDBOX_NOT_FOUND", "No sandbox with id: " + args.sandboxId);
+    const limit = Math.max(1, Math.min(Number(args.limit) || 20, 50));
+    const tail = sb.transcript.slice(-limit).map(function(e) {
+      return Object.assign({}, e, { iso: new Date(e.t).toISOString() });
+    });
+    return dv.ok({ sandboxId: sb.id, totalCalls: sb.execCount, shown: tail.length, entries: tail });
   }
 });
 
