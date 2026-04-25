@@ -1,11 +1,17 @@
-const { tryRequire, have, missing } = require("./index");
-
-// ── axe-core ───────────────────────────────────────────────────────────────
-
 /**
- * Run axe-core inside a Playwright/Puppeteer page. Injects the axe-core
- * source from the npm package, then calls axe.run() and returns violations.
+ * enrichments/audit.js — accessibility / OCR / perf / security / network audits.
+ *
+ * Wraps the heavy "audit" libs:
+ *   runAxe, runOCR, shutdownTesseract, runLighthouse, validateHtml,
+ *   vulnScan, cspCheck, parseSetCookie, parseCookieJar, parseRobots.
+ *
+ * Extracted from mcp-enrichments.js (R6.8).
  */
+
+"use strict";
+
+const { tryRequire, missing } = require("./lib");
+
 async function runAxe(page, opts) {
   const axeCore = tryRequire("axe-core");
   if (!axeCore) return missing("axe-core", "accessibility");
@@ -65,9 +71,6 @@ async function runAxe(page, opts) {
   }
 }
 
-// ── tesseract.js ───────────────────────────────────────────────────────────
-
-let _tesseractWorker = null;
 async function getTesseractWorker(lang) {
   const tesseract = tryRequire("tesseract.js");
   if (!tesseract) return null;
@@ -121,13 +124,6 @@ async function shutdownTesseract() {
   }
 }
 
-// ── lighthouse ─────────────────────────────────────────────────────────────
-
-/**
- * Run a full Lighthouse audit against a preview URL. Lighthouse launches
- * its own Chrome via chrome-launcher; we pass the existing session port
- * if available to reuse our already-running Chromium.
- */
 async function runLighthouse(url, opts) {
   const lighthouse = tryRequire("lighthouse");
   if (!lighthouse) return missing("lighthouse", "lighthouse");
@@ -152,11 +148,7 @@ async function runLighthouse(url, opts) {
           "--enable-webgl"
         ]
       };
-      // On Termux/ARM, chrome-launcher can't auto-detect system Chromium.
-      // Use CHROME_PATH env (set by index.js startup) or find it manually.
-      if (process.env.CHROME_PATH) {
-        launchOpts.chromePath = process.env.CHROME_PATH;
-      }
+      if (process.env.CHROME_PATH) launchOpts.chromePath = process.env.CHROME_PATH;
       chrome = await launch(launchOpts);
       port = chrome.port;
     }
@@ -235,68 +227,173 @@ async function runLighthouse(url, opts) {
   }
 }
 
-// ── css-tree ───────────────────────────────────────────────────────────────
-
-/**
- * Parse a CSS value string with css-tree and return structured AST data
- * so comparisons can be exact. Useful for diffing computed styles between
- * two elements or two states.
- */
-function parseCssValue(value) {
-  const cssTree = tryRequire("css-tree");
-  if (!cssTree) return missing("css-tree", "computed_styles");
+async function validateHtml(htmlOrUrl) {
+  const https = require("https");
   try {
-    const ast = cssTree.parse(value, { context: "value" });
-    // Walk and collect an easier-to-diff list of tokens
-    const tokens = [];
-    cssTree.walk(ast, (node) => {
-      if (node.type === "Dimension") {
-        tokens.push({ type: "dimension", value: node.value, unit: node.unit });
-      } else if (node.type === "Number") {
-        tokens.push({ type: "number", value: node.value });
-      } else if (node.type === "Percentage") {
-        tokens.push({ type: "percent", value: node.value });
-      } else if (node.type === "HexColor") {
-        tokens.push({ type: "hex", value: "#" + node.value });
-      } else if (node.type === "Identifier") {
-        tokens.push({ type: "ident", value: node.name });
-      } else if (node.type === "Function") {
-        tokens.push({ type: "fn", name: node.name });
-      } else if (node.type === "String") {
-        tokens.push({ type: "string", value: node.value });
-      }
+    let apiUrl;
+    let body = null;
+    let headers = { "Accept": "application/json" };
+    if (typeof htmlOrUrl === "string" && /^https?:\/\//.test(htmlOrUrl)) {
+      apiUrl = "https://validator.w3.org/nu/?doc=" + encodeURIComponent(htmlOrUrl) + "&out=json";
+    } else {
+      apiUrl = "https://validator.w3.org/nu/?out=json";
+      body = typeof htmlOrUrl === "string" ? htmlOrUrl : String(htmlOrUrl);
+      headers["Content-Type"] = "text/html; charset=utf-8";
+    }
+    const result = await new Promise((resolve, reject) => {
+      const parsed = new URL(apiUrl);
+      const opts = {
+        hostname: parsed.hostname,
+        path: parsed.pathname + parsed.search,
+        method: body ? "POST" : "GET",
+        headers,
+        timeout: 30000
+      };
+      const req = https.request(opts, (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); }
+          catch (e) { reject(new Error("W3C validator returned non-JSON")); }
+        });
+      });
+      req.on("error", reject);
+      req.on("timeout", () => { req.destroy(); reject(new Error("W3C validator timed out")); });
+      if (body) req.write(body);
+      req.end();
     });
+    const messages = (result && result.messages) || [];
     return {
-      normalized: cssTree.generate(ast),
-      tokens
+      errorCount: messages.filter((m) => m.type === "error").length,
+      warningCount: messages.filter((m) => m.type === "info" || m.type === "warning").length,
+      messages: messages.slice(0, 100).map((m) => ({
+        type: m.type,
+        subType: m.subType,
+        message: m.message,
+        line: m.lastLine,
+        col: m.lastColumn
+      }))
     };
   } catch (e) {
-    return { error: "css-tree parse failed: " + e.message };
+    return { error: "W3C HTML validation failed: " + e.message };
   }
 }
 
-/**
- * Diff two parsed CSS values structurally. Returns match/mismatch per token.
- */
-function diffCssValues(a, b) {
-  const pa = parseCssValue(a);
-  const pb = parseCssValue(b);
-  if (pa.error) return pa;
-  if (pb.error) return pb;
-  const same = pa.normalized === pb.normalized;
-  return {
-    same,
-    a: pa,
-    b: pb
-  };
+function vulnScan(fingerprints) {
+  const retire = tryRequire("retire");
+  if (!retire) return missing("retire", "vuln_scan");
+  try {
+    const scanJsFile = retire.scanJsFile || (retire.default && retire.default.scanJsFile);
+    if (!scanJsFile) {
+      return {
+        error: "retire.scanJsFile not exposed by this version — use the CLI or upgrade"
+      };
+    }
+    const repo = retire.loadJsRepository ? retire.loadJsRepository() : null;
+    const findings = [];
+    for (const f of (fingerprints || [])) {
+      try {
+        const result = scanJsFile(f.path || f.url || "", "", repo || {});
+        if (result && result.length) findings.push({ file: f.path || f.url, findings: result });
+      } catch (_) {}
+    }
+    return { findings, scanned: (fingerprints || []).length };
+  } catch (e) {
+    return { error: "retire failed: " + e.message };
+  }
 }
 
-module.exports = {
-  runAxe,
-  getTesseractWorker,
-  runOCR,
-  shutdownTesseract,
-  runLighthouse,
-  parseCssValue,
-  diffCssValues
-};
+function cspCheck(cspHeader) {
+  if (!cspHeader || typeof cspHeader !== "string") {
+    return { error: "CSP header string required" };
+  }
+  try {
+    const directives = {};
+    const parts = cspHeader.split(";").map((s) => s.trim()).filter(Boolean);
+    for (const part of parts) {
+      const tokens = part.split(/\s+/);
+      const name = tokens[0].toLowerCase();
+      directives[name] = tokens.slice(1);
+    }
+    const issues = [];
+    const all = JSON.stringify(directives);
+    if (/'unsafe-inline'/.test(all)) issues.push("contains 'unsafe-inline'");
+    if (/'unsafe-eval'/.test(all))   issues.push("contains 'unsafe-eval'");
+    if (!directives["default-src"])  issues.push("no default-src directive");
+    if (directives["script-src"] && directives["script-src"].includes("*")) {
+      issues.push("script-src allows wildcard (*)");
+    }
+    if (!directives["frame-ancestors"]) issues.push("no frame-ancestors directive (clickjacking risk)");
+    return { directives, directiveCount: Object.keys(directives).length, issues };
+  } catch (e) {
+    return { error: "CSP parse failed: " + e.message };
+  }
+}
+
+function parseSetCookie(setCookieHeaders) {
+  const parser = tryRequire("set-cookie-parser");
+  if (!parser) return missing("set-cookie-parser", "cookies_full");
+  try {
+    const fn = parser.parse || (parser.default && parser.default.parse);
+    const arr = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders];
+    const parsed = fn(arr, { decodeValues: true });
+    return { count: parsed.length, cookies: parsed };
+  } catch (e) {
+    return { error: "set-cookie-parser failed: " + e.message };
+  }
+}
+
+function parseCookieJar(cookies) {
+  const tough = tryRequire("tough-cookie");
+  if (!tough) return missing("tough-cookie", "cookies_full");
+  try {
+    const Cookie = tough.Cookie;
+    const parsed = (cookies || []).map((raw) => {
+      try {
+        const c = typeof raw === "string" ? Cookie.parse(raw) : Cookie.fromJSON(raw);
+        return c ? c.toJSON() : { raw };
+      } catch (_) { return { raw }; }
+    });
+    return { count: parsed.length, cookies: parsed };
+  } catch (e) {
+    return { error: "tough-cookie failed: " + e.message };
+  }
+}
+
+
+async function parseRobots(url, userAgent) {
+  const robotsParser = tryRequire("robots-parser");
+  if (!robotsParser) return missing("robots-parser", "robots");
+  try {
+    const https = require("https");
+    const http = require("http");
+    const urlObj = new URL(url);
+    const origin = urlObj.origin;
+    const robotsUrl = origin + "/robots.txt";
+    const robotsText = await new Promise((resolve) => {
+      const lib = robotsUrl.startsWith("https:") ? https : http;
+      const req = lib.get(robotsUrl, { timeout: 10000 }, (res) => {
+        let body = "";
+        res.on("data", (c) => body += c);
+        res.on("end", () => resolve(body));
+      });
+      req.on("error", () => resolve(""));
+      req.on("timeout", () => { req.destroy(); resolve(""); });
+    });
+    const fn = robotsParser.default || robotsParser;
+    const robots = fn(robotsUrl, robotsText);
+    const ua = userAgent || "Claude";
+    return {
+      robotsUrl,
+      allowed: robots.isAllowed(url, ua),
+      disallowed: robots.isDisallowed(url, ua),
+      crawlDelay: robots.getCrawlDelay(ua),
+      sitemaps: robots.getSitemaps(),
+      preferredHost: robots.getPreferredHost ? robots.getPreferredHost() : null
+    };
+  } catch (e) {
+    return { error: "robots-parser failed: " + e.message };
+  }
+}
+
+module.exports = { runAxe, runOCR, shutdownTesseract, runLighthouse, validateHtml, vulnScan, cspCheck, parseSetCookie, parseCookieJar, parseRobots };

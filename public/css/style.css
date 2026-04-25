@@ -27,13 +27,28 @@
   --accent-dim: rgba(212,160,48,.10);
   --accent-mid: rgba(212,160,48,.22);
   --accent-glow:rgba(212,160,48,.06);
+  --accent-glow-strong: rgba(212,160,48,.10); /* visible against raised --sf3 surfaces */
+  --accent-bg-faint:    rgba(212,160,48,.03); /* page-top radial wash */
   --err:        #c45040;
   --err-dim:    rgba(196,80,64,.10);
+  --err-border: rgba(196,80,64,.20);
+  --err-bg-h:   rgba(196,80,64,.18); /* destructive button hover fill */
   --ok:         #38a878;
   --ok-dim:     rgba(56,168,120,.10);
+  --ok-border:  rgba(56,168,120,.20);
+  --ok-bg-h:    rgba(56,168,120,.15);
   --run:        #4888c8;
   --run-dim:    rgba(72,136,200,.10);
+  --run-bg-h:   rgba(72,136,200,.15);
   --stop:       #605c56;
+  --bg-deep-overlay: rgba(9,10,16,.85);
+
+  /* Active/pressed accent — slightly darker than --accent for tactile press feedback */
+  --accent-active: #c09028;
+  /* Heavier separator/border (2x of default --border-h) */
+  --border-heavy: rgba(230,225,213,.12);
+  /* Shadow base color — palette-hued, never pure black. Already used by every shadow token. */
+  --shadow-base: rgba(8,8,20,.35);
   --border:     rgba(230,225,213,.05);
   --border-h:   rgba(230,225,213,.10);
   --border-accent: rgba(212,160,48,.20);
@@ -104,7 +119,7 @@ body::before {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(ellipse 70% 50% at 50% 0%, rgba(212,160,48,.03), transparent 70%);
+  background: radial-gradient(ellipse 70% 50% at 50% 0%, var(--accent-bg-faint), transparent 70%);
   z-index: 0;
 }
 #app { position: relative; z-index: 1; }
@@ -209,10 +224,10 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
 .bd {
   background: var(--err-dim);
   color: var(--err);
-  border: 1px solid rgba(196,80,64,.20);
+  border: 1px solid var(--err-border);
   padding: 7px 14px;
 }
-.bd:hover { background: rgba(196,80,64,.18); }
+.bd:hover { background: var(--err-bg-h); }
 
 /* Small */
 .bs { padding: 6px 10px; font-size: 12px; }
@@ -278,7 +293,8 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
   justify-content: space-between;
   padding: calc(var(--sp) * 1.5) calc(var(--sp) * 2.5);
   border-bottom: 1px solid var(--border);
-  background: rgba(9,10,16,.85);
+  background: var(--bg-deep-overlay);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
   backdrop-filter: blur(16px) saturate(1.3);
   position: sticky;
   top: 0;
@@ -346,7 +362,7 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
   max-height: 320px;
   overflow-y: auto;
   line-height: 1.7;
-  box-shadow: inset 0 2px 6px rgba(8,8,20,.35);
+  box-shadow: inset 0 2px 6px var(--shadow-base);
 }
 
 /* ── Status dots — signal lights ── */
@@ -402,6 +418,7 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
   position: fixed;
   inset: 0;
   background: var(--overlay);
+  -webkit-backdrop-filter: blur(6px) brightness(0.7);
   backdrop-filter: blur(6px) brightness(0.7);
   z-index: 200;
   display: flex;
@@ -591,11 +608,11 @@ button:disabled, button[disabled] {
   box-shadow: none !important;
   filter: saturate(0.3);
 }
-.bp:active { background: #c09028; box-shadow: 0 1px 2px rgba(8,8,20,.35); }
+.bp:active { background: var(--accent-active); box-shadow: 0 1px 2px var(--shadow-base); }
 .bg:active { background: var(--sf3); }
 
 /* ── Separators ── */
-.sep-heavy { border-bottom: 2px solid rgba(230,225,213,.12); }
+.sep-heavy { border-bottom: 2px solid var(--border-heavy); }
 .sep-light { border-bottom: 1px solid var(--border); }
 .sep-accent { border-bottom: 1px solid var(--border-accent); }
 
@@ -1230,7 +1247,7 @@ button:disabled, button[disabled] {
 .frame-popout-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
-  background: rgba(212, 160, 48, 0.1);
+  background: var(--accent-dim);
 }
 .frame-popout-btn:active {
   transform: scale(0.92);
@@ -1849,6 +1866,7 @@ button:disabled, button[disabled] {
   font-size: 12px;
   font-weight: 500;
   color: var(--tx1);
+  -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   box-shadow: var(--shadow-lg);
   animation: toastIn 200ms var(--ease-physical) forwards;
@@ -1857,15 +1875,15 @@ button:disabled, button[disabled] {
   border-left: 3px solid var(--accent);
 }
 .toast-success {
-  background: rgba(56,168,120,.15);
+  background: var(--ok-bg-h);
   border-left-color: var(--ok);
 }
 .toast-error {
-  background: rgba(196,80,64,.15);
+  background: var(--err-dim);
   border-left-color: var(--err);
 }
 .toast-info {
-  background: rgba(72,136,200,.15);
+  background: var(--run-bg-h);
   border-left-color: var(--run);
 }
 .toast-exit {
@@ -1892,6 +1910,7 @@ button:disabled, button[disabled] {
   background: var(--sf2);
   font-family: var(--font-mono);
   font-size: 10px;
+  font-variant-numeric: tabular-nums; /* numbers don't jitter on update */
   color: var(--tx3);
   border: 1px solid var(--border);
 }
@@ -1923,6 +1942,7 @@ button:disabled, button[disabled] {
   background: var(--sf2);
   font-family: var(--font-mono);
   font-size: 10px;
+  font-variant-numeric: tabular-nums slashed-zero; /* slashed 0 distinguishes from O */
   color: var(--tx3);
   border: 1px solid var(--border);
   cursor: pointer;
@@ -1968,7 +1988,7 @@ button:disabled, button[disabled] {
 .topbar-pill-ok {
   background: var(--ok-dim);
   color: var(--ok);
-  border: 1px solid rgba(56,168,120,.2);
+  border: 1px solid var(--ok-border);
 }
 
 /* ══════════════════════════════════════════════════
@@ -2252,3 +2272,59 @@ button:disabled, button[disabled] {
 .detect-badge strong { color: var(--tx1); font-weight: 600; }
 .detect-badge-icon { font-size: 13px; }
 .detect-badge-meta { color: var(--tx3); font-size: 11px; font-family: var(--font-mono); }
+
+/* ── Modal empty states ────────────────────────────────────────────── */
+/* Used by the log modal when a branch has not been built yet, or any
+   modal that needs to communicate "nothing here yet, here's why."
+   Same chrome family as `.frame-empty` but tuned for in-modal copy. */
+.modal-empty {
+  padding: var(--sp-2xl) var(--sp-lg);
+  text-align: center;
+  color: var(--tx2);
+  font-family: var(--font-ui);
+}
+.modal-empty-title {
+  color: var(--tx1);
+  font-size: var(--text-md);
+  font-weight: 500;
+  margin-bottom: var(--sp-sm);
+}
+.modal-empty-body {
+  color: var(--tx3);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  max-width: 360px;
+  margin: 0 auto;
+}
+
+/* ── Inline SVG icons (DV.iconEl) ──────────────────────────────────── */
+/* Wraps the DV.iconEl(name) <span>. Inherits currentColor so accent /
+   error / ghost button variants colour the stroke automatically. */
+.dv-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;        /* prevent vertical jitter inside text-aligned buttons */
+}
+.dv-icon svg { display: block; }
+
+/* ── Tabular numerics across the dashboard chrome ──────────────────── */
+.frame-info-badge,
+.compare-picker-status,
+.diff-badge,
+.shortcut-key,
+.kbd { font-variant-numeric: tabular-nums; }
+
+/* ── Reduced-motion guard (a11y) ───────────────────────────────────── */
+/* Users who set OS-level reduced motion get a near-instant version of
+   every animation/transition. Status pulses, modal entrances, palette
+   stagger, MJPEG flicker — all neutralised. Keeps the design intent
+   (state changes still render) without vestibular triggers. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

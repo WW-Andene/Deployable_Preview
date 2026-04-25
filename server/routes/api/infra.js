@@ -53,14 +53,17 @@ router.get("/browser/test", async (req, res) => {
     res.json({ ok: true, steps });
   } catch (e) {
     steps.push("ERROR: " + e.message);
-    res.json({ ok: false, error: e.message, steps, stack: e.stack ? e.stack.split("\n").slice(0, 3) : [] });
+    // Only include stack outside production — leaks file paths / usernames otherwise.
+    const out = { ok: false, error: e.message, steps };
+    if (process.env.NODE_ENV !== "production" && e.stack) out.stack = e.stack.split("\n").slice(0, 3);
+    res.json(out);
   }
 });
 
 router.get("/browser/status", (req, res) => {
   try {
     const { getActiveBrowser } = require("../../browser-setup");
-    const { hasPlaywright } = require("../../mcp-browser");
+    const { hasPlaywright } = require("../../browser");
     const preferred = (getConfig().preferences || {}).browser || "off";
     const active = getActiveBrowser();
     res.json({
@@ -93,7 +96,7 @@ router.post("/browser/disable", (req, res) => {
   config.preferences.browser = "off";
   saveConfig();
   try {
-    const mcpBrowser = require("../../mcp-browser");
+    const mcpBrowser = require("../../browser");
     mcpBrowser.closeBrowser().catch(() => {});
   } catch (_) {}
   res.json({ ok: true });
@@ -194,14 +197,24 @@ router.get("/live/:owner/:repo/:slug", async (req, res) => {
   req.on("close", function() { aborted = true; });
   res.on("error", function() { aborted = true; });
 
+  // Helper that resolves to the first of {result, abort}. We can't cancel
+  // a Playwright screenshot once it's started, but we can stop awaiting it
+  // and let the next iteration short-circuit.
+  function abortable(p) {
+    return new Promise(function(resolve) {
+      let settled = false;
+      p.then(function(v) { if (!settled) { settled = true; resolve(v); } },
+              function(e) { if (!settled) { settled = true; resolve({ error: e && e.message || String(e) }); } });
+      const onAbort = function() { if (!settled) { settled = true; resolve({ aborted: true }); } };
+      req.once("close", onAbort);
+    });
+  }
+
   while (!aborted && Date.now() < stopAt) {
-    let shot;
-    try {
-      shot = await browserMod.takeScreenshot({ owner, repo, slug, width, height, fullPage: false });
-    } catch (e) {
-      shot = { error: e.message };
-    }
-    if (aborted) break;
+    const shot = await abortable(browserMod.takeScreenshot({
+      owner, repo, slug, width, height, fullPage: false
+    }));
+    if (aborted || (shot && shot.aborted)) { aborted = true; break; }
     if (shot && shot.base64) {
       const buf = Buffer.from(shot.base64, "base64");
       try {

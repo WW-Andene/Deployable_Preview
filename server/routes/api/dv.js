@@ -5,7 +5,7 @@ const express = require("express");
 const router = express.Router();
 
 const dv = require("../../dv");
-const mcpBrowser = require("../../mcp-browser");
+const mcpBrowser = require("../../browser");
 
 // ── DV engine HTTP surface ─────────────────────────────────────────────────
 

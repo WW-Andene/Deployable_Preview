@@ -18,10 +18,11 @@ function mruTouch(id) {
     m[id] = Date.now();
     // Trim oldest entries if over cap
     var entries = Object.entries(m);
-    if (entries.length > MRU_MAX) {
+    if (entries.length >= MRU_MAX) {
+      // Sort by recency (newest first) and keep up to MRU_MAX entries.
       entries.sort(function(a,b){ return b[1]-a[1]; });
       m = {};
-      for (var i = 0; i < MRU_MAX; i++) m[entries[i][0]] = entries[i][1];
+      for (var i = 0; i < MRU_MAX && i < entries.length; i++) m[entries[i][0]] = entries[i][1];
     }
     localStorage.setItem(MRU_KEY, JSON.stringify(m));
   } catch (_) {}

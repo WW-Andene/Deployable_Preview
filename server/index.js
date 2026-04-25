@@ -136,39 +136,37 @@ app.use((err, req, res, _next) => {
 // ── Graceful shutdown ──
 let httpServer = null;
 
-function shutdown(signal) {
+// Track in-flight shutdown so a second SIGINT doesn't fork the work.
+let _shuttingDown = false;
+async function shutdown(signal) {
+  if (_shuttingDown) return;
+  _shuttingDown = true;
   console.log("\n  [" + signal + "] Shutting down gracefully...");
 
   // Kill all running server processes
   const { runningServers, killServer } = require("./process");
   for (const key in runningServers) {
     console.log("  Stopping server: " + key);
-    killServer(key);
+    try { killServer(key); } catch (e) { console.warn("  killServer(" + key + ") failed: " + e.message); }
   }
 
-  // Close Playwright browser
+  // Close Playwright browser — actually await so the connection closes.
   try {
     const mcpBrowser = require("./browser");
-    mcpBrowser.closeBrowser().catch(() => {});
-  } catch (e) { /* not loaded */ }
+    await mcpBrowser.closeBrowser();
+  } catch (e) { console.warn("  Browser close failed: " + e.message); }
 
-  // Close HTTP and HTTPS servers
-  let pendingClose = 0;
-  function onServerClosed() {
-    pendingClose--;
-    if (pendingClose <= 0) {
-      console.log("  Server(s) closed.");
-      process.exit(0);
-    }
-  }
-  if (httpServer) { pendingClose++; httpServer.close(onServerClosed); }
-  if (httpsServer) { pendingClose++; httpsServer.close(onServerClosed); }
-  if (pendingClose > 0) {
-    // Force exit after 5s if graceful close hangs
-    setTimeout(() => process.exit(1), 5000);
-  } else {
-    process.exit(0);
-  }
+  // Stop the tunnel before HTTP — otherwise the tunnel keeps the event loop alive.
+  try { require("./tunnel").stop(); } catch (_) {}
+
+  // Close HTTP and HTTPS servers, awaiting both, with a 5s force-exit fallback.
+  const closes = [];
+  if (httpServer)  closes.push(new Promise((resolve) => httpServer.close(() => resolve())));
+  if (httpsServer) closes.push(new Promise((resolve) => httpsServer.close(() => resolve())));
+  const force = new Promise((resolve) => setTimeout(resolve, 5000));
+  await Promise.race([Promise.all(closes), force]);
+  console.log("  Server(s) closed.");
+  process.exit(0);
 }
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));

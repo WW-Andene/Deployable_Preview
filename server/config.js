@@ -86,14 +86,36 @@ function loadConfig() {
 }
 
 function saveConfig() {
-  // Write backup first, then main file (atomic-ish save)
+  const payload = JSON.stringify(config, null, 2);
+  // Take a backup of the previous good file (best-effort) so a corrupted
+  // write can be recovered from .bak on next startup.
   try {
     if (fs.existsSync(CONFIG_FILE)) {
       fs.copyFileSync(CONFIG_FILE, CONFIG_FILE + ".bak");
     }
   } catch (_) {}
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+  // Atomic write: stage to .tmp then rename. POSIX rename is atomic; on
+  // Windows fs.renameSync overwrites. Either way, partial writes can't be
+  // observed by a concurrent reader.
+  const tmpFile = CONFIG_FILE + ".tmp";
+  try {
+    fs.writeFileSync(tmpFile, payload);
+    fs.renameSync(tmpFile, CONFIG_FILE);
+  } catch (e) {
+    // Fall back to a direct write so we don't lose the update entirely.
+    try { fs.writeFileSync(CONFIG_FILE, payload); } catch (_) { throw e; }
+  }
+  // Notify SSOT subscribers (e.g. build state pruning) — best-effort.
+  for (const cb of _saveSubscribers) {
+    try { cb(config); } catch (err) { console.warn("[config] save subscriber threw: " + err.message); }
+  }
 }
+
+// SSOT enforcement: callers register here to be notified after every save
+// so they can prune/refresh derived state (e.g. drop buildStatus entries
+// for branches no longer in config.repos).
+const _saveSubscribers = new Set();
+function onConfigSaved(cb) { _saveSubscribers.add(cb); return () => _saveSubscribers.delete(cb); }
 
 function getConfig() { return config; }
 
@@ -132,4 +154,4 @@ function getSecret(key, envKey) {
   return "";
 }
 
-module.exports = { loadConfig, saveConfig, getConfig, migrateConfig, parseEnvVars, getSecret, getValidationReport, validateAndRepairConfig };
+module.exports = { loadConfig, saveConfig, getConfig, migrateConfig, parseEnvVars, getSecret, getValidationReport, validateAndRepairConfig, onConfigSaved };

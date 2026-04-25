@@ -227,7 +227,7 @@ function tryNgrok(port, onUrl, onFail) {
     .then((listener) => {
       if (!listener) { onFail(new Error("ngrok returned no listener")); return; }
       // @ngrok/ngrok returns a Listener object; extract the URL string
-      var url = typeof listener === "string" ? listener
+      let url = typeof listener === "string" ? listener
         : (typeof listener.url === "function" ? listener.url() : listener.url);
       if (!url || typeof url !== "string") {
         onFail(new Error("ngrok returned unexpected type: " + typeof listener));
@@ -341,14 +341,21 @@ function tryLocaltunnelApi(port, onUrl, onFail) {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+// In-flight start dedupe — two parallel POST /tunnel/start calls used to
+// race, both initialise ngrok, and the loser would crash the winner with
+// ERR_NGROK_333 (tunnel already closed) on subsequent stop. Hold a single
+// pending promise and return it to every concurrent caller.
+let _pendingStart = null;
+
 function start(port) {
   port = port || parseInt(process.env.PORT, 10) || 3000;
   if (state.running) return Promise.resolve({ url: state.url });
+  if (_pendingStart) return _pendingStart;
 
   cleanup();
   state = { running: false, url: null, provider: null, error: null };
 
-  return new Promise((resolve, reject) => {
+  _pendingStart = new Promise((resolve, reject) => {
     let settled = false;
 
     const timeout = setTimeout(() => {
@@ -422,9 +429,14 @@ function start(port) {
         .catch(onCloudflaredFail);
     }
   });
+  // Clear the in-flight slot when this attempt resolves either way.
+  _pendingStart.finally(() => { _pendingStart = null; });
+  return _pendingStart;
 }
 
 function stop() {
+  // If a start is mid-flight, clear it so the next start() call doesn't reuse it.
+  _pendingStart = null;
   cleanup();
   state = { running: false, url: null, provider: null, error: null };
   log("Tunnel stopped.");

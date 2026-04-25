@@ -119,7 +119,7 @@ DV.views.topbar = function(app) {
 
     right.appendChild(el("button", { c: "topbar-icon" + (S.view === "mcp" ? " topbar-icon-active" : ""), attr: { title: "MCP Tools" }, on: { click: function() {
       S.mcpAction = null; S.mcpResult = null; DV.loadMcpTools(); S.view = "mcp"; DV.render();
-    } } }, "\uD83D\uDD0C"));
+    } } }, DV.iconEl("plug")));
 
     right.appendChild(el("button", { c: "topbar-icon" + (S.view === "settings" ? " topbar-icon-active" : ""), attr: { title: "Settings (,)" }, on: { click: function() {
       S.view = "settings"; DV.render();
