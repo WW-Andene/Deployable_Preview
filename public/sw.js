@@ -13,7 +13,7 @@
 
 "use strict";
 
-const CACHE_VERSION = "dv-shell-v1";
+const CACHE_VERSION = "dv-shell-v2";
 const SHELL = [
   "/",
   "/index.html",
@@ -23,13 +23,24 @@ const SHELL = [
   "/js/app.js",
   "/js/icons.js",
   "/js/qr.js",
+  "/js/md.js",
   "/js/views/topbar.js",
   "/js/views/setup.js",
+  "/js/views/branch-row.js",
   "/js/views/dashboard.js",
   "/js/views/addRepo.js",
   "/js/views/preview.js",
   "/js/views/mcp.js",
   "/js/views/settings.js",
+  "/js/views/analytics.js",
+  "/js/views/modals/_base.js",
+  "/js/views/modals/edit.js",
+  "/js/views/modals/log.js",
+  "/js/views/modals/apk.js",
+  "/js/views/modals/share.js",
+  "/js/views/modals/history.js",
+  "/js/views/modals/diff.js",
+  "/js/views/modals/errors.js",
   "/js/views/modals.js",
   "/js/views/palette.js"
 ];
