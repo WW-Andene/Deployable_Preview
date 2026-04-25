@@ -135,6 +135,25 @@ function appendHistory(key, entry) {
   return arr;
 }
 
+// G2: attach a free-text note to a history entry. Notes are short
+// (capped 2000 chars), human- or AI-written, and optional. Useful for
+// "what changed", "demo for client X", "rollback before launch" etc.
+const MAX_NOTE_CHARS = 2000;
+function setHistoryNote(key, historyId, note) {
+  const arr = getHistory(key);
+  const entry = arr.find((h) => h.id === historyId);
+  if (!entry) return null;
+  if (note == null || String(note).trim() === "") {
+    delete entry.note;
+    delete entry.noteAt;
+  } else {
+    entry.note = String(note).slice(0, MAX_NOTE_CHARS);
+    entry.noteAt = Date.now();
+  }
+  try { fs.writeFileSync(_historyFile(key), JSON.stringify(arr, null, 2)); } catch (_) {}
+  return entry;
+}
+
 // snapshotBuildOutput copies the current outputPath into a versioned
 // directory under WORKSPACE/<owner__repo__slug>/.snapshots/<id>/. We copy
 // rather than move so the live preview keeps serving while history grows.
@@ -172,6 +191,7 @@ module.exports = {
   // ── deployment history ──
   getHistory,
   appendHistory,
+  setHistoryNote,
   snapshotBuildOutput,
   MAX_HISTORY_PER_KEY
 };

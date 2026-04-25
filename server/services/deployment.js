@@ -20,7 +20,7 @@
 
 const fs = require("fs");
 const { getConfig } = require("../config");
-const { buildStatus, branchSlug, deployBranch, cancelBuild, getHistory, appendHistory } = require("../build");
+const { buildStatus, branchSlug, deployBranch, cancelBuild, getHistory, appendHistory, setHistoryNote } = require("../build");
 const { runningServers, killServer } = require("../process");
 const { loadLog } = require("../logs");
 
@@ -172,6 +172,21 @@ function rollback(owner, repo, slug, historyId) {
   return { ok: true, message: "Rolled back to " + (target.commitSha || target.id).slice(0, 7), entry: target };
 }
 
+/**
+ * Set or clear a free-text note on a specific history entry. Pass
+ * note=null/"" to remove. Returns the updated entry, or HISTORY_NOT_FOUND
+ * if the id doesn't exist.
+ */
+function annotateHistory(owner, repo, slug, historyId, note) {
+  if (!owner || !repo || !slug || !historyId) {
+    return { ok: false, code: "BAD_ARGS", error: "owner, repo, slug, historyId required" };
+  }
+  const key = owner + "/" + repo + ":" + slug;
+  const entry = setHistoryNote(key, historyId, note);
+  if (!entry) return { ok: false, code: "HISTORY_NOT_FOUND", error: "No history entry with id: " + historyId };
+  return { ok: true, entry };
+}
+
 function getDiffThumb(owner, repo, slug) {
   if (!owner || !repo || !slug) return { ok: false, code: "BAD_ARGS", error: "owner, repo, and slug required" };
   const key = owner + "/" + repo + ":" + slug;
@@ -202,5 +217,6 @@ module.exports = {
   getDiffThumb,
   listHistory,
   rollback,
+  annotateHistory,
   CODE_TO_STATUS
 };

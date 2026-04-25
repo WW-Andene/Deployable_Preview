@@ -1279,6 +1279,17 @@ button:disabled, button[disabled] {
 .history-row-rollback { background: var(--accent-bg-faint, rgba(212,160,48,0.04)); }
 .history-row-main { flex: 1; min-width: 0; }
 .history-row-sha { color: var(--accent); font-weight: 600; font-size: 12px; }
+.history-row-note {
+  color: var(--tx2);
+  font-size: 12px;
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: var(--sf2, rgba(255,255,255,0.03));
+  border-radius: var(--r-card);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.history-row-note-btn { margin-top: 6px; }
 
 /* ─── Pull-to-refresh indicator (app.js DV.installPullToRefresh) ─── */
 .ptr-indicator {

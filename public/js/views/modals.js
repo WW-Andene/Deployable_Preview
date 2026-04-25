@@ -537,8 +537,28 @@ DV.views.modals = function(app) {
             el("span", { c: "history-row-sha font-mono" }, entry.commitShort || "—"),
             el("span", { c: "color-tx3 text-11" }, " · " + (entry.timestamp ? new Date(entry.timestamp).toLocaleString() : "?")),
             entry.duration ? el("span", { c: "color-tx3 text-11" }, " · " + entry.duration + "s") : null,
-            rolledBack ? el("span", { c: "pill pill-warn" }, "rollback") : null
+            rolledBack ? el("span", { c: "pill pill-warn" }, "rollback") : null,
+            entry.note ? el("span", { c: "pill pill-info" }, "note") : null
           ].filter(Boolean)));
+          if (entry.note) {
+            meta.appendChild(el("div", { c: "history-row-note" }, entry.note));
+          }
+          // Inline note editor (+ button when none, edit icon when present)
+          meta.appendChild(el("button", {
+            c: "bg bs history-row-note-btn",
+            attr: { title: entry.note ? "Edit note" : "Add note" },
+            on: { click: function() {
+              var fresh = prompt("Note for " + (entry.commitShort || entry.id) + " (≤2000 chars, blank to clear):", entry.note || "");
+              if (fresh === null) return;
+              api("POST", "/api/history/" + hm.owner + "/" + hm.repo + "/note", {
+                slug: hm.slug, historyId: entry.id, note: fresh
+              }).then(function(r) {
+                if (r.error) { DV.showToast(r.error, "error"); return; }
+                entry.note = fresh ? fresh.slice(0, 2000) : undefined;
+                DV.render();
+              });
+            } }
+          }, entry.note ? "✎ Note" : "+ Note"));
           row.appendChild(meta);
 
           // Don't offer rollback to the row that's already a rollback

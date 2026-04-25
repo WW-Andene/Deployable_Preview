@@ -267,6 +267,35 @@ dv.defineTool({
   }
 });
 
+// ── annotate_deployment ───────────────────────────────────────────────────
+// Attach a free-text note to a specific history entry. Useful for AI to
+// record "what changed in this deploy" or for humans to mark a release
+// candidate. Pass an empty note to clear.
+dv.defineTool({
+  name: "annotate_deployment",
+  category: "deploy",
+  description:
+    "Attach a free-text note (≤2000 chars) to a deployment-history entry. " +
+    "Pass an empty note to clear. Use deployment_history to find the `id`. " +
+    "AI use case: write a one-liner summary of what shipped in this deploy " +
+    "right after build.ready, so future Claude sessions have context.",
+  requires: [],
+  schema: {
+    type: "object",
+    properties: {
+      owner: OWNER, repo: REPO, slug: SLUG,
+      id:   { type: "string", description: "history entry id" },
+      note: { type: "string", description: "Free-text note. Empty/missing clears any existing note." }
+    },
+    required: ["owner", "repo", "slug", "id"]
+  },
+  async handler(args) {
+    const r = deployment.annotateHistory(args.owner, args.repo, args.slug, args.id, args.note || "");
+    if (!r.ok) return dv.failCode(r.code || "ANNOTATE_FAILED", r.error);
+    return dv.ok({ entry: r.entry, message: (args.note ? "Note set" : "Note cleared") });
+  }
+});
+
 // ── analyze_build_failure ─────────────────────────────────────────────────
 // Heuristic regex pass over a failed build's log, classifying the failure
 // into a small set of common categories with concrete fix suggestions.

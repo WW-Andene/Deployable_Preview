@@ -132,6 +132,15 @@ router.post("/rollback/:owner/:repo", (req, res) => {
   res.json({ ok: true, message: r.message, entry: r.entry });
 });
 
+// Set/clear a note on a history entry. Body: { slug, historyId, note }.
+// Pass note: null or empty string to remove.
+router.post("/history/:owner/:repo/note", (req, res) => {
+  const { slug, historyId, note } = req.body || {};
+  const r = deployment.annotateHistory(req.params.owner, req.params.repo, slug, historyId, note);
+  if (!r.ok) return res.status(STATUS[r.code] || 500).json({ error: r.error });
+  res.json({ ok: true, entry: r.entry });
+});
+
 // ── Outgoing webhook subscribers ───────────────────────────────────────────
 const webhooks = require("../../webhooks");
 
