@@ -6,10 +6,33 @@ if (!DV._kbBound) {
   DV._kbBound = true;
   document.addEventListener("keydown", function(e) {
     var tag = (e.target.tagName || "").toLowerCase();
-    if (tag === "input" || tag === "textarea" || tag === "select") return;
+    var inField = (tag === "input" || tag === "textarea" || tag === "select");
+
+    // ── Universal shortcuts (work even inside fields) ──
+    // Cmd/Ctrl+K toggles palette everywhere.
+    if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+      e.preventDefault();
+      if (S.paletteOpen) DV.closePalette(); else DV.openPalette();
+      return;
+    }
+    // Esc closes palette/shortcuts first, then falls through to view logic
+    if (e.key === "Escape") {
+      if (S.paletteOpen) { e.preventDefault(); DV.closePalette(); return; }
+      if (S.shortcutsOpen) { e.preventDefault(); S.shortcutsOpen = false; DV.render(); return; }
+    }
+
+    if (inField) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
 
     switch (e.key) {
+      case "/":
+        e.preventDefault();
+        if (S.paletteOpen) DV.closePalette(); else DV.openPalette();
+        break;
+      case "?":
+        e.preventDefault();
+        S.shortcutsOpen = !S.shortcutsOpen; DV.render();
+        break;
       case "Escape":
         if (S.editModal || S.logModal || S.apkModal) return;
         if (S.view !== "dashboard" && S.view !== "setup" && S.view !== "loading") {
@@ -36,6 +59,12 @@ if (!DV._kbBound) {
           window.open("/test/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/" + S.activeBranch, "_blank");
           e.preventDefault();
         }
+        break;
+      case "a": case "A":
+        if (S.view === "dashboard") { DV._selectAllBranches && DV._selectAllBranches(); e.preventDefault(); }
+        break;
+      case "b": case "B":
+        if (S.view === "dashboard") { DV._rebuildSelectedBranches && DV._rebuildSelectedBranches(); e.preventDefault(); }
         break;
       case ",":
         if (S.view !== "setup" && S.view !== "loading") { S.view = "settings"; DV.render(); e.preventDefault(); }
@@ -82,6 +111,12 @@ DV.views.topbar = function(app) {
 
   /* ── Nav icons (always visible when logged in) ── */
   if (S.view !== "setup" && S.view !== "loading") {
+    right.appendChild(el("button", {
+      c: "topbar-icon",
+      attr: { title: "Command palette (Cmd/Ctrl+K or /)" },
+      on: { click: function() { DV.openPalette(); } }
+    }, "⌘K"));
+
     right.appendChild(el("button", { c: "topbar-icon" + (S.view === "mcp" ? " topbar-icon-active" : ""), attr: { title: "MCP Tools" }, on: { click: function() {
       S.mcpAction = null; S.mcpResult = null; DV.loadMcpTools(); S.view = "mcp"; DV.render();
     } } }, "\uD83D\uDD0C"));

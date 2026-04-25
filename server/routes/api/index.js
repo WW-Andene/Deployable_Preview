@@ -56,4 +56,24 @@ router.use("/", require("./apk"));
 router.use("/", require("./dv"));
 router.use("/", require("./fetch"));
 
+// ── Metrics + health ─────────────────────────────────────────────────────────
+const metrics = require("../../metrics");
+router.get("/metrics", (req, res) => { res.json(metrics.snapshot()); });
+
+router.get("/health", (req, res) => {
+  let validation = { ok: true };
+  try { validation = require("../../config").getValidationReport(); } catch (_) {}
+  let toolsLoaded = 0, browser = false;
+  try { toolsLoaded = require("../../dv/core").toolCount(); } catch (_) {}
+  try { browser = require("../../browser").hasPlaywright(); } catch (_) {}
+  res.json({
+    ok: validation.ok !== false,
+    uptimeSec: Math.round(process.uptime()),
+    memoryMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+    toolsLoaded,
+    browser,
+    config: validation
+  });
+});
+
 module.exports = router;

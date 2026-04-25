@@ -25,6 +25,7 @@ const deploy     = require("./deploy");
 const probe      = require("./probe");
 const ai         = require("./ai");
 const pages      = require("./pages");
+const evalMod    = require("./eval");
 
 module.exports = {
   // Session lifecycle (from dv/session.js)
@@ -64,5 +65,8 @@ module.exports = {
   ...ai,
 
   // Multi-tab pages
-  ...pages
+  ...pages,
+
+  // JS eval in page context (devtools-console-like)
+  ...evalMod
 };

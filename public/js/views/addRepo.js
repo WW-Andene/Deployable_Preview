@@ -30,7 +30,21 @@ DV.views.addRepo = function(app) {
       S.repoInfo = { owner: m[1], repo: m[2], description: r.description, defaultBranch: r.defaultBranch };
       S.fetchedBranches = r.branches;
       S.selectedBranches = [r.defaultBranch];
+      S.detectedFramework = null;
       fb.textContent = "Fetch"; DV.render();
+      // Best-effort framework detect on default branch — fills in defaults
+      api("GET", "/api/github/" + m[1] + "/" + m[2] + "/detect?branch=" + encodeURIComponent(r.defaultBranch))
+        .then(function(d) {
+          if (!d || d.error || !d.framework || d.framework === "unknown" || d.framework === "none") return;
+          S.detectedFramework = d;
+          // Only overwrite form fields if the user hasn't already customized them
+          if (!S.buildCommand) S.buildCommand = d.buildCommand || S.buildCommand;
+          if (!S.outputDir)    S.outputDir    = d.outputDir    || S.outputDir;
+          if (!S.startCommand) S.startCommand = d.startCommand || S.startCommand;
+          if (d.mode && S.mode === "static") S.mode = d.mode;
+          if (!S.envVars && d.envTemplate) S.envVars = d.envTemplate;
+          DV.render();
+        }).catch(function() { /* silent */ });
     }).catch(function(e) { es.textContent = e.message; es.classList.remove("hidden"); fb.textContent = "Fetch"; });
   } } }, "Fetch");
 
@@ -40,10 +54,21 @@ DV.views.addRepo = function(app) {
   ]));
 
   if (S.fetchedBranches.length && S.repoInfo) {
+    var detectedBadge = null;
+    if (S.detectedFramework && S.detectedFramework.framework && S.detectedFramework.framework !== "unknown") {
+      var d = S.detectedFramework;
+      detectedBadge = el("div", { c: "detect-badge mt-8" }, [
+        el("span", { c: "detect-badge-icon" }, "⚡"),
+        el("span", {}, "Detected: "),
+        el("strong", {}, d.framework),
+        el("span", { c: "detect-badge-meta" }, " · " + d.confidence + " confidence · defaults pre-filled")
+      ]);
+    }
     w.appendChild(el("div", { c: "card form-section-lg" }, [
       el("div", { c: "card-section-title" }, S.repoInfo.owner + "/" + S.repoInfo.repo),
-      el("div", { c: "color-tx3 text-12 font-mono mt-4" }, S.repoInfo.description || "No description")
-    ]));
+      el("div", { c: "color-tx3 text-12 font-mono mt-4" }, S.repoInfo.description || "No description"),
+      detectedBadge
+    ].filter(Boolean)));
 
     var bd = el("div", { c: "chip-row mt-6" });
     for (var i = 0; i < S.fetchedBranches.length; i++) {

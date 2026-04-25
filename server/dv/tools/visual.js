@@ -37,7 +37,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.getPixelColor(args);
-    if (result.error) return dv.fail(result.error, result);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -67,7 +67,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.measure(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -91,7 +91,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.screenshotDiff(args);
-    if (result.error) return dv.fail(result.error, result);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -113,7 +113,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.visualSimilarity(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -140,7 +140,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.toleranceDiffTool(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -164,7 +164,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.getPalette(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -188,7 +188,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.getColorStats(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -210,7 +210,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.imageInfo(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -248,7 +248,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.renderOverlayTool(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.image(result.base64, result.mimeType, "Overlay rendered for " + result.url);
   }
 });
@@ -273,7 +273,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.canvasData(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });

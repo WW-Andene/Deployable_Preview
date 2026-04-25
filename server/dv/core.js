@@ -52,7 +52,9 @@ function defineTool(def) {
     description: def.description || "",
     schema: def.schema || { type: "object", properties: {}, required: [] },
     requires: Array.isArray(def.requires) ? def.requires : [],
-    handler: def.handler
+    handler: def.handler,
+    cache: (def.cache && typeof def.cache === "object" && Number(def.cache.ttlMs) > 0) ? { ttlMs: Number(def.cache.ttlMs) } : null,
+    deprecatedFor: typeof def.deprecatedFor === "string" ? def.deprecatedFor : null
   });
 }
 
@@ -60,11 +62,13 @@ function defineTool(def) {
 function listTools() {
   return Array.from(registry.values()).map((t) => ({
     name: t.name,
-    description: t.description,
+    description: t.description + (t.deprecatedFor ? "  [DEPRECATED — use `" + t.deprecatedFor + "` instead]" : ""),
     inputSchema: t.schema,
     // Non-standard extras — ignored by strict MCP clients, used by our dashboards
     category: t.category,
-    requires: t.requires
+    requires: t.requires,
+    deprecatedFor: t.deprecatedFor || undefined,
+    cached: t.cache ? { ttlMs: t.cache.ttlMs } : undefined
   }));
 }
 
@@ -135,6 +139,108 @@ function fail(message, details) {
   return makeResult([{ type: "text", text: body }], true);
 }
 
+/**
+ * Structured error for Claude: always returns a JSON object with
+ * { error: true, code, message, hint?, ...details } so the model can
+ * branch on the code instead of regex-parsing strings.
+ *
+ * Stable codes used by dv tools:
+ *   REPO_NOT_FOUND, BRANCH_NOT_FOUND, SLUG_NOT_FOUND,
+ *   BUILD_FAILED, BUILD_TIMEOUT, BUILD_IN_PROGRESS, NO_LOG,
+ *   PORT_COLLISION, SERVER_NOT_RUNNING,
+ *   BROWSER_UNAVAILABLE, LIBRARY_MISSING, GROQ_UNAUTHORIZED,
+ *   BAD_ARGS, NOT_IMPLEMENTED
+ */
+function failCode(code, message, extra) {
+  const body = Object.assign(
+    { error: true, code: String(code), message: String(message) },
+    (extra && typeof extra === "object") ? extra : {}
+  );
+  return makeResult([{ type: "text", text: JSON.stringify(body, null, 2) }], true);
+}
+
+// ── Result cache (memoize hot read-only tools) ────────────────────────────
+// Small TTL cache keyed by (tool, stable JSON(args)). Tools that opt in
+// via `cache: { ttlMs }` in their defineTool call get automatic memoization.
+// Dashboard polling and sandbox_exec batches hammer the same read-only
+// endpoints repeatedly; caching eliminates that duplicate work.
+
+const _toolCache = new Map(); // key → { result, expiresAt }
+const _CACHE_MAX = 256;
+
+function _cacheKey(name, args) {
+  try { return name + "|" + JSON.stringify(args || {}); }
+  catch (_) { return name + "|<unserializable>"; }
+}
+
+function _cacheGet(key) {
+  const e = _toolCache.get(key);
+  if (!e) return null;
+  if (e.expiresAt <= Date.now()) { _toolCache.delete(key); return null; }
+  return e.result;
+}
+
+function _cachePut(key, result, ttlMs) {
+  if (_toolCache.size >= _CACHE_MAX) {
+    // Cheap eviction: drop the oldest-looking entry
+    const firstKey = _toolCache.keys().next().value;
+    if (firstKey) _toolCache.delete(firstKey);
+  }
+  _toolCache.set(key, { result, expiresAt: Date.now() + ttlMs });
+}
+
+function invalidateCache(prefix) {
+  if (!prefix) { _toolCache.clear(); return; }
+  for (const k of _toolCache.keys()) {
+    if (k.startsWith(prefix + "|")) _toolCache.delete(k);
+  }
+}
+
+/**
+ * Classify a browser-layer error string into a stable code + hint. Takes the
+ * same shape tool handlers get from browser/* modules (`{error, ...ctx}`).
+ * Used so each tool can write one line instead of a bespoke try/classify
+ * block:
+ *
+ *   if (result.error) return dv.failFromBrowser(result);
+ *
+ * Classification patterns are intentionally conservative — unknown errors
+ * fall through as TOOL_FAILED with the raw message preserved.
+ */
+function failFromBrowser(result, opts) {
+  const raw = String(result && result.error ? result.error : result || "");
+  const extra = {};
+  // Preserve any context the browser module attached (result.url, result.code, etc.)
+  if (result && typeof result === "object") {
+    for (const k of Object.keys(result)) {
+      if (k === "error") continue;
+      // Skip bulk binary fields
+      if (k === "base64" || k === "raw" || k === "buffer") continue;
+      extra[k] = result[k];
+    }
+  }
+  if (opts && typeof opts === "object") Object.assign(extra, opts);
+
+  const rules = [
+    [/no browser|browser.*unavailable|still setting one up/i,          "BROWSER_UNAVAILABLE", "The headless browser isn't ready. Check dv_status; if unavailable, configure BROWSERLESS_API_KEY or install playwright."],
+    [/timed out|timeout|timed-out/i,                                    "TIMEOUT",             "Operation exceeded its time budget. Raise the timeout, simplify the task, or check that the preview is actually up."],
+    [/element not found|selector.*not found|no element|match(es)? nothing/i, "SELECTOR_NOT_FOUND", "The CSS selector matched nothing. Use `inspect` or `find_all` to discover the correct selector."],
+    [/bounding ?box|boundingRect/i,                                    "GEOMETRY_UNRESOLVED", "The element exists but has no bounding box (hidden, display:none, or zero-size). Scroll it into view or wait for a render."],
+    [/iframe not found/i,                                               "FRAME_NOT_FOUND",    "The frame descriptor didn't match any iframe. Accepts: CSS selector, URL substring, or frame name."],
+    [/navigation|net::ERR_|ERR_CONNECTION|ERR_NAME/i,                   "NAV_FAILED",         "Navigation failed. Check the preview is running and the URL resolves."],
+    [/library not installed|Cannot find module/i,                       "LIBRARY_MISSING",    "An optional library is missing. Install the package mentioned in the error."],
+    [/groq|GROQ_API_KEY|claudeGroqAccess/i,                             "GROQ_UNAUTHORIZED",  "Groq access is not authorized. Set GROQ_API_KEY and preferences.claudeGroqAccess in deployview.json."],
+    [/CDP session|dispatchTouchEvent/i,                                 "CDP_UNAVAILABLE",    "The CDP channel needed for this feature isn't available on this browser build."],
+    [/decompression|charset|content-type/i,                             "RESPONSE_DECODE",    "Response could not be decoded. Try a different format flag, or fetch raw bytes via base64."],
+    [/EADDRINUSE|address already in use/i,                              "PORT_IN_USE",        "Port collision — kill the conflicting process or pick another port."],
+    [/ENOTFOUND|EAI_AGAIN/i,                                            "DNS_UNREACHABLE",    "Hostname could not be resolved."]
+  ];
+  for (const [re, code, hint] of rules) {
+    if (re.test(raw)) return failCode(code, raw, Object.assign({ hint }, extra));
+  }
+  return failCode((opts && opts.fallbackCode) || "TOOL_FAILED", raw, extra);
+}
+
 // ── Capability gates ──────────────────────────────────────────────────────
 
 /**
@@ -191,6 +297,18 @@ async function callTool(name, args) {
   const tool = registry.get(name);
   if (!tool) return fail("Unknown tool: " + name);
 
+  // Cache hit?
+  let cacheKey = null;
+  if (tool.cache) {
+    cacheKey = _cacheKey(name, args);
+    const hit = _cacheGet(cacheKey);
+    if (hit) {
+      try { require("../metrics").inc("tool.cachehit." + name); } catch (_) {}
+      return hit;
+    }
+  }
+  const _tStart = Date.now();
+
   // Capability checks
   for (const req of tool.requires) {
     const failure = checkRequirement(req);
@@ -206,14 +324,28 @@ async function callTool(name, args) {
   }
 
   // Normalize: if handler returned MCP shape, pass through. Otherwise wrap.
-  if (result && Array.isArray(result.content)) return result;
-  // Primitive returned a raw error object — upgrade to fail()
-  if (result && typeof result === "object" && result.error && !result.content) {
-    return fail(String(result.error), Object.keys(result).length > 1
+  let normalized;
+  if (result && Array.isArray(result.content)) normalized = result;
+  else if (result && typeof result === "object" && result.error && !result.content) {
+    normalized = fail(String(result.error), Object.keys(result).length > 1
       ? Object.fromEntries(Object.entries(result).filter(([k]) => k !== "error"))
       : undefined);
+  } else {
+    normalized = jsonText(result);
   }
-  return jsonText(result);
+
+  // Write-through cache: only cache successes
+  if (cacheKey && !normalized.isError) {
+    _cachePut(cacheKey, normalized, tool.cache.ttlMs);
+  }
+
+  // Metrics: per-tool latency + ok/fail counters
+  try {
+    const m = require("../metrics");
+    m.observe("tool.latencyMs." + name, Date.now() - _tStart);
+    m.inc("tool." + (normalized.isError ? "fail." : "ok.") + name);
+  } catch (_) {}
+  return normalized;
 }
 
 // ── Engine status / introspection ─────────────────────────────────────────
@@ -264,6 +396,10 @@ module.exports = {
   imageWithJson,
   ok,
   fail,
+  failCode,
+  failFromBrowser,
+  // cache
+  invalidateCache,
   // capability
   checkRequirement,
   // introspection

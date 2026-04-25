@@ -89,7 +89,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.interact(args);
-    if (result && result.error) return dv.fail(result.error);
+    if (result && result.error) return dv.failFromBrowser(result);
 
     const content = [];
     if (result.screenshot && result.screenshot.base64) {

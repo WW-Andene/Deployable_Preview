@@ -12,7 +12,6 @@ const fs = require("fs");
 const { execSync } = require("child_process");
 
 const { loadConfig, getConfig, migrateConfig } = require("./config");
-const { ghApi } = require("./github");
 const { deployBranch } = require("./build");
 const apiRoutes = require("./routes/api");
 const previewRoutes = require("./routes/preview");
@@ -134,77 +133,11 @@ app.use((err, req, res, _next) => {
   }
 });
 
-// ── Polling ──
-function getPollInterval() {
-  var config = getConfig();
-  var val = config.preferences && config.preferences.pollInterval;
-  // 0 = disabled (default). Any positive value >= 2000 enables polling.
-  if (val === 0 || val === "0" || val === false) return 0;
-  if (val && parseInt(val) >= 2000) return parseInt(val);
-  if (process.env.POLL_INTERVAL) return parseInt(process.env.POLL_INTERVAL) || 0;
-  return 0; // OFF by default — Claude's MCP connection gets reset by constant rebuilds
-}
-let pollIntervalId = null;
-
-function startPolling() {
-  stopPolling();
-  const interval = getPollInterval();
-  if (interval > 0) {
-    pollIntervalId = setInterval(pollForChanges, interval);
-    console.log("  Polling: every " + (interval / 1000) + "s");
-  } else {
-    console.log("  Polling: OFF (enable in Settings or use manual rebuild)");
-  }
-}
-
-function stopPolling() {
-  if (pollIntervalId) { clearInterval(pollIntervalId); pollIntervalId = null; }
-}
-
-async function pollForChanges() {
-  const config = getConfig();
-  if (!config.token) return;
-  const { buildKey, buildStatus } = require("./build");
-  for (const repo of config.repos) {
-    const branchNames = [...new Set((repo.activeBranches || []).map((bc) => bc.branch))];
-    for (const branch of branchNames) {
-      // Skip GitHub API call if any config for this branch is currently building
-      const anyBuilding = repo.activeBranches.some((bc) => {
-        if (bc.branch !== branch) return false;
-        const st = buildStatus[buildKey(repo.owner, repo.repo, bc)];
-        return st && st.status === "building";
-      });
-      if (anyBuilding) continue;
-
-      try {
-        const data = await ghApi("/repos/" + repo.owner + "/" + repo.repo + "/commits?sha=" + branch + "&per_page=1", config.token);
-        const latest = data[0];
-        if (!latest) continue;
-        for (const bc of repo.activeBranches) {
-          if (bc.branch !== branch) continue;
-          const key = buildKey(repo.owner, repo.repo, bc);
-          const current = buildStatus[key];
-          if (current && current.commitSha && current.commitSha !== latest.sha && current.status !== "building") {
-            console.log("[POLL] New commit on " + key + ": " + latest.sha.slice(0, 7));
-            deployBranch(repo, bc);
-          }
-        }
-      } catch (e) { /* ignore */ }
-    }
-  }
-}
-
-startPolling();
-// Expose for live toggle from preferences API
-global._dvRestartPolling = startPolling;
-
 // ── Graceful shutdown ──
 let httpServer = null;
 
 function shutdown(signal) {
   console.log("\n  [" + signal + "] Shutting down gracefully...");
-
-  stopPolling();
 
   // Kill all running server processes
   const { runningServers, killServer } = require("./process");

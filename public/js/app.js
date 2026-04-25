@@ -25,7 +25,6 @@ var S = {
   activeRepo: null, activeBranch: "", compareBranch: "", compareMode: false,
   activeViews: ["13t"],
   refreshKey: 0,
-  pollTimer: null,
   showBranchDropdown: false,
   availableBranches: [],
   branchFilter: "",
@@ -39,7 +38,12 @@ var S = {
   mcpAction: null,
   mcpResult: null,
   dashboardFilter: "",
-  preferences: {}
+  preferences: {},
+  selectedRows: {},   // key: "owner/repo:slug" → true
+  paletteOpen: false,
+  paletteQuery: "",
+  paletteIndex: 0,
+  shortcutsOpen: false
 };
 
 var _dropdownCloseHandler = null;
@@ -72,9 +76,17 @@ function api(method, path, body) {
 
 function statusClass(s) { return "status-dot status-" + (s || "idle"); }
 
-// Data loading
+// Data loading — uses ETag/If-None-Match so the server can 304 unchanged polls.
+var _reposEtag = null;
 function loadRepos() {
-  api("GET", "/api/repos").then(function(repos) {
+  var headers = { "Content-Type": "application/json" };
+  if (_reposEtag) headers["If-None-Match"] = _reposEtag;
+  fetch("/api/repos", { method: "GET", headers: headers }).then(function(res) {
+    if (res.status === 304) return null; // unchanged — keep current state
+    _reposEtag = res.headers.get("ETag") || _reposEtag;
+    return res.json();
+  }).then(function(repos) {
+    if (!repos) return; // nothing changed
     S.repos = repos;
     if (S.activeRepo) {
       var updated = S.repos.find(function(r) { return r.id === S.activeRepo.id; });
@@ -82,45 +94,6 @@ function loadRepos() {
     }
     render();
   });
-}
-
-function startStatusPoll() {
-  if (S.pollTimer) clearInterval(S.pollTimer);
-  S.pollTimer = null;
-  var interval = (S.preferences && S.preferences.pollInterval != null) ? S.preferences.pollInterval : 0;
-  if (!interval || interval < 2000) return; // OFF by default
-  S.pollTimer = setInterval(function() {
-    api("GET", "/api/repos").then(function(repos) {
-      var changed = false;
-      for (var i = 0; i < repos.length; i++) {
-        var old = S.repos.find(function(r) { return r.id === repos[i].id; });
-        if (old) {
-          var bs = repos[i].branchStatuses;
-          for (var b in bs) {
-            var oldS = old.branchStatuses && old.branchStatuses[b];
-            if (!oldS) continue;
-            if (oldS.status === "building" && bs[b].status === "ready") {
-              changed = true;
-              var dur = bs[b].duration ? " in " + bs[b].duration + "s" : "";
-              showToast((oldS.branch || b) + " build succeeded" + dur, "success");
-            } else if (oldS.status === "building" && bs[b].status === "running") {
-              changed = true;
-              showToast((oldS.branch || b) + " server started", "success");
-            } else if (oldS.status === "building" && bs[b].status === "error") {
-              changed = true;
-              showToast((oldS.branch || b) + " build failed", "error");
-            }
-          }
-        }
-      }
-      S.repos = repos;
-      if (S.activeRepo) {
-        var updated = S.repos.find(function(r) { return r.id === S.activeRepo.id; });
-        if (updated) S.activeRepo = updated;
-      }
-      if (changed) { S.refreshKey++; render(); }
-    }).catch(function() { /* ignore poll errors */ });
-  }, interval);
 }
 
 function fetchAvailableBranches() {
@@ -172,18 +145,23 @@ function render() {
       el("div", { c: "loading-spinner" }),
       el("div", { c: "loading-text" }, "INITIALIZING...")
     ]));
-    return;
+  } else if (S.view === "setup" && views.setup) {
+    views.setup(app);
+  } else if (S.view === "dashboard" && views.dashboard) {
+    views.dashboard(app); if (views.modals) views.modals(app);
+  } else if (S.view === "addRepo" && views.addRepo) {
+    views.addRepo(app);
+  } else if (S.view === "mcp" && views.mcp) {
+    views.mcp(app);
+  } else if (S.view === "settings" && views.settings) {
+    views.settings(app);
+  } else if (S.view === "preview" && views.preview) {
+    views.preview(app); if (views.modals) views.modals(app);
   }
 
-  if (S.view === "setup" && views.setup) { views.setup(app); return; }
-
-  startStatusPoll();
-
-  if (S.view === "dashboard" && views.dashboard) { views.dashboard(app); if (views.modals) views.modals(app); return; }
-  if (S.view === "addRepo" && views.addRepo) { views.addRepo(app); return; }
-  if (S.view === "mcp" && views.mcp) { views.mcp(app); return; }
-  if (S.view === "settings" && views.settings) { views.settings(app); return; }
-  if (S.view === "preview" && views.preview) { views.preview(app); if (views.modals) views.modals(app); }
+  // Global overlays — rendered on top of every view when open
+  if (DV.renderPalette) DV.renderPalette(app);
+  if (DV.renderShortcuts) DV.renderShortcuts(app);
 }
 
 // Init
@@ -218,7 +196,7 @@ function showToast(message, type) {
 // Expose globals for view modules
 window.DV = {
   S: S, el: el, api: api, statusClass: statusClass, render: render,
-  loadRepos: loadRepos, startStatusPoll: startStatusPoll,
+  loadRepos: loadRepos,
   fetchAvailableBranches: fetchAvailableBranches, addBranchToRepo: addBranchToRepo,
   loadMcpTools: loadMcpTools, showToast: showToast,
   views: views, VIEW_PRESETS: VIEW_PRESETS,

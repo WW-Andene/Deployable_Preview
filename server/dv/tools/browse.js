@@ -38,7 +38,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.takeScreenshot(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.imageWithJson(result.base64, result.mimeType, {
       url: result.url, width: result.width, height: result.height, title: result.title
     });
@@ -62,7 +62,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.inspectDOM(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -84,7 +84,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.captureConsole(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -107,7 +107,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.getElementRect(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -131,7 +131,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.domQueryTool(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -155,7 +155,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.findAll(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -174,7 +174,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.getMeta(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -193,7 +193,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.getDataAttrs(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -212,7 +212,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.getFrameworkData(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -231,7 +231,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.getBrowserApis(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -250,7 +250,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.inspectIndexedDB(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -269,7 +269,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.listServiceWorkers(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -288,7 +288,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.getResourceTiming(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });

@@ -24,8 +24,9 @@ const SLUG  = { type: "string" };
 dv.defineTool({
   name: "list_previews",
   category: "deploy",
-  description: "List all deployed app previews with status, URLs, and metadata. Use first to discover what's available.",
+  description: "List all deployed app previews with status, URLs, and metadata. Use first to discover what's available. Cached for 2s.",
   requires: [],
+  cache: { ttlMs: 2000 },
   schema: { type: "object", properties: {}, required: [] },
   async handler() {
     const previews = browser.listPreviews();
@@ -46,8 +47,9 @@ dv.defineTool({
 dv.defineTool({
   name: "build_status",
   category: "deploy",
-  description: "Get the build status of a specific branch deployment, including commit SHA, server port (if running), and preview URL.",
+  description: "Get the build status of a specific branch deployment, including commit SHA, server port (if running), and preview URL. Cached for 1s.",
   requires: [],
+  cache: { ttlMs: 1000 },
   schema: {
     type: "object",
     properties: { owner: OWNER, repo: REPO, slug: SLUG },
@@ -85,10 +87,24 @@ dv.defineTool({
   async handler(args) {
     const config = getConfig();
     const repoConfig = config.repos.find((r) => r.owner === args.owner && r.repo === args.repo);
-    if (!repoConfig) return dv.fail("Repository not found: " + args.owner + "/" + args.repo);
+    if (!repoConfig) {
+      return dv.failCode("REPO_NOT_FOUND", "Repository not found: " + args.owner + "/" + args.repo, {
+        hint: "Call list_previews to see available repos.",
+        availableRepos: config.repos.map((r) => r.owner + "/" + r.repo)
+      });
+    }
     const bc = repoConfig.activeBranches.find((b) => branchSlug(b) === args.slug);
-    if (!bc) return dv.fail("Branch config not found for slug: " + args.slug);
+    if (!bc) {
+      return dv.failCode("SLUG_NOT_FOUND", "Branch config not found for slug: " + args.slug, {
+        hint: "Call list_previews to see slugs for this repo.",
+        availableSlugs: (repoConfig.activeBranches || []).map(branchSlug)
+      });
+    }
     deployBranch(repoConfig, bc);
+    // Invalidate read-only caches so next dv_state / build_status sees the new state.
+    dv.invalidateCache("dv_state");
+    dv.invalidateCache("list_previews");
+    dv.invalidateCache("build_status");
     return dv.text(
       (bc.mode === "server" ? "Server restart" : "Build") +
       " triggered for " + args.owner + "/" + args.repo + ":" + args.slug
@@ -112,7 +128,13 @@ dv.defineTool({
     const key = args.owner + "/" + args.repo + ":" + args.slug;
     const status = buildStatus[key];
     const log = (status && status.log) ? status.log : loadLog(key);
-    return dv.text(log || "No build log available for " + key);
+    if (!log) {
+      return dv.failCode("NO_LOG", "No build log available for " + key, {
+        hint: "Trigger a build first with trigger_build, then poll build_status.",
+        key
+      });
+    }
+    return dv.text(log);
   }
 });
 
@@ -138,8 +160,7 @@ dv.defineTool({
   async handler(args) {
     const result = await browser.deployAndVerify(args);
     if (result.error) {
-      const details = result.log ? { logTail: String(result.log).slice(-4000) } : undefined;
-      return dv.fail(result.error, details);
+      return dv.failFromBrowser(result, { logTail: result.log ? String(result.log).slice(-4000) : undefined });
     }
     const content = [];
     if (result.screenshot && result.screenshot.base64) {
@@ -169,7 +190,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.runTest(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     const content = [];
     if (result.screenshot) {
       content.push({ type: "image", data: result.screenshot.base64, mimeType: result.screenshot.mimeType });

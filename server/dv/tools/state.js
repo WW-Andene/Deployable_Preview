@@ -52,7 +52,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.emulate(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -87,7 +87,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.storage(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });
@@ -110,7 +110,7 @@ dv.defineTool({
   },
   async handler(args) {
     const result = await browser.clipboard(args);
-    if (result.error) return dv.fail(result.error);
+    if (result.error) return dv.failFromBrowser(result);
     return dv.ok(result);
   }
 });

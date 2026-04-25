@@ -356,35 +356,6 @@ DV.views.settings = function(app) {
   }).catch(function() { wsBody.textContent = "Could not load."; });
   page.appendChild(section("Workspace", [wsBody]));
 
-  /* ══════════ Section: Refresh Rate ══════════ */
-  var pollBody = el("div", {});
-  pollBody.appendChild(el("div", { c: "settings-hint mb-8" }, "Auto-poll GitHub for new commits and rebuild. OFF by default — use manual rebuild instead. Constant polling resets MCP connections and wastes API calls."));
-  var pollOptions = [
-    { label: "Off", value: 0 },
-    { label: "10s", value: 10000 },
-    { label: "30s", value: 30000 },
-    { label: "60s", value: 60000 }
-  ];
-  var currentPoll = (S.preferences && S.preferences.pollInterval != null) ? S.preferences.pollInterval : 0;
-  var pollChips = el("div", { c: "mode-chip-row" });
-  for (var pi = 0; pi < pollOptions.length; pi++) {
-    (function(opt) {
-      pollChips.appendChild(el("div", {
-        c: "chip" + (currentPoll === opt.value ? " on" : ""),
-        on: { click: function() {
-          api("POST", "/api/preferences", { pollInterval: opt.value }).then(function() {
-            S.preferences.pollInterval = opt.value;
-            DV.startStatusPoll();
-            DV.showToast("Refresh rate: " + opt.label, "info");
-            DV.render();
-          });
-        } }
-      }, opt.label));
-    })(pollOptions[pi]);
-  }
-  pollBody.appendChild(pollChips);
-  page.appendChild(section("Refresh Rate", [pollBody]));
-
   /* ══════════ Section: Actions ══════════ */
   page.appendChild(section("Actions", [
     el("div", { c: "settings-actions-grid" }, [

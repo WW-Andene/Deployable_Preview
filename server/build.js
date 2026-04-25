@@ -18,6 +18,76 @@ const buildStatus = {};
 const buildLocks = {};   // prevents concurrent builds for the same key
 const MAX_CONCURRENT_BUILDS = parseInt(process.env.MAX_CONCURRENT_BUILDS, 10) || 4;
 
+// ── Thumb LRU ────────────────────────────────────────────────────────────
+// Keep at most MAX_THUMBS thumbs resident at any time. When a new thumb is
+// stored, drop the oldest-thumbAt thumbs until we're under budget.
+const MAX_THUMBS = parseInt(process.env.DV_MAX_THUMBS, 10) || 40;
+function evictThumbsIfNeeded() {
+  const withThumbs = [];
+  for (const k in buildStatus) { if (buildStatus[k] && buildStatus[k].thumb) withThumbs.push({ k, at: buildStatus[k].thumbAt || 0 }); }
+  if (withThumbs.length <= MAX_THUMBS) return;
+  withThumbs.sort(function(a, b) { return a.at - b.at; }); // oldest first
+  const evict = withThumbs.length - MAX_THUMBS;
+  for (let i = 0; i < evict; i++) {
+    const slot = buildStatus[withThumbs[i].k];
+    if (!slot) continue;
+    delete slot.thumb;
+    delete slot.diffThumb;
+  }
+}
+
+// ── Thumbnail capture + auto-diff ────────────────────────────────────────
+// Fire-and-forget screenshot of the preview after a successful build.
+// Stored as base64 on buildStatus[key].thumb (≈30–60 KB per branch).
+// Also diffs the new thumb against the previous one (if pixelmatch is
+// available) and stores a summary on buildStatus[key].diff so the dashboard
+// can show 'this build changed X% of pixels vs. the previous build'.
+// Silent when the browser is unavailable.
+function captureThumbAsync(owner, repo, slug, delayMs) {
+  setTimeout(async () => {
+    try {
+      const browser = require("./browser");
+      if (!browser.hasPlaywright || !browser.hasPlaywright()) return;
+      const shot = await browser.takeScreenshot({
+        owner, repo, slug, width: 1024, height: 640, fullPage: false
+      });
+      if (!shot || !shot.base64 || shot.error) return;
+
+      const key = owner + "/" + repo + ":" + slug;
+      if (!buildStatus[key]) return;
+
+      const previous = buildStatus[key].thumb;
+      buildStatus[key].thumb = shot.base64;
+      buildStatus[key].thumbAt = Date.now();
+      evictThumbsIfNeeded();
+
+      // Run a quick pixel diff against the previous thumb, best-effort.
+      if (previous && typeof browser.screenshotDiff === "function") {
+        try {
+          const diff = await browser.screenshotDiff({
+            before: previous,
+            after: shot.base64,
+            threshold: 10
+          });
+          if (diff && !diff.error) {
+            buildStatus[key].diff = {
+              diffCount: diff.diffCount,
+              percent: diff.percent,
+              bbox: diff.bbox,
+              engine: diff.engine || null,
+              previousThumbAt: buildStatus[key].previousThumbAt || null,
+              at: Date.now()
+            };
+            // Store the diff heatmap alongside the thumb for later retrieval
+            if (diff.base64) buildStatus[key].diffThumb = diff.base64;
+          }
+        } catch (_) { /* diffing is best-effort */ }
+      }
+      buildStatus[key].previousThumbAt = buildStatus[key].thumbAt;
+    } catch (_) { /* silent — thumbs are nice-to-have */ }
+  }, delayMs || 1500);
+}
+
 function countActiveBuilds() {
   let count = 0;
   for (const k in buildLocks) { if (buildLocks[k]) count++; }
@@ -491,6 +561,7 @@ async function buildBranch(repoConfig, branchConfig) {
     buildStatus[key].buildCommand = cmd;
     buildStatus[key].outputDir = outName;
     saveLog(key, addLog.getLog());
+    captureThumbAsync(repoConfig.owner, repoConfig.repo, branchSlug(branchConfig));
   } catch (e) {
     addLog("BUILD FAILED: " + e.message);
     buildStatus[key].status = "error";
@@ -581,6 +652,8 @@ async function startServer(repoConfig, branchConfig, isRestart) {
     buildStatus[key].serverPort = port;
     buildStatus[key].restarts = 0;
     saveLog(key, addLog.getLog());
+    // Give the app a moment to finish rendering before grabbing a thumb
+    captureThumbAsync(repoConfig.owner, repoConfig.repo, branchSlug(branchConfig), 3000);
   } catch (e) {
     addLog("SERVER FAILED: " + e.message);
     killServer(key);
