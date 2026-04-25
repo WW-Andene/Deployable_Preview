@@ -195,11 +195,16 @@ async function scanBrokenLinks(url, opts) {
       retry: false
     });
     const broken = results.links.filter((l) => l.state === "BROKEN");
+    // F-NEW-S005: surface truncation explicitly so a 500-broken-link page
+    // doesn't look "healthier than it is" with only the first 100 shown.
+    const SHOW = 100;
     return {
       url,
       total: results.links.length,
       broken: broken.length,
-      brokenLinks: broken.slice(0, 100).map((l) => ({
+      brokenLinksShown: Math.min(broken.length, SHOW),
+      brokenLinksTruncated: broken.length > SHOW,
+      brokenLinks: broken.slice(0, SHOW).map((l) => ({
         url: l.url,
         status: l.status,
         parent: l.parent,

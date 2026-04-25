@@ -17,13 +17,17 @@ async function capturePreviewRequests(opts) {
   const { page, url } = await session.getSessionPage(browser, owner, repo, slug, opts.width, opts.height);
 
   const duration = Math.max(1, Number(opts.duration) || 5) * 1000;
-  const maxRequests = Math.max(10, Math.min(Number(opts.maxRequests) || 500, 2000));
+  // F-NEW-S001: raised default 500 → 1000 and lifted upper cap (was 2000).
+  // Heavily-instrumented SPAs (analytics + ads + fonts + tracking) easily
+  // hit 2000 in 30s of capture.
+  const maxRequests = Math.max(10, Number(opts.maxRequests) || 1000);
   const requests = [];
   let truncated = false;
+  let droppedCount = 0;     // F-NEW-A002: report how many were dropped
 
   const onResponse = (resp) => {
     try {
-      if (requests.length >= maxRequests) { truncated = true; return; }
+      if (requests.length >= maxRequests) { truncated = true; droppedCount++; return; }
       const req = resp.request ? resp.request() : null;
       const rurl = typeof resp.url === "function" ? resp.url() : "";
       if (!rurl) return;
@@ -54,6 +58,7 @@ async function capturePreviewRequests(opts) {
     url, duration: duration / 1000,
     requestCount: requests.length,
     truncated,
+    droppedCount,                               // F-NEW-A002: visible to caller
     requestsByType: byType,
     requests
   };
@@ -231,7 +236,8 @@ async function browseUrl(opts) {
   const width  = Math.min(Math.max(parseInt(opts.width, 10)  || 1280, 200), 3840);
   const height = Math.min(Math.max(parseInt(opts.height, 10) || 720,  200), 2160);
   const waitMs = Math.min(Math.max(parseInt(opts.waitMs, 10) || 2000, 0), 30000);
-  const maxReq = Math.min(Math.max(parseInt(opts.maxRequests, 10) || 500, 1), 2000);
+  // F-NEW-S001: lifted upper cap (was 2000); raised default to 1000.
+  const maxReq = Math.max(parseInt(opts.maxRequests, 10) || 1000, 1);
 
   // Parse filter options
   const resourceTypesFilter = (opts.filter && Array.isArray(opts.filter.resourceTypes) && opts.filter.resourceTypes.length)
@@ -279,9 +285,10 @@ async function browseUrl(opts) {
     }
 
     // Response listener — capture every network response
+    let _droppedBrowse = 0;
     page.on("response", (resp) => {
       try {
-        if (requests.length >= maxReq) { truncated = true; return; }
+        if (requests.length >= maxReq) { truncated = true; _droppedBrowse++; return; }
         const req = resp.request ? resp.request() : null;
         const rurl = typeof resp.url === "function" ? resp.url() : "";
         if (!rurl || seenUrls.has(rurl)) return;
@@ -379,7 +386,8 @@ async function browseUrl(opts) {
       requests,
       consoleLogs,
       errors,
-      truncated
+      truncated,
+      droppedCount: _droppedBrowse                    // F-NEW-A002
     };
 
     if (opts.returnHtml) {
@@ -407,13 +415,15 @@ async function captureHar(opts) {
   const { page, url } = await session.getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
 
   const duration = Math.max(1, Number(opts.duration) || 5) * 1000;
-  const maxEntries = Math.max(10, Math.min(Number(opts.maxEntries) || 500, 2000));
+  // F-NEW-S001: lifted upper cap; default 1000.
+  const maxEntries = Math.max(10, Number(opts.maxEntries) || 1000);
   const entries = [];
   let truncated = false;
+  let droppedCount = 0;
 
   const onRequest = (req) => {
     try {
-      if (entries.length >= maxEntries) { truncated = true; return; }
+      if (entries.length >= maxEntries) { truncated = true; droppedCount++; return; }
       const entry = {
         startedDateTime: new Date().toISOString(),
         request: {
@@ -472,7 +482,7 @@ async function captureHar(opts) {
   try { page.off("request", onRequest); } catch (_) {}
   try { page.off("response", onResponse); } catch (_) {}
 
-  return { url, duration: duration / 1000, count: entries.length, truncated, entries };
+  return { url, duration: duration / 1000, count: entries.length, truncated, droppedCount, entries };
 }
 
 module.exports = { capturePreviewRequests, captureDownload, browseUrl, captureHar };

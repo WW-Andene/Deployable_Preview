@@ -47,6 +47,14 @@ const _evictTimer = setInterval(() => {
 // Don't keep the event loop alive on shutdown.
 if (typeof _evictTimer.unref === "function") _evictTimer.unref();
 
+// F-NEW-A001: track the most recent eviction reason so the next-acquired
+// session can attach a warning to its result. Surfaced to callers as
+// `pool: { evictedKey, reason }` so they know "your previous viewport
+// session was dropped — this is a fresh page" instead of seeing wrong
+// state silently.
+let _lastEviction = null;
+function getLastEviction() { const e = _lastEviction; _lastEviction = null; return e; }
+
 // Evict oldest non-busy session if the pool is full.
 function evictOldestIfFull() {
   if (pageSessions.size < MAX_SESSIONS) return;
@@ -59,6 +67,7 @@ function evictOldestIfFull() {
     const s = pageSessions.get(oldestKey);
     s.page.close().catch(() => {});
     pageSessions.delete(oldestKey);
+    _lastEviction = { key: oldestKey, at: Date.now(), reason: "pool full (max " + MAX_SESSIONS + ")" };
     console.log("[mcp-browser] Session evicted (pool full): " + oldestKey);
   }
 }
@@ -220,5 +229,6 @@ module.exports = {
   closeSession,
   closeAllSessions,
   getSessionErrors,
-  evictOldestIfFull
+  evictOldestIfFull,
+  getLastEviction
 };
