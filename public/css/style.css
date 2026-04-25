@@ -212,40 +212,78 @@ button {
 }
 button:active { transform: translateY(1px) scale(0.97); transition-duration: 50ms; }
 
+/* B2 — Named button system. Each named class is a group-selector
+   alias of the original 2-letter class so old call sites still work
+   verbatim while new code can use semantic names.
+   .btn-primary  ↔ .bp     amber call-to-action, glows on hover
+   .btn-ghost    ↔ .bg     transparent w/ border, surface on hover
+   .btn-danger   ↔ .bd     destructive — warm red with err-border
+   .btn-secondary          accent border + accent text, no fill
+   .btn-icon               square 32×32, transparent, surface hover
+   .btn-sm       ↔ .bs     compact size modifier
+*/
+
 /* Primary — amber signal, glows on hover */
-.bp {
+.bp, .btn-primary {
   background: var(--accent);
   color: var(--bg);
   font-weight: 600;
   padding: 8px 18px;
   box-shadow: var(--shadow-sm);
 }
-.bp:hover {
+.bp:hover, .btn-primary:hover {
   background: var(--accent-h);
   box-shadow: var(--shadow-md), 0 0 20px var(--accent-mid);
   transform: translateY(-1px);
 }
 
 /* Ghost — surface reveal on hover */
-.bg {
+.bg, .btn-ghost {
   background: transparent;
   color: var(--tx2);
   border: 1px solid var(--border);
   padding: 7px 14px;
 }
-.bg:hover { background: var(--sf2); color: var(--tx1); border-color: var(--border-h); }
+.bg:hover, .btn-ghost:hover { background: var(--sf2); color: var(--tx1); border-color: var(--border-h); }
 
 /* Danger — warm red, thicker left border */
-.bd {
+.bd, .btn-danger {
   background: var(--err-dim);
   color: var(--err);
   border: 1px solid var(--err-border);
   padding: 7px 14px;
 }
-.bd:hover { background: var(--err-bg-h); }
+.bd:hover, .btn-danger:hover { background: var(--err-bg-h); }
+
+/* Secondary — accent border + accent text. Sits between primary
+   (filled) and ghost (silent) for actions like Save/Apply that aren't
+   the *one* page CTA but still need accent-coded affirmation. */
+.btn-secondary {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--border-accent);
+  padding: 7px 14px;
+  font-weight: 500;
+}
+.btn-secondary:hover { background: var(--accent-dim); border-color: var(--accent); }
+
+/* Icon-only — 32×32 square, neutral hover. Use with `aria-label`
+   (or wrap with DV.iconBtn(label, opts, "iconName")) so screen
+   readers still announce the button's purpose. */
+.btn-icon {
+  background: transparent;
+  color: var(--tx2);
+  border: 1px solid transparent;
+  padding: 6px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: var(--r-btn);
+}
+.btn-icon:hover { background: var(--sf2); color: var(--tx1); border-color: var(--border); }
 
 /* Small */
-.bs { padding: 6px 10px; font-size: 12px; }
+.bs, .btn-sm { padding: 6px 10px; font-size: 12px; }
 
 /* ══════════════════════════════════════════════════
    §4 — COMPONENT CLASSES
@@ -575,7 +613,7 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
 
 /* ── Touch targets ── */
 button { min-height: 32px; }
-.bs { min-height: 28px; }
+.bs, .btn-sm { min-height: 28px; }
 
 /* ── DV Badge — product identity ── */
 .dv-badge {
@@ -623,8 +661,8 @@ button:disabled, button[disabled] {
   box-shadow: none !important;
   filter: saturate(0.3);
 }
-.bp:active { background: var(--accent-active); box-shadow: 0 1px 2px var(--shadow-base); }
-.bg:active { background: var(--sf3); }
+.bp:active, .btn-primary:active { background: var(--accent-active); box-shadow: 0 1px 2px var(--shadow-base); }
+.bg:active, .btn-ghost:active, .btn-secondary:active, .btn-icon:active { background: var(--sf3); }
 
 /* ── Separators ── */
 .sep-heavy { border-bottom: 2px solid var(--border-heavy); }
