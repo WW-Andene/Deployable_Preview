@@ -67,7 +67,12 @@ function evictOldestIfFull() {
  * will not close this session out from under the caller. The .release is
  * idempotent.
  */
-async function getSessionPage(browser, owner, repo, slug, width, height) {
+async function getSessionPage(browser, owner, repo, slug, width, height, _depth) {
+  // F-A006: cap recursion. If a freshly created page also fails .title()
+  // (e.g. browser crashed entirely) we'd otherwise loop forever, ballooning
+  // the call stack and leaking sessions.
+  const depth = _depth || 0;
+  if (depth > 2) throw new Error("getSessionPage: page kept dying — browser may have crashed");
   const key = owner + "/" + repo + "/" + slug;
   const w = width || 1280;
   const h = height || 720;
@@ -80,7 +85,7 @@ async function getSessionPage(browser, owner, repo, slug, width, height) {
       await existing.page.title(); // will throw if closed/crashed
     } catch (_) {
       pageSessions.delete(key);
-      return getSessionPage(browser, owner, repo, slug, width, height);
+      return getSessionPage(browser, owner, repo, slug, width, height, depth + 1);
     }
 
     // Resize viewport if needed

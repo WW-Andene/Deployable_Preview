@@ -88,11 +88,17 @@ async function startServer(repoConfig, branchConfig, isRestart) {
     const userEnv = parseEnvVars(branchConfig.envVars || repoConfig.envVars || "");
     addLog((isRestart ? "Restarting" : "Starting") + " server: " + startCmd + " (port " + port + ")");
 
-    const child = spawn("sh", ["-c", startCmd], {
+    // F-M024: Windows has no /bin/sh; fall back to cmd.exe /c. detached:true
+    // is meaningless on Windows but harmless; on POSIX it lets us SIGTERM the
+    // whole process group via -pid.
+    const isWin = process.platform === "win32";
+    const shellBin = isWin ? "cmd.exe" : "sh";
+    const shellFlag = isWin ? "/c" : "-c";
+    const child = spawn(shellBin, [shellFlag, startCmd], {
       cwd: workDir,
       env: { ...process.env, PORT: String(port), NODE_ENV: "production", ...userEnv },
       stdio: ["ignore", "pipe", "pipe"],
-      detached: true
+      detached: !isWin
     });
 
     runningServers[key] = { proc: child, port, status: "starting", restarts };

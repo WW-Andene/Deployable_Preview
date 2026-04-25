@@ -23,8 +23,8 @@ dv.defineTool({
     "filmstrip in one response. Closest MCP equivalent of a live view: lets Claude perceive " +
     "motion, transitions, and animated state without a dedicated streaming channel. " +
     "Accepts either (owner, repo, slug) directly or a sandboxId. For humans who want a real " +
-    "stream: POST /api/live/token to mint a token, then open " +
-    "/api/live/<owner>/<repo>/<slug>?token=... in a browser.",
+    "stream: POST /api/live/token with body {owner,repo,slug} to mint a " +
+    "scoped token, then open /api/live/<owner>/<repo>/<slug>?token=... in a browser.",
   requires: [{ kind: "browser" }],
   schema: {
     type: "object",

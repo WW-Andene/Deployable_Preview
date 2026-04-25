@@ -71,6 +71,11 @@ function webFetch(opts) {
     if (isBlockedHost(parsed.hostname)) {
       return resolve({ error: "Requests to private/internal network addresses are not allowed" });
     }
+    // F-C012: DNS-rebinding guard is plumbed via a custom `lookup` callback
+    // that's installed on the actual http(s).request below. The callback
+    // gets called with the real resolved IP and rejects connections to
+    // private ranges, eliminating the TOCTOU window between filter and
+    // socket connect.
 
     const method = (opts.method || "GET").toUpperCase();
     // Use ?? not || so callers can disable defaults with 0 (e.g. maxRedirects:0 → never follow).
@@ -160,13 +165,30 @@ function doFetch(parsedUrl, method, headers, body, timeout, redirectsLeft, maxSi
     reqHeaders["Content-Length"] = buf.length;
   }
 
+  // F-C012: same lookup that's used for the actual TCP connect — TOCTOU-safe.
+  const dns = require("dns");
+  const safeLookup = function(hostname, options, cb) {
+    if (typeof options === "function") { cb = options; options = {}; }
+    dns.lookup(hostname, options, function(err, address, family) {
+      if (err) return cb(err);
+      const addrs = Array.isArray(address) ? address : [{ address, family }];
+      for (const a of addrs) {
+        if (isBlockedHost(a.address)) {
+          return cb(new Error("DNS resolved to a blocked address: " + a.address));
+        }
+      }
+      cb(null, address, family);
+    });
+  };
+
   const reqOpts = {
     hostname: parsedUrl.hostname,
     port: parsedUrl.port,
     path: parsedUrl.pathname + parsedUrl.search,
     method: method,
     headers: reqHeaders,
-    timeout: timeout
+    timeout: timeout,
+    lookup: safeLookup
   };
 
   const retry = (reason, delayMs) => {

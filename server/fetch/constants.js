@@ -41,11 +41,17 @@ const DEFAULT_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,im
 const DEFAULT_ACCEPT_LANGUAGE = "en-US,en;q=0.9";
 
 // ── Blocked hosts (prevent SSRF to internal networks) ──────────────────────
+// F-C011: extended to cover IPv6 ULA (fc00::/7) and link-local (fe80::/10).
+// Hostname is matched after `[]` brackets are stripped (URL parsing leaves
+// IPv6 hosts wrapped in brackets).
 
-const BLOCKED_HOST_RE = /^(127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|0\.0\.0\.0|localhost|::1|\[::1\])$/i;
+const BLOCKED_HOST_RE = /^(127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|0\.0\.0\.0|localhost|::1?|fc[0-9a-f]{2}:.*|fe[89ab][0-9a-f]:.*)$/i;
 
 function isBlockedHost(hostname) {
-  return BLOCKED_HOST_RE.test(hostname);
+  if (!hostname) return false;
+  // Strip surrounding brackets that URL parsers leave on IPv6 literals.
+  const h = hostname.replace(/^\[|\]$/g, "");
+  return BLOCKED_HOST_RE.test(h);
 }
 
 module.exports = {

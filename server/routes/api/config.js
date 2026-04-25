@@ -45,10 +45,13 @@ const SUGGESTED_KEYS = [
 ];
 const SAFE_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 
+// F-C015: don't leak the leading bytes \u2014 token-type prefixes (ghp_, sk-, \u2026)
+// already shrink the search space; combined with the trailing 4 they hand
+// an attacker a useful brute-force prefix. Show only the trailing 4.
 function maskValue(val) {
   if (!val) return "";
-  if (val.length <= 8) return val.slice(0, 2) + "...";
-  return val.slice(0, 4) + "\u2022\u2022\u2022" + val.slice(-4);
+  if (val.length <= 4) return "\u2022\u2022\u2022\u2022";
+  return "\u2022\u2022\u2022\u2022" + val.slice(-4);
 }
 
 router.get("/secrets", (req, res) => {
@@ -82,6 +85,10 @@ router.get("/secrets/suggestions", (req, res) => {
   res.json(SUGGESTED_KEYS);
 });
 
+// F-C018: cap the number of stored secrets so a misbehaving caller can't
+// fill deployview.json with junk and OOM the parser on next load.
+const MAX_SECRETS = 200;
+
 router.post("/secrets", (req, res) => {
   const config = getConfig();
   if (!config.secrets) config.secrets = {};
@@ -89,6 +96,10 @@ router.post("/secrets", (req, res) => {
   if (!key || typeof key !== "string") return res.status(400).json({ error: "key required" });
   if (!SAFE_KEY_RE.test(key)) return res.status(400).json({ error: "Invalid key name \u2014 use A-Z, 0-9, _ only" });
   if (value === undefined || value === null) return res.status(400).json({ error: "value required" });
+  // Block adding new keys when at cap; updates to existing keys still allowed.
+  if (!Object.prototype.hasOwnProperty.call(config.secrets, key) && Object.keys(config.secrets).length >= MAX_SECRETS) {
+    return res.status(429).json({ error: "Secret cap reached (" + MAX_SECRETS + ")" });
+  }
   const trimmed = String(value).trim();
   if (trimmed) {
     config.secrets[key] = trimmed;
@@ -401,8 +412,8 @@ const SAFE_NAME_RE = /^[a-zA-Z0-9._-]+$/;
 
 router.get("/config/export", (req, res) => {
   const config = getConfig();
-  // Strip secrets and token for safety — export only structure
-  const safe = { ...config, token: config.token ? "[redacted]" : "", secrets: undefined, preferences: config.preferences || {} };
+  // Strip secrets, token, and apiSecret for safety — export only structure
+  const safe = { ...config, token: config.token ? "[redacted]" : "", secrets: undefined, apiSecret: undefined, preferences: config.preferences || {}, __version: "1.1" };
   res.setHeader("Content-Disposition", 'attachment; filename="deployview-config.json"');
   res.json(safe);
 });
