@@ -2195,6 +2195,41 @@ button:disabled, button[disabled] {
   border-color: var(--accent); transform: scale(1.03);
 }
 
+/* ── Compare-branch fuzzy picker ──────────────────────────────────── */
+.compare-picker { position: relative; display: inline-flex; gap: 4px; align-items: center; }
+.compare-picker-input {
+  padding: 4px 8px; font-size: 12px; width: 220px;
+  background: var(--sf1); border: 1px solid var(--border-h); color: var(--tx1);
+  border-radius: 4px; outline: none;
+}
+.compare-picker-input:focus { border-color: var(--accent); }
+.compare-picker-list {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 80;
+  min-width: 260px; max-height: 320px; overflow-y: auto;
+  background: var(--sf1); border: 1px solid var(--border-h); border-radius: 6px;
+  box-shadow: var(--shadow-md);
+  display: none; padding: 4px;
+}
+.compare-picker-list.on { display: block; }
+.compare-picker-item {
+  padding: 6px 10px; border-radius: 4px; cursor: pointer;
+  display: flex; justify-content: space-between; gap: 8px; align-items: center;
+  color: var(--tx1); font-size: 12px;
+}
+.compare-picker-item:hover, .compare-picker-item.on { background: var(--accent-dim); color: var(--accent); }
+.compare-picker-status {
+  font-family: var(--font-mono); font-size: 10px; color: var(--tx3);
+  padding: 1px 6px; border-radius: var(--r-pill); border: 1px solid var(--border);
+}
+.compare-picker-ready   { color: var(--ok); border-color: var(--ok-dim); }
+.compare-picker-running { color: var(--run); border-color: var(--run-dim); }
+.compare-picker-building { color: var(--accent); border-color: var(--accent-mid); }
+.compare-picker-error   { color: var(--err); border-color: var(--err-dim); }
+.compare-picker-empty   { padding: 10px; color: var(--tx3); font-size: 12px; text-align: center; }
+.compare-picker-clear {
+  font-size: 11px; padding: 4px 8px;
+}
+
 /* ── Framework detection badge ─────────────────────────────────────── */
 .detect-badge {
   display: inline-flex; align-items: center; gap: 6px;

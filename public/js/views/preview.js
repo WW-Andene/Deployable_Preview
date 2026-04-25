@@ -24,18 +24,88 @@ DV.views.preview = function(app) {
 
   if (S.compareMode) {
     ctrls.appendChild(el("span", { c: "font-mono text-12 color-tx3" }, "vs"));
-    var s2 = document.createElement("select");
-    s2.className = "select-inline";
-    s2.appendChild(el("option", { attr: { value: "" } }, "Select\u2026"));
+
+    // Build a searchable branch picker: input + dropdown of fuzzy-filtered matches.
+    var candidates = [];
     for (var i = 0; i < slugs.length; i++) {
       if (slugs[i] === S.activeBranch) continue;
       var bsInfo2 = repo.branchStatuses[slugs[i]] || {};
-      var label2 = bsInfo2.branch + (bsInfo2.baseDir ? " \u2192 " + bsInfo2.baseDir : "");
-      var o = document.createElement("option"); o.value = slugs[i]; o.textContent = label2;
-      if (slugs[i] === S.compareBranch) o.selected = true; s2.appendChild(o);
+      candidates.push({
+        slug: slugs[i],
+        label: (bsInfo2.branch || slugs[i]) + (bsInfo2.baseDir ? " \u2192 " + bsInfo2.baseDir : ""),
+        status: bsInfo2.status || "idle"
+      });
     }
-    s2.addEventListener("change", function(e) { S.compareBranch = e.target.value; DV.render(); });
-    ctrls.appendChild(s2);
+
+    var pickerWrap = el("div", { c: "compare-picker" });
+    var pickerInp = document.createElement("input");
+    pickerInp.className = "compare-picker-input";
+    pickerInp.placeholder = "Filter branches\u2026";
+    pickerInp.autocomplete = "off"; pickerInp.spellcheck = false;
+
+    var selectedLabel = null;
+    if (S.compareBranch) {
+      var found = candidates.find(function(c){ return c.slug === S.compareBranch; });
+      selectedLabel = found ? found.label : S.compareBranch;
+    }
+    pickerInp.value = S._compareFilter != null ? S._compareFilter : (selectedLabel || "");
+
+    var listWrap = el("div", { c: "compare-picker-list" + (S._compareFocus ? " on" : "") });
+
+    function fuzzyMatch(q, text) {
+      if (!q) return 1;
+      q = q.toLowerCase(); text = text.toLowerCase();
+      var qi = 0;
+      for (var ti = 0; ti < text.length && qi < q.length; ti++) if (text[ti] === q[qi]) qi++;
+      return qi === q.length ? 1 : 0;
+    }
+    function rebuildList() {
+      listWrap.innerHTML = "";
+      var q = pickerInp.value;
+      var matches = candidates.filter(function(c){ return fuzzyMatch(q, c.label); });
+      if (!matches.length) {
+        listWrap.appendChild(el("div", { c: "compare-picker-empty" }, "No branches match \u201c" + q + "\u201d"));
+        return;
+      }
+      for (var j = 0; j < matches.length; j++) {
+        (function(c) {
+          listWrap.appendChild(el("div", {
+            c: "compare-picker-item" + (c.slug === S.compareBranch ? " on" : ""),
+            on: { mousedown: function(e) {
+              e.preventDefault();
+              S.compareBranch = c.slug; S._compareFilter = null; S._compareFocus = false; DV.render();
+            } }
+          }, [
+            el("span", {}, c.label),
+            el("span", { c: "compare-picker-status compare-picker-" + c.status }, c.status)
+          ]));
+        })(matches[j]);
+      }
+    }
+    rebuildList();
+
+    pickerInp.addEventListener("focus", function() { S._compareFocus = true; listWrap.classList.add("on"); });
+    pickerInp.addEventListener("blur",  function() { setTimeout(function(){ S._compareFocus = false; listWrap.classList.remove("on"); }, 150); });
+    pickerInp.addEventListener("input", function() { S._compareFilter = pickerInp.value; rebuildList(); });
+    pickerInp.addEventListener("keydown", function(e) {
+      if (e.key === "Enter") {
+        var first = listWrap.querySelector(".compare-picker-item");
+        if (first) first.dispatchEvent(new MouseEvent("mousedown"));
+      } else if (e.key === "Escape") {
+        pickerInp.value = selectedLabel || ""; S._compareFilter = null; pickerInp.blur();
+      }
+    });
+
+    pickerWrap.appendChild(pickerInp);
+    pickerWrap.appendChild(listWrap);
+    if (S.compareBranch) {
+      pickerWrap.appendChild(el("button", {
+        c: "bg bs compare-picker-clear",
+        attr: { title: "Clear compare branch" },
+        on: { click: function() { S.compareBranch = ""; S._compareFilter = null; DV.render(); } }
+      }, "\u2715"));
+    }
+    ctrls.appendChild(pickerWrap);
   }
 
   // Add Branch dropdown

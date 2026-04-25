@@ -3,6 +3,41 @@
 (function(){
 var S = DV.S, el = DV.el, api = DV.api;
 
+// ── MRU (most recently used) ──────────────────────────────────────────
+// Persisted in localStorage. Stores {id: ts} of the last ~30 commands
+// invoked from the palette; used to boost matching scores.
+var MRU_KEY = "dv.palette.mru";
+var MRU_MAX = 30;
+function mruLoad() {
+  try { return JSON.parse(localStorage.getItem(MRU_KEY) || "{}") || {}; }
+  catch (_) { return {}; }
+}
+function mruTouch(id) {
+  try {
+    var m = mruLoad();
+    m[id] = Date.now();
+    // Trim oldest entries if over cap
+    var entries = Object.entries(m);
+    if (entries.length > MRU_MAX) {
+      entries.sort(function(a,b){ return b[1]-a[1]; });
+      m = {};
+      for (var i = 0; i < MRU_MAX; i++) m[entries[i][0]] = entries[i][1];
+    }
+    localStorage.setItem(MRU_KEY, JSON.stringify(m));
+  } catch (_) {}
+}
+function mruBoost(id) {
+  var m = mruLoad();
+  var ts = m[id];
+  if (!ts) return 0;
+  var ageMin = (Date.now() - ts) / 60000;
+  // Recent < 5 min: +4. < 1 h: +2. Older within 24 h: +1.
+  if (ageMin < 5) return 4;
+  if (ageMin < 60) return 2;
+  if (ageMin < 1440) return 1;
+  return 0;
+}
+
 // ── Fuzzy scoring ──────────────────────────────────────────────────────
 // Cheap subsequence match + bonus for consecutive hits + prefix bonus.
 function score(query, text) {
@@ -145,8 +180,14 @@ DV.renderPalette = function(root) {
   var all = buildCommands();
   var q = S.paletteQuery || "";
   var ranked = all
-    .map(function(c){ return { c: c, s: score(q, c.label) + (q ? score(q, c.hint || "") * 0.3 : 0) }; })
-    .filter(function(x){ return x.s > 0; })
+    .map(function(c){
+      var base = score(q, c.label) + (q ? score(q, c.hint || "") * 0.3 : 0);
+      // MRU boost matters most when the query is empty (fresh palette open)
+      var boost = mruBoost(c.id);
+      var s = base + (q ? boost * 0.5 : boost);
+      return { c: c, s: s };
+    })
+    .filter(function(x){ return x.s > 0 || !q; }) // show MRU even without a query
     .sort(function(a, b){ return b.s - a.s; })
     .slice(0, 40);
 
@@ -177,7 +218,7 @@ DV.renderPalette = function(root) {
     if (e.key === "Enter") {
       e.preventDefault();
       var hit = ranked[S.paletteIndex];
-      if (hit) { DV.closePalette(); try { hit.c.run(); } catch (err) { console.error(err); } }
+      if (hit) { mruTouch(hit.c.id); DV.closePalette(); try { hit.c.run(); } catch (err) { console.error(err); } }
     }
   });
   modal.appendChild(input);
@@ -196,7 +237,7 @@ DV.renderPalette = function(root) {
         var row = el("div", {
           c: "palette-row" + (idx === S.paletteIndex ? " palette-row-active" : ""),
           on: {
-            click: function() { DV.closePalette(); try { hit.c.run(); } catch (e) { console.error(e); } },
+            click: function() { mruTouch(hit.c.id); DV.closePalette(); try { hit.c.run(); } catch (e) { console.error(e); } },
             mouseenter: function() { S.paletteIndex = idx; DV.render(); var n = document.querySelector(".palette-input"); if (n) n.focus(); }
           }
         }, [
