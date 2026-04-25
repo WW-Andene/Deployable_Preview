@@ -26,24 +26,62 @@ let browserInstance = null;
 // ── Persistent page sessions ────────────────────────────────────────────────
 // Pages are kept alive across tool calls so state (localStorage, modals, etc.)
 // persists. Keyed by "owner/repo/slug".
+//
+// Each entry carries a `refCount` of in-flight operations using the page.
+// TTL eviction skips any session with refCount > 0 so the cleanup loop can't
+// close a page out from under an in-progress await (was the source of
+// intermittent "Target page has been closed" errors).
 const pageSessions = new Map();
-const SESSION_TTL_MS = 5 * 60 * 1000; // 5 min idle expiry
+const SESSION_TTL_MS = parseInt(process.env.DV_SESSION_TTL_MS, 10) || (5 * 60 * 1000);
+const MAX_SESSIONS  = parseInt(process.env.DV_MAX_SESSIONS, 10) || 100;
 
-// Cleanup idle sessions every 60s
-setInterval(() => {
+// A leaked refCount (caller forgot to release) shouldn't pin the session
+// forever. After this grace period an in-use entry is treated as stale and
+// evicted anyway.
+const STALE_REFCOUNT_GRACE_MS = 2 * 60 * 1000;
+
+// Snapshot the keys so additions during iteration aren't observed mid-cycle.
+const _evictTimer = setInterval(() => {
   const now = Date.now();
-  for (const [key, session] of pageSessions) {
-    if (now - session.lastUsed > SESSION_TTL_MS) {
-      session.page.close().catch(() => {});
-      pageSessions.delete(key);
-      console.log("[mcp-browser] Session expired: " + key);
-    }
+  for (const key of Array.from(pageSessions.keys())) {
+    const session = pageSessions.get(key);
+    if (!session) continue;
+    const idleFor = now - session.lastUsed;
+    const inUse = (session.refCount || 0) > 0;
+    if (inUse && idleFor < STALE_REFCOUNT_GRACE_MS) continue; // active — skip
+    if (!inUse && idleFor <= SESSION_TTL_MS) continue;        // fresh — skip
+    session.page.close().catch(() => {});
+    pageSessions.delete(key);
+    console.log("[mcp-browser] Session expired: " + key + (inUse ? " (stale refCount)" : ""));
   }
 }, 60 * 1000);
+// Don't keep the event loop alive on shutdown.
+if (typeof _evictTimer.unref === "function") _evictTimer.unref();
+
+// Evict oldest non-busy session if the pool is full.
+function evictOldestIfFull() {
+  if (pageSessions.size < MAX_SESSIONS) return;
+  let oldestKey = null, oldestAt = Infinity;
+  for (const [k, s] of pageSessions) {
+    if ((s.refCount || 0) > 0) continue;
+    if (s.lastUsed < oldestAt) { oldestAt = s.lastUsed; oldestKey = k; }
+  }
+  if (oldestKey) {
+    const s = pageSessions.get(oldestKey);
+    s.page.close().catch(() => {});
+    pageSessions.delete(oldestKey);
+    console.log("[mcp-browser] Session evicted (pool full): " + oldestKey);
+  }
+}
 
 /**
  * Get or create a persistent page for a preview.
  * Reuses existing page if viewport matches, otherwise creates new.
+ *
+ * The returned `release` function MUST be called (in a finally) once the
+ * caller is done with the page. While refCount > 0 the TTL eviction loop
+ * will not close this session out from under the caller. The .release is
+ * idempotent.
  */
 async function getSessionPage(browser, owner, repo, slug, width, height) {
   const key = owner + "/" + repo + "/" + slug;
@@ -68,8 +106,15 @@ async function getSessionPage(browser, owner, repo, slug, width, height) {
       existing.height = h;
     }
     existing.lastUsed = Date.now();
-    return { page: existing.page, url, isNew: false };
+    existing.refCount = (existing.refCount || 0) + 1;
+    return Object.assign(
+      { page: existing.page, url, isNew: false },
+      { release: makeRelease(key) }
+    );
   }
+
+  // Honour the pool cap before allocating a new page.
+  evictOldestIfFull();
 
   // Create new session
   const page = await newPage(browser);
@@ -118,9 +163,23 @@ async function getSessionPage(browser, owner, repo, slug, width, height) {
 
   await page.goto(url, { waitUntil: waitUntilIdle(), timeout: 30000 });
 
-  pageSessions.set(key, { page, width: w, height: h, lastUsed: Date.now(), errorLog });
+  pageSessions.set(key, { page, width: w, height: h, lastUsed: Date.now(), errorLog, refCount: 1 });
   console.log("[mcp-browser] New session: " + key + " (" + w + "x" + h + ")");
-  return { page, url, isNew: true };
+  return Object.assign(
+    { page, url, isNew: true },
+    { release: makeRelease(key) }
+  );
+}
+
+// Returns an idempotent release function bound to one acquisition.
+function makeRelease(key) {
+  let released = false;
+  return function release() {
+    if (released) return;
+    released = true;
+    const s = pageSessions.get(key);
+    if (s && s.refCount > 0) s.refCount--;
+  };
 }
 
 /**
@@ -622,6 +681,7 @@ module.exports = {
   closeSession,
   closeAllSessions,
   getSessionErrors,
+  evictOldestIfFull,
 
   // Browser lifecycle
   loadLib,

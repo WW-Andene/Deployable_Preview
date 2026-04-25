@@ -33,6 +33,8 @@ function evictThumbsIfNeeded() {
     if (!slot) continue;
     delete slot.thumb;
     delete slot.diffThumb;
+    delete slot.diff;             // diff metadata is meaningless without the thumb it was computed from
+    delete slot.previousThumbAt;
   }
 }
 
@@ -365,8 +367,15 @@ async function buildBranch(repoConfig, branchConfig) {
   if (countActiveBuilds() >= MAX_CONCURRENT_BUILDS) {
     console.log("[" + key + "] Max concurrent builds (" + MAX_CONCURRENT_BUILDS + ") reached, queuing...");
     buildStatus[key] = { status: "queued", log: "Waiting for build slot...\n", lastBuild: null, commitSha: "", mode: "static" };
-    // Retry after 5 seconds
-    setTimeout(() => buildBranch(repoConfig, branchConfig), 5000);
+    // Retry after 5 seconds — but only if still queued (skip cancelled / deleted).
+    setTimeout(() => {
+      const slot = buildStatus[key];
+      if (!slot || slot.status !== "queued") return;
+      buildBranch(repoConfig, branchConfig).catch((e) => {
+        console.error("[" + key + "] Queue retry failed: " + e.message);
+        if (buildStatus[key]) { buildStatus[key].status = "error"; buildStatus[key].lastBuild = Date.now(); }
+      });
+    }, 5000);
     return;
   }
   buildLocks[key] = true;
@@ -589,7 +598,14 @@ async function startServer(repoConfig, branchConfig, isRestart) {
   if (!isRestart && countActiveBuilds() >= MAX_CONCURRENT_BUILDS) {
     console.log("[" + key + "] Max concurrent builds (" + MAX_CONCURRENT_BUILDS + ") reached, queuing...");
     buildStatus[key] = { status: "queued", log: "Waiting for build slot...\n", lastBuild: null, commitSha: "", mode: "server" };
-    setTimeout(() => startServer(repoConfig, branchConfig, false), 5000);
+    setTimeout(() => {
+      const slot = buildStatus[key];
+      if (!slot || slot.status !== "queued") return;
+      Promise.resolve(startServer(repoConfig, branchConfig, false)).catch((e) => {
+        console.error("[" + key + "] Server-queue retry failed: " + e.message);
+        if (buildStatus[key]) { buildStatus[key].status = "error"; buildStatus[key].lastBuild = Date.now(); }
+      });
+    }, 5000);
     return;
   }
   buildLocks[key] = true;
@@ -638,7 +654,12 @@ async function startServer(repoConfig, branchConfig, isRestart) {
         if (restarts < MAX_RESTARTS && !runningServers[key].manualStop) {
           addLog("Auto-restarting in " + (AUTO_RESTART_DELAY / 1000) + "s (" + (restarts + 1) + "/" + MAX_RESTARTS + ")...");
           buildStatus[key].restarts = restarts + 1;
-          setTimeout(() => { if (buildStatus[key] && buildStatus[key].status === "error") startServer(repoConfig, branchConfig, true); }, AUTO_RESTART_DELAY);
+          setTimeout(() => {
+            if (!buildStatus[key] || buildStatus[key].status !== "error") return;
+            Promise.resolve(startServer(repoConfig, branchConfig, true)).catch((e) => {
+              console.error("[" + key + "] Auto-restart failed: " + e.message);
+            });
+          }, AUTO_RESTART_DELAY);
         } else if (restarts >= MAX_RESTARTS) { addLog("Max restarts reached."); }
       }
     });
