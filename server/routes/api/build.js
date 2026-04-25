@@ -132,6 +132,60 @@ router.post("/rollback/:owner/:repo", (req, res) => {
   res.json({ ok: true, message: r.message, entry: r.entry });
 });
 
+// ── Outgoing webhook subscribers ───────────────────────────────────────────
+const webhooks = require("../../webhooks");
+
+router.get("/webhooks", (req, res) => {
+  // Don't leak the HMAC secret over the wire — replace with hasSecret bool.
+  res.json({ webhooks: webhooks.listWebhooks().map(w => ({
+    ...w, secret: undefined, hasSecret: !!w.secret
+  })), validEvents: webhooks.VALID_EVENTS });
+});
+
+router.post("/webhooks", (req, res) => {
+  try {
+    const wh = webhooks.addWebhook(req.body || {});
+    res.json({ ok: true, webhook: { ...wh, secret: undefined, hasSecret: !!wh.secret } });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+router.put("/webhooks/:id", (req, res) => {
+  const wh = webhooks.updateWebhook(req.params.id, req.body || {});
+  if (!wh) return res.status(404).json({ error: "webhook not found" });
+  res.json({ ok: true, webhook: { ...wh, secret: undefined, hasSecret: !!wh.secret } });
+});
+
+router.delete("/webhooks/:id", (req, res) => {
+  const ok = webhooks.removeWebhook(req.params.id);
+  if (!ok) return res.status(404).json({ error: "webhook not found" });
+  res.json({ ok: true });
+});
+
+// Test endpoint: fire a synthetic event to a single webhook so users can
+// verify the receiver is wired up without waiting for a real build.
+router.post("/webhooks/:id/test", async (req, res) => {
+  const wh = webhooks.listWebhooks().find(w => w.id === req.params.id);
+  if (!wh) return res.status(404).json({ error: "webhook not found" });
+  // Temporarily emit just to this one — easiest path is to call _post
+  // directly via a wrapper exposed for tests.
+  const ev = "build.ready";
+  // Use the internal emit; it's a no-op if webhook is disabled or events
+  // don't include this one. For a true test, just always send.
+  try {
+    const fake = {
+      repo: "owner/repo", branch: "main", slug: "main",
+      commitSha: "0000000abcdef", duration: 12.3,
+      previewUrl: "/preview/owner/repo/main/"
+    };
+    // Force-send by temporarily enabling and matching
+    const saved = { events: wh.events, enabled: wh.enabled };
+    wh.events = ["*"]; wh.enabled = true;
+    webhooks.emit(ev, fake);
+    wh.events = saved.events; wh.enabled = saved.enabled;
+    res.json({ ok: true, message: "Test event dispatched (check receiver)" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Diff heatmap — PNG showing pixel changes vs. the previous build's thumb.
 router.get("/thumb-diff/:owner/:repo", (req, res) => {
   const slug = req.query.slug || req.query.branch || "";

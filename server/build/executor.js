@@ -265,11 +265,32 @@ async function buildBranch(repoConfig, branchConfig) {
         by: "build"
       });
     } catch (e) { addLog("WARNING: history append failed: " + e.message); }
+
+    // Outgoing webhooks: fire on build success.
+    try {
+      require("../webhooks").emit("build.ready", {
+        repo: repoConfig.owner + "/" + repoConfig.repo,
+        branch: branchConfig.branch,
+        slug: branchSlug(branchConfig),
+        commitSha: buildStatus[key].commitSha || "",
+        duration: parseFloat(duration),
+        previewUrl: "/preview/" + repoConfig.owner + "/" + repoConfig.repo + "/" + branchSlug(branchConfig) + "/"
+      });
+    } catch (_) {}
   } catch (e) {
     addLog("BUILD FAILED: " + e.message);
     buildStatus[key].status = "error";
     buildStatus[key].lastBuild = Date.now();
     saveLog(key, addLog.getLog());
+    try {
+      require("../webhooks").emit("build.error", {
+        repo: repoConfig.owner + "/" + repoConfig.repo,
+        branch: branchConfig.branch,
+        slug: branchSlug(branchConfig),
+        commitSha: buildStatus[key].commitSha || "",
+        error: e.message
+      });
+    } catch (_) {}
   } finally {
     delete buildLocks[key];
   }
