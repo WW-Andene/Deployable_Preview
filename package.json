@@ -30,6 +30,8 @@
     "start:http": "node server/index.js --no-mcp",
     "mcp": "node server/mcp.js",
     "start:mcp": "node server/index.js",
+    "test": "node --test test/*.test.js",
+    "audit:json": "npm audit --json || true",
     "postinstall": "node scripts/postinstall.js"
   },
   "dependencies": {
