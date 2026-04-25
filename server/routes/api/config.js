@@ -134,30 +134,60 @@ router.post("/preferences", (req, res) => {
 });
 
 // ── GitHub branches ──────────────────────────────────────────────────────────
+// Per-SHA commit-date cache. SHA → ISO date string. Commits are immutable
+// so a SHA's date never changes; this turns the N+1 GitHub call into 0
+// once a branch list has been fetched once. LRU-capped to 1024 entries.
+const _commitDateCache = new Map();
+function _cacheGetDate(sha) {
+  const v = _commitDateCache.get(sha);
+  if (v !== undefined) {
+    // Refresh recency
+    _commitDateCache.delete(sha);
+    _commitDateCache.set(sha, v);
+  }
+  return v;
+}
+function _cachePutDate(sha, date) {
+  if (_commitDateCache.size >= 1024) {
+    _commitDateCache.delete(_commitDateCache.keys().next().value);
+  }
+  _commitDateCache.set(sha, date);
+}
+
 router.get("/github/:owner/:repo/branches", async (req, res) => {
   try {
     const config = getConfig();
     const branches = await ghApi("/repos/" + req.params.owner + "/" + req.params.repo + "/branches?per_page=100", config.token);
     const info = await ghApi("/repos/" + req.params.owner + "/" + req.params.repo, config.token);
-    // Sort: default branch first, then by commit date (newest first)
-    // GitHub branches API includes commit.sha — fetch dates for top branches
     const withDates = branches.map((b) => ({
       name: b.name,
       sha: b.commit && b.commit.sha,
-      date: b.commit && b.commit.url ? null : null // placeholder
+      date: null
     }));
-    // Fetch commit dates in parallel (limit to first 30 to avoid rate limits)
-    const toFetch = withDates.slice(0, 30);
-    try {
-      const dateResults = await Promise.all(toFetch.map((b) =>
-        ghApi("/repos/" + req.params.owner + "/" + req.params.repo + "/commits/" + b.sha, config.token)
-          .then((c) => ({ name: b.name, date: c.commit && c.commit.committer && c.commit.committer.date }))
-          .catch(() => ({ name: b.name, date: null }))
-      ));
-      const dateMap = {};
-      for (const d of dateResults) dateMap[d.name] = d.date;
-      withDates.forEach((b) => { b.date = dateMap[b.name] || null; });
-    } catch (e) { /* ignore date fetch errors, use unsorted */ }
+    // Look up cached SHAs first; only fetch what we don't already know.
+    // The GitHub branches endpoint doesn't include commit dates, but commits
+    // are immutable, so caching by SHA collapses repeat polls to zero calls.
+    const need = [];
+    for (const b of withDates.slice(0, 30)) {
+      const cached = b.sha ? _cacheGetDate(b.sha) : null;
+      if (cached !== undefined && cached !== null) b.date = cached;
+      else if (b.sha) need.push(b);
+    }
+    if (need.length) {
+      try {
+        const dateResults = await Promise.all(need.map((b) =>
+          ghApi("/repos/" + req.params.owner + "/" + req.params.repo + "/commits/" + b.sha, config.token)
+            .then((c) => ({ name: b.name, sha: b.sha, date: c.commit && c.commit.committer && c.commit.committer.date }))
+            .catch(() => ({ name: b.name, sha: b.sha, date: null }))
+        ));
+        const dateMap = {};
+        for (const d of dateResults) {
+          dateMap[d.name] = d.date;
+          if (d.date) _cachePutDate(d.sha, d.date);
+        }
+        for (const b of withDates) { if (b.date == null) b.date = dateMap[b.name] || null; }
+      } catch (_) { /* fall through with whatever dates we have */ }
+    }
     // Sort: default branch first, then by date descending
     withDates.sort((a, b) => {
       if (a.name === info.default_branch) return -1;

@@ -199,14 +199,18 @@ function _cacheGet(key) {
   const e = _toolCache.get(key);
   if (!e) return null;
   if (e.expiresAt <= Date.now()) { _toolCache.delete(key); return null; }
+  // True LRU: re-insert to move to "most recently used" end.
+  _toolCache.delete(key);
+  _toolCache.set(key, e);
   return e.result;
 }
 
 function _cachePut(key, result, ttlMs) {
+  // Map iteration order is insertion order, so the first key is genuinely
+  // the least-recently-used (because _cacheGet re-inserts on access).
   if (_toolCache.size >= _CACHE_MAX) {
-    // Cheap eviction: drop the oldest-looking entry
-    const firstKey = _toolCache.keys().next().value;
-    if (firstKey) _toolCache.delete(firstKey);
+    const lruKey = _toolCache.keys().next().value;
+    if (lruKey) _toolCache.delete(lruKey);
   }
   _toolCache.set(key, { result, expiresAt: Date.now() + ttlMs });
 }

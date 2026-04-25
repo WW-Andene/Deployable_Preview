@@ -234,13 +234,32 @@ async function setupDesktop() {
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
+// Memoize the browser-setup result for 60s. The dashboard pings
+// /browser/setup repeatedly; without this every poll re-runs the entire
+// detect-and-launch flow and spams the log with "Checking Playwright...".
+let _ensurePromise = null;
+let _ensureExpiresAt = 0;
+const ENSURE_TTL_MS = 60 * 1000;
+
 async function ensureBrowser() {
-  try {
-    if (isTermux) { await setupTermux(); } else { await setupDesktop(); }
-    if (activeBrowser) log("Active browser library: " + activeBrowser);
-  } catch (e) {
-    warn("Unexpected error: " + e.message);
-  }
+  // If we already have an active browser and it's still fresh, no-op.
+  if (activeBrowser && Date.now() < _ensureExpiresAt) return activeBrowser;
+  // Coalesce concurrent calls into a single in-flight promise.
+  if (_ensurePromise) return _ensurePromise;
+  _ensurePromise = (async () => {
+    try {
+      if (isTermux) { await setupTermux(); } else { await setupDesktop(); }
+      if (activeBrowser) log("Active browser library: " + activeBrowser);
+      _ensureExpiresAt = Date.now() + ENSURE_TTL_MS;
+      return activeBrowser;
+    } catch (e) {
+      warn("Unexpected error: " + e.message);
+      return null;
+    } finally {
+      _ensurePromise = null;
+    }
+  })();
+  return _ensurePromise;
 }
 
 function getActiveBrowser() { return activeBrowser; }
