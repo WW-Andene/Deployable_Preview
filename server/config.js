@@ -86,30 +86,40 @@ function loadConfig() {
   }
 }
 
+// F-NEW-B002: serialised async save chain. saveConfig() schedules the
+// write and returns immediately; calls during an in-flight save queue
+// behind it so we never race the .tmp+rename. Errors propagate via the
+// returned promise but callers historically didn't await — we keep that
+// behaviour and just log save errors instead.
+let _savingChain = Promise.resolve();
 function saveConfig() {
+  // Snapshot the payload synchronously so concurrent mutations between
+  // schedule and write don't leak into the wrong on-disk state.
   const payload = JSON.stringify(config, null, 2);
-  // Take a backup of the previous good file (best-effort) so a corrupted
-  // write can be recovered from .bak on next startup.
-  try {
-    if (fs.existsSync(CONFIG_FILE)) {
-      fs.copyFileSync(CONFIG_FILE, CONFIG_FILE + ".bak");
-    }
-  } catch (_) {}
-  // Atomic write: stage to .tmp then rename. POSIX rename is atomic; on
-  // Windows fs.renameSync overwrites. Either way, partial writes can't be
-  // observed by a concurrent reader.
   const tmpFile = CONFIG_FILE + ".tmp";
-  try {
-    fs.writeFileSync(tmpFile, payload);
-    fs.renameSync(tmpFile, CONFIG_FILE);
-  } catch (e) {
-    // Fall back to a direct write so we don't lose the update entirely.
-    try { fs.writeFileSync(CONFIG_FILE, payload); } catch (_) { throw e; }
-  }
-  // Notify SSOT subscribers (e.g. build state pruning) — best-effort.
-  for (const cb of _saveSubscribers) {
-    try { cb(config); } catch (err) { console.warn("[config] save subscriber threw: " + err.message); }
-  }
+  _savingChain = _savingChain.then(async () => {
+    try {
+      // Take a backup of the previous good file (best-effort) so a corrupted
+      // write can be recovered from .bak on next startup.
+      try { if (fs.existsSync(CONFIG_FILE)) await fs.promises.copyFile(CONFIG_FILE, CONFIG_FILE + ".bak"); } catch (_) {}
+      // Atomic write: stage to .tmp then rename. POSIX rename is atomic;
+      // on Windows fs.rename overwrites.
+      try {
+        await fs.promises.writeFile(tmpFile, payload);
+        await fs.promises.rename(tmpFile, CONFIG_FILE);
+      } catch (e) {
+        try { await fs.promises.writeFile(CONFIG_FILE, payload); }
+        catch (_) { throw e; }
+      }
+    } catch (err) {
+      console.error("[config] save failed:", err.message);
+    }
+    // Notify SSOT subscribers — best-effort.
+    for (const cb of _saveSubscribers) {
+      try { cb(config); } catch (err) { console.warn("[config] save subscriber threw: " + err.message); }
+    }
+  });
+  return _savingChain;
 }
 
 // SSOT enforcement: callers register here to be notified after every save

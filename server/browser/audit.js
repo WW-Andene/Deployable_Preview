@@ -4,6 +4,14 @@ const path = require("path");
 const session = require("../dv/session");
 const enrich = require("../mcp-enrichments");
 
+// F-NEW-B003: read web-vitals source once at module load, not on every
+// audit call. Avoids a sync disk read on the hot path.
+let _webVitalsSrc = null;
+try {
+  const wvPath = require.resolve("web-vitals/dist/web-vitals.iife.js");
+  _webVitalsSrc = fs.readFileSync(wvPath, "utf8");
+} catch (_) { /* web-vitals not installed — getWebVitals will report */ }
+
 // ── Performance metrics ────────────────────────────────────────────────────
 
 /**
@@ -252,11 +260,8 @@ async function getWebVitals(opts) {
   const { page, url } = await session.getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
 
   // Prefer bundled web-vitals if installed, otherwise load from CDN
-  let source = null;
-  try {
-    const wvPath = require.resolve("web-vitals/dist/web-vitals.iife.js");
-    source = fs.readFileSync(wvPath, "utf8");
-  } catch (_) {}
+  // (cached at module load — see _webVitalsSrc above).
+  const source = _webVitalsSrc;
 
   if (source) {
     try {
