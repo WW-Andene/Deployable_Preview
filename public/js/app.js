@@ -59,7 +59,10 @@ var S = {
   historyModal: null,
 
   // Visual diff modal — { owner, repo, slug, thumbAt, diff } when open.
-  diffModal: null
+  diffModal: null,
+
+  // Runtime-errors modal — { owner, repo, slug, loading, errors[] } when open.
+  errorsModal: null
 };
 
 var _dropdownCloseHandler = null;
@@ -234,9 +237,40 @@ api("GET", "/api/preferences").then(function(p) { S.preferences = p || {}; }).ca
 api("GET", "/api/token").then(function(r) {
   S.hasToken = r.hasToken;
   S.view = r.hasToken ? "dashboard" : "setup";
-  if (r.hasToken) { loadRepos(); installStatusStream(); }
+  if (r.hasToken) { loadRepos(); installStatusStream(); installErrorCountSync(); }
   else render();
 });
+
+// J3: pull the per-branch runtime-error summary every 15s. Cheap call
+// (just a Map.size + sum). Stops once the user logs out / leaves.
+function installErrorCountSync() {
+  if (S._errorSyncTimer) return;
+  function tick() {
+    if (!S.hasToken) { clearInterval(S._errorSyncTimer); S._errorSyncTimer = null; return; }
+    var counts = {};
+    var pending = 0, done = 0;
+    for (var i = 0; i < (S.repos || []).length; i++) {
+      var r = S.repos[i];
+      var slugs = Object.keys(r.branchStatuses || {});
+      for (var j = 0; j < slugs.length; j++) {
+        (function(rr, slug) {
+          pending++;
+          api("GET", "/api/preview-errors/" + rr.owner + "/" + rr.repo + "/" + encodeURIComponent(slug)).then(function(res) {
+            if (res && res.summary && res.summary.uniqueErrors) {
+              counts[rr.owner + "/" + rr.repo + ":" + slug] = res.summary;
+            }
+          }).catch(function(){}).then(function() {
+            done++;
+            if (done >= pending) { S._previewErrorCounts = counts; render(); }
+          });
+        })(r, slugs[j]);
+      }
+    }
+    if (pending === 0) { S._previewErrorCounts = counts; }
+  }
+  tick();
+  S._errorSyncTimer = setInterval(tick, 15000);
+}
 
 // H1: open the SSE status stream once and keep it open. Every push
 // patches S.repos[*].branchStatuses[slug] in-place and re-renders.

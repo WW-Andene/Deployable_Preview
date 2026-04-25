@@ -338,6 +338,25 @@ router.get("/artifact/:owner/:repo", async (req, res) => {
   }
 });
 
+// J3: runtime-error collection from the deployed preview. The proxy
+// injects a tiny window.onerror handler that POSTs here. Body is the
+// raw error envelope; we dedupe + cap server-side.
+const previewErrors = require("../../preview-errors");
+router.post("/preview-errors/:owner/:repo/:slug", express.json({ limit: "32kb" }), (req, res) => {
+  const key = req.params.owner + "/" + req.params.repo + ":" + req.params.slug;
+  previewErrors.record(key, req.body || {});
+  res.status(204).end();
+});
+router.get("/preview-errors/:owner/:repo/:slug", (req, res) => {
+  const key = req.params.owner + "/" + req.params.repo + ":" + req.params.slug;
+  res.json({ errors: previewErrors.list(key), summary: previewErrors.summary(key) });
+});
+router.delete("/preview-errors/:owner/:repo/:slug", (req, res) => {
+  const key = req.params.owner + "/" + req.params.repo + ":" + req.params.slug;
+  previewErrors.clear(key);
+  res.json({ ok: true });
+});
+
 // Diff heatmap — PNG showing pixel changes vs. the previous build's thumb.
 router.get("/thumb-diff/:owner/:repo", (req, res) => {
   const slug = req.query.slug || req.query.branch || "";

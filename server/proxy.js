@@ -23,7 +23,12 @@ function proxyTo(port, req, res, stripPrefix) {
       proxyRes.on("data", (chunk) => { body += chunk; });
       proxyRes.on("end", () => {
         const fetchShim = `<script>(function(){var B=window.fetch,P='${stripPrefix}';window.fetch=function(u,o){if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith('//'))u=P+u;return B.call(this,u,o);};var X=XMLHttpRequest.prototype.open,O=X;XMLHttpRequest.prototype.open=function(m,u){if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith('//'))u=P+u;return O.call(this,m,u);};})();<\/script>`;
-        body = body.replace(/<head([^>]*)>/i, '<head$1>' + fetchShim);
+        // J3: inject the runtime-error collector. Posts back to
+        // /api/preview-errors/<owner>/<repo>/<slug> with keepalive so
+        // even errors during page-unload reach us.
+        const errCollectorPath = stripPrefix.replace("/preview/", "/api/preview-errors/");
+        const errShim = require("./preview-errors").collectorScript(errCollectorPath);
+        body = body.replace(/<head([^>]*)>/i, '<head$1>' + fetchShim + errShim);
         // Remove content-length since we modified the body
         const headers = { ...proxyRes.headers };
         delete headers["content-length"];
@@ -96,7 +101,10 @@ function serveIndex(outDir, res, previewBase) {
   // Inject fetch/XHR interceptor so client fetch("/api/...") routes through the preview prefix
   if (previewBase) {
     const fetchShim = `<script>(function(){var B=window.fetch,P='${previewBase}';window.fetch=function(u,o){if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith('//'))u=P+u;return B.call(this,u,o);};var X=XMLHttpRequest.prototype.open,O=X;XMLHttpRequest.prototype.open=function(m,u){if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith('//'))u=P+u;return O.call(this,m,u);};})();<\/script>`;
-    html = html.replace(/<head([^>]*)>/i, '<head$1>' + fetchShim);
+    // J3: also inject the runtime-error collector for static-mode previews.
+    const errCollectorPath = previewBase.replace("/preview/", "/api/preview-errors/");
+    const errShim = require("./preview-errors").collectorScript(errCollectorPath);
+    html = html.replace(/<head([^>]*)>/i, '<head$1>' + fetchShim + errShim);
   }
 
   const pwaShim = `<script>(function(){

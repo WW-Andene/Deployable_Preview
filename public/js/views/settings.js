@@ -560,6 +560,93 @@ DV.views.settings = function(app) {
   loadEnvGroups();
   page.appendChild(section("Env-Var Groups", [egBody]));
 
+  /* ══════════ Section: Custom Domains (H4) ══════════ */
+  // Map a hostname → (owner, repo, slug). Users CNAME their domain at
+  // this server; DV does the URL rewriting. Server validates the
+  // target points at a real configured branch on POST.
+  var domBody = el("div", {});
+  domBody.appendChild(el("div", { c: "text-center pad-md" }, [el("span", { c: "spin" })]));
+
+  function loadDomains() {
+    api("GET", "/api/domains").then(function(r) {
+      domBody.innerHTML = "";
+      var list = (r && r.domains) || [];
+      if (list.length === 0) {
+        domBody.appendChild(el("div", { c: "color-tx3 text-12 mb-12" }, "No custom domains mapped."));
+      } else {
+        for (var i = 0; i < list.length; i++) {
+          (function(d) {
+            var card = el("div", { c: "settings-key-row" });
+            card.appendChild(el("div", { c: "flex-row gap-8 items-center" }, [
+              el("a", { c: "settings-key-name", attr: { href: "https://" + d.host, target: "_blank", rel: "noopener" } }, d.host),
+              el("span", { c: "color-tx3 text-12 font-mono" }, "→ " + d.owner + "/" + d.repo + " · " + d.slug),
+              el("button", { c: "bd bs", on: { click: function() {
+                if (!confirm("Remove mapping for " + d.host + "?")) return;
+                api("DELETE", "/api/domains/" + encodeURIComponent(d.host)).then(loadDomains);
+              } } }, "×")
+            ]));
+            domBody.appendChild(card);
+          })(list[i]);
+        }
+      }
+      // Add form
+      var form = el("div", { c: "settings-key-row" });
+      form.appendChild(el("div", { c: "label" }, "Map a domain"));
+      var hostInp = document.createElement("input");
+      hostInp.placeholder = "preview.example.com (point this at this server via DNS A or CNAME)";
+      hostInp.className = "flex-1 font-mono text-12 mb-6";
+      form.appendChild(hostInp);
+      // Target picker — select from existing branches
+      var ownerInp = document.createElement("input"); ownerInp.placeholder = "owner"; ownerInp.className = "flex-1 font-mono text-12 mb-6";
+      var repoInp  = document.createElement("input"); repoInp.placeholder  = "repo";  repoInp.className  = "flex-1 font-mono text-12 mb-6";
+      var slugInp  = document.createElement("input"); slugInp.placeholder  = "slug";  slugInp.className  = "flex-1 font-mono text-12 mb-6";
+      // If we already have repos loaded, suggest them via datalist
+      if (S.repos && S.repos.length) {
+        var dl = document.createElement("datalist");
+        dl.id = "domain-target-suggestions";
+        for (var i = 0; i < S.repos.length; i++) {
+          var rr = S.repos[i];
+          var slugs = Object.keys(rr.branchStatuses || {});
+          for (var j = 0; j < slugs.length; j++) {
+            var opt = document.createElement("option");
+            opt.value = rr.owner + "/" + rr.repo + " · " + slugs[j];
+            dl.appendChild(opt);
+          }
+        }
+        form.appendChild(dl);
+        var picker = document.createElement("input");
+        picker.placeholder = "Quick-pick from your existing branches…";
+        picker.setAttribute("list", "domain-target-suggestions");
+        picker.className = "flex-1 font-mono text-12 mb-6";
+        picker.addEventListener("change", function() {
+          var m = picker.value.match(/^([^/]+)\/([^\s]+)\s+·\s+(.+)$/);
+          if (m) { ownerInp.value = m[1]; repoInp.value = m[2]; slugInp.value = m[3]; }
+        });
+        form.appendChild(picker);
+      }
+      form.appendChild(ownerInp);
+      form.appendChild(repoInp);
+      form.appendChild(slugInp);
+      form.appendChild(el("button", { c: "bp bs", on: { click: function() {
+        var host = hostInp.value.trim().toLowerCase();
+        if (!host || !ownerInp.value.trim() || !repoInp.value.trim() || !slugInp.value.trim()) {
+          DV.showToast("All fields required", "error"); return;
+        }
+        api("POST", "/api/domains", {
+          host: host, owner: ownerInp.value.trim(), repo: repoInp.value.trim(), slug: slugInp.value.trim()
+        }).then(function(r) {
+          if (r.error) { DV.showToast(r.error, "error"); return; }
+          DV.showToast("Mapping created. " + (r.hint || ""), "success");
+          hostInp.value = ownerInp.value = repoInp.value = slugInp.value = "";
+          loadDomains();
+        });
+      } } }, "Map"));
+      domBody.appendChild(form);
+    }).catch(function() { domBody.textContent = "Could not load."; });
+  }
+  loadDomains();
+  page.appendChild(section("Custom Domains", [domBody]));
+
   /* ══════════ Section: Actions ══════════ */
   page.appendChild(section("Actions", [
     el("div", { c: "settings-actions-grid" }, [

@@ -1310,6 +1310,36 @@ button:disabled, button[disabled] {
 .history-comment-text { grid-area: text; color: var(--tx2); white-space: pre-wrap; word-break: break-word; }
 .history-comment-del  { grid-area: del; align-self: start; padding: 2px 8px; font-size: 14px; line-height: 1; }
 
+/* ─── Runtime-errors modal (J3) ─── */
+.modal-errors { max-width: 640px; }
+.errors-list {
+  max-height: 480px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  background: var(--sf1);
+  margin: 12px 0;
+}
+.errors-row {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.errors-row:last-child { border-bottom: 0; }
+.errors-msg { color: var(--err); font-family: var(--font-mono); font-size: 12px; font-weight: 600; word-break: break-word; }
+.errors-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.errors-stack {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border-radius: var(--r-card);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--tx2);
+  max-height: 200px;
+  overflow: auto;
+}
+.pill-clickable { cursor: pointer; border: 0; }
+
 /* ─── Visual diff slider (modals.js diffModal) ─── */
 .modal-diff { max-width: 720px; }
 .diff-stage {

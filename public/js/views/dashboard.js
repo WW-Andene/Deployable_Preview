@@ -260,6 +260,27 @@ DV.views.dashboard = function(app) {
               if (bs.health === "broken") {
                 statusParts.push(el("span", { c: "pill pill-err", attr: { title: "Health check failed: " + (bs.healthReason || "unknown") } }, "broken"));
               }
+              // J3: runtime-error count from the injected collector.
+              // Click to open a modal with the full list.
+              var ek = repo.owner + "/" + repo.repo + ":" + slug;
+              if (S._previewErrorCounts && S._previewErrorCounts[ek] && S._previewErrorCounts[ek].uniqueErrors) {
+                var ec = S._previewErrorCounts[ek];
+                statusParts.push(el("button", {
+                  c: "pill pill-warn pill-clickable",
+                  attr: { title: ec.totalEvents + " runtime event(s) across " + ec.uniqueErrors + " unique error(s) — click to inspect" },
+                  on: { click: function(e) {
+                    e.stopPropagation();
+                    S.errorsModal = { owner: repo.owner, repo: repo.repo, slug: slug, loading: true, errors: [] };
+                    DV.render();
+                    api("GET", "/api/preview-errors/" + repo.owner + "/" + repo.repo + "/" + encodeURIComponent(slug)).then(function(r) {
+                      if (!S.errorsModal) return;
+                      S.errorsModal.loading = false;
+                      S.errorsModal.errors = (r && r.errors) || [];
+                      DV.render();
+                    });
+                  } }
+                }, "⚠ " + ec.uniqueErrors));
+              }
             } else if (bs.status === "error") {
               // F2-003: surface "see Log" inline so users know how to recover.
               statusParts.push(el("span", {}, branchMode === "server" ? "Server failed" : "Build failed"));
