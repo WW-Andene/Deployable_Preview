@@ -640,3 +640,210 @@ opt fails fast on missing selectors.
 **Authorization model**: setting `GROQ_API_KEY` IS the permission grant.
 To revoke: set `preferences.claudeGroqAccess = false` in `deployview.json`.
 Single source of truth: `isClaudeGroqAuthorized()` in `mcp-groq.js`.
+
+---
+
+## §6 · Preview routing
+
+The `/preview/*` URL space layered top-down:
+
+```
+GET /preview/:owner/:repo/:slug/[*]
+        │
+        ├─► customDomainsMiddleware  (host → triple rewrite, runs at top of app)
+        ├─► previewAuthMiddleware    (password gate, no-op if branch.previewPassword unset)
+        ├─► edgeMiddleware           (per-branch redirects + custom headers)
+        │
+        ├─► /preview/.../api/*        ─► serverless API (Vercel-style /api scan) OR proxy
+        ├─► /preview/.../__snapshot/<id-or-tag>/*  ─► time-travel from history snapshot
+        ├─► /preview/.../__auth        ─► password POST handler
+        │
+        └─► main handler
+              │
+              ├─► server-mode running?  ─► proxy to localhost:<port>
+              ├─► static outputDir?     ─► serveIndex (HTML w/ fetch + error shims)
+              │                           OR express.static (other files)
+              │                           OR image-opt transcode (?w=&fmt=…)
+              └─► nothing built yet?    ─► notBuiltPage with auto-refresh meta
+```
+
+**Slug resolution**: `branchSlug(bc)` honors `bc.customSlug` first, then
+falls back to `<branch.replace("/", "__")>` + optional `--<baseDir>` suffix.
+The same slug is used for the URL, the workspace dir, the history file,
+and the build key.
+
+**HTML injection** (in `proxy.js`): every text/html response gets two
+inline `<script>` shims injected into `<head>`:
+
+1. **Fetch/XHR rewrite** — turns app-relative `fetch("/api/foo")` into
+   `fetch("/preview/<owner>/<repo>/<slug>/api/foo")` so apps work
+   transparently under the prefix.
+2. **Error collector** — `window.onerror` + `unhandledrejection` →
+   `POST /api/preview-errors/<owner>/<repo>/<slug>` with `keepalive`.
+
+**CSP handling**: `frame-ancestors` directive is stripped (so the
+preview can be iframe'd in the dashboard); other directives preserved.
+`X-Frame-Options` is removed.
+
+**Time-travel**: `/__snapshot/<id-or-tag>/` serves byte-for-byte from
+`<branchDir>/.snapshots/<id>/`. The `<id-or-tag>` arg accepts either a
+raw history ID **or** a snapshot tag (`v1.0-launch`); tag wins. Sets
+`X-DV-Snapshot: <id>` response header so tooling can tell time-travel
+responses apart from live ones.
+
+---
+
+## §7 · Authentication & authorization
+
+Three independent layers:
+
+### §7.1 Operator auth on `/api/*`
+
+Middleware at the top of `routes/api/index.js`:
+
+```
+if (PUBLIC_PATHS.test(req.path)) → next();    // health/metrics/webhook/live/preview-errors
+if (isLocalIp(req.ip))           → next();    // localhost trusted
+if (constantTimeEq(supplied, expected)) → next();
+else 401 { error: "Auth required for non-localhost access. …" };
+```
+
+**Token sources** (any of):
+
+- `X-DV-Token: <token>` header
+- `?dv_token=<token>` query
+- `dv_token=<token>` cookie
+
+**Token storage**: auto-generated 24-byte base64url string in
+`config.apiSecret`. Created on first call to `getApiSecret()`. Redacted
+from `/api/config/export`. Operators can rotate by clearing the field
+and restarting.
+
+### §7.2 Per-branch preview password
+
+When `branchConfig.previewPassword` is set, `previewAuthMiddleware`
+gates every `/preview/<owner>/<repo>/<slug>/*` request:
+
+- **Cookie name**: `dv_pp_<sha256(key).slice(0,16)>` — doesn't reveal
+  which branch a user has logged into.
+- **Cookie value**: `HMAC-SHA256(password, apiSecret)` — leaked cookie
+  can't recover the password.
+- `HttpOnly`, `SameSite=Lax`, `Secure` over HTTPS, 12-hour `Max-Age`.
+- Login form on miss; `POST /preview/.../__auth` validates + sets cookie.
+
+### §7.3 Webhook HMAC
+
+**Incoming GitHub** webhooks at `POST /api/webhook` require:
+
+- `WEBHOOK_SECRET` env var or secret set (else 403 fail-secure).
+- `X-Hub-Signature-256: sha256=<hmac>` header matching the body.
+- Verified with `crypto.timingSafeEqual` to defeat timing attacks.
+
+**Outgoing webhooks**: each subscriber may set its own `secret`. When
+set, every POST includes `X-DV-Signature: sha256=<hmac>` over the body.
+
+### §7.4 Live-stream tokens
+
+`POST /api/live/token` takes `{ owner, repo, slug }` and returns a
+10-minute scoped token. The token is bound to the triple — leaked
+tokens can't be replayed against a different preview.
+
+### §7.5 Groq access (Claude visual tools)
+
+`isClaudeGroqAuthorized()` returns true iff:
+
+- `config.secrets.GROQ_API_KEY` is set, AND
+- `config.preferences.claudeGroqAccess !== false`.
+
+Setting `GROQ_API_KEY` IS the grant. To revoke without deleting the
+key, set `preferences.claudeGroqAccess = false`.
+
+---
+
+## §8 · Build pipeline
+
+Static-mode (`server/build/executor.js`):
+
+```
+1. queued                     buildStatus[key] = { status: "queued", … }
+2. building                   ─► broadcastStatus
+   ├─ updateRepo()            git clone OR git fetch + reset --hard
+   │                          token via credential.helper file (never in argv)
+   ├─ resolveWorkDir()        cd into baseDir if set
+   ├─ detectLanguage()        nodejs / java / python (or branch override)
+   ├─ resolveBranchEnv()      secrets + envGroups + repo+branch envVars (layered)
+   ├─ installDeps()           pnpm/yarn/npm install (skipped if lockfile SHA matches)
+   │                          marker stored in node_modules/.dv-install-marker
+   ├─ runCmd(buildCommand)    user's build script with the resolved env
+   ├─ resolve outputDir       branchConfig.outputDir → repoConfig.outputDir → defaults
+   ├─ scanApiRoutes()         Vercel-style api/ subfolder scan
+   ├─ getDirectorySize()      bytes → bytesDelta vs prior history entry
+   ├─ scanForSecrets()        12 patterns (ghp_/sk-/AKIA/PEM/…) + masked previews
+   ├─ checkBudgets()          maxBundleBytes / maxBuildSeconds → action: warn|fail
+   ├─ snapshotBuildOutput()   fs.cpSync to <branchDir>/.snapshots/<id>/
+   ├─ appendHistory()         append entry to <branchDir>/../.history/<key>.json
+   ├─ captureThumbAsync()     post-build screenshot + diff heatmap
+   └─ webhooks.emit("build.ready")
+3. ready                      ─► broadcastStatus, captureThumbAsync, monitor pings
+```
+
+Server-mode (`server/build/server.js`):
+
+```
+Same 1-3 plus:
+4. spawn(startCommand)        with PORT env, detached process
+5. waitForPort(port, 60s)
+6. running                    auto-restart up to MAX_RESTARTS=3 on crash
+   ├─ AUTO_RESTART_DELAY=5s
+   └─ broadcasts on every state change
+```
+
+**Cancellation**: `cancelBuild(key)` flips `buildStatus[key].status =
+"cancelled"`, deletes `buildLocks[key]`, `killServer(key)`. The
+queued-restart `setTimeout` checks `slot.status !== "queued"` before
+firing so cancellations are honoured.
+
+**Concurrency**: bounded by `MAX_CONCURRENT_BUILDS` (default 4). Builds
+beyond the cap are `queued` — the slot's `setTimeout(check, 5000)` keeps
+them in line.
+
+---
+
+## §9 · Storage layout
+
+```
+workspace/
+├── owner__repo__slug/                       per-branch git clone
+│   ├── .git/                                 git history
+│   ├── ... user's source ...
+│   ├── node_modules/
+│   │   └── .dv-install-marker                lockfile SHA for build cache
+│   └── .snapshots/
+│       ├── <id1>/                            byte-for-byte copy of one build's outputDir
+│       ├── <id2>/
+│       └── <id3>/                            evicted past DV_MAX_HISTORY_PER_KEY (default 10)
+│
+├── .history/
+│   └── owner__repo__slug.json                per-key history array (newest-first)
+│       [
+│         { id, commitSha, timestamp, duration, snapshotDir,
+│           bytes, bytesDelta, bytesDeltaPct,
+│           by: "build"|"rollback",
+│           note?, noteAt?, tag?, comments?: [{id, by, text, at}] }
+│       ]
+│
+└── .audit.jsonl                              append-only audit log
+                                              rotated past 5 MiB → .audit.1.jsonl
+
+logs/
+└── owner__repo__slug.log                     per-key build log
+                                              rotated past DV_MAX_LOG_BYTES (default 5 MiB) → .log.1
+
+deployview.json                               root config (atomic + .bak recovery)
+deployview.json.bak                           previous good config
+deployview.json.tmp                           transient during write
+```
+
+All paths under `workspace/` are guarded by `path.startsWith(WORKSPACE)`
+checks before any `rm -rf` to prevent traversal.
+
