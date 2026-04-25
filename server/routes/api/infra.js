@@ -126,12 +126,46 @@ router.post("/tunnel/stop", (req, res) => {
 });
 
 // ── Live preview stream (MJPEG) ──────────────────────────────────────────────
-// GET /api/live/:owner/:repo/:slug
+// GET /api/live/:owner/:repo/:slug?token=XXX
 // Opens a long-lived multipart/x-mixed-replace response. Each frame is a PNG
 // captured from the persistent preview page via the existing session pool.
 // Human-facing: open in any <img src="…">, or paste the URL in a browser.
 // Closes automatically after 5 minutes or when the client disconnects.
+//
+// Auth: a short-lived token is required (issued by POST /api/live/token).
+// This prevents random strangers on the tunnel URL from watching previews.
+const _liveTokens = new Map(); // token → expiresAt
+const LIVE_TOKEN_TTL_MS = 10 * 60 * 1000;
+function mintLiveToken() {
+  const crypto = require("crypto");
+  const t = crypto.randomBytes(16).toString("base64url");
+  _liveTokens.set(t, Date.now() + LIVE_TOKEN_TTL_MS);
+  // Opportunistic GC
+  if (_liveTokens.size > 100) {
+    const now = Date.now();
+    for (const [k, exp] of _liveTokens) if (exp < now) _liveTokens.delete(k);
+  }
+  return t;
+}
+function checkLiveToken(t) {
+  if (!t) return false;
+  const exp = _liveTokens.get(t);
+  if (!exp) return false;
+  if (exp < Date.now()) { _liveTokens.delete(t); return false; }
+  return true;
+}
+
+// POST /api/live/token → { token, expiresAt }
+router.post("/live/token", (req, res) => {
+  const token = mintLiveToken();
+  res.json({ token, expiresInMs: LIVE_TOKEN_TTL_MS, hint: "Append ?token=... to the /api/live/... URL. Tokens are single-origin and expire after 10 minutes." });
+});
+
 router.get("/live/:owner/:repo/:slug", async (req, res) => {
+  if (!checkLiveToken(req.query.token)) {
+    res.status(401).json({ error: "Unauthorized", hint: "POST /api/live/token to mint a short-lived token, then append ?token=... to this URL." });
+    return;
+  }
   const { owner, repo, slug } = req.params;
   const fps      = Math.max(0.5, Math.min(Number(req.query.fps) || 2, 10));
   const maxSecs  = Math.max(5, Math.min(Number(req.query.seconds) || 300, 600));

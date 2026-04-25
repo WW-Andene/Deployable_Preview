@@ -296,37 +296,54 @@ dv.defineTool({
   category: "sandbox",
   description:
     "Read the current state of a sandbox's browser page: URL, viewport, title, scroll position, " +
-    "cookie names, localStorage keys, and recent console log count. Read-only and fast.",
+    "and (depending on reveal level) cookie/storage names or values. " +
+    "reveal levels:\n" +
+    "  'none' — URL, title, viewport, scroll, readyState, form/input/iframe counts only.\n" +
+    "  'keys-only' (default) — also the KEYS of cookies / localStorage / sessionStorage (no values).\n" +
+    "  'values' — also the VALUES. Only use if you know the preview doesn't hold sensitive data.",
   requires: [{ kind: "browser" }],
   schema: {
     type: "object",
-    properties: { sandboxId: { type: "string" } },
+    properties: {
+      sandboxId: { type: "string" },
+      reveal:    { type: "string", enum: ["none", "keys-only", "values"], description: "How much cookie/storage detail to include (default keys-only)" }
+    },
     required: ["sandboxId"]
   },
   async handler(args) {
     const sb = getSandbox(args.sandboxId);
     if (!sb) return dv.failCode("SANDBOX_NOT_FOUND", "No sandbox with id: " + args.sandboxId);
 
-    // Probe via page_eval — cheapest path and works across playwright/puppeteer.
+    const reveal = (["none", "keys-only", "values"].includes(args.reveal) ? args.reveal : "keys-only");
+
+    const alwaysProbe = [
+      "url: location.href",
+      "title: document.title",
+      "scroll: { x: window.scrollX, y: window.scrollY }",
+      "viewport: { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio }",
+      "readyState: document.readyState",
+      "formsCount: document.forms.length",
+      "inputsCount: document.querySelectorAll('input,select,textarea').length",
+      "framesCount: document.querySelectorAll('iframe').length"
+    ];
+    const keyProbe = [
+      "cookieKeys: document.cookie.split(';').map(function(p){return (p.split('=')[0]||'').trim();}).filter(Boolean)",
+      "localStorageKeys: Object.keys(localStorage || {})",
+      "sessionStorageKeys: Object.keys(sessionStorage || {})"
+    ];
+    const valueProbe = [
+      "cookies: document.cookie",
+      "localStorageEntries: Object.keys(localStorage||{}).reduce(function(o,k){o[k]=localStorage.getItem(k);return o;},{})",
+      "sessionStorageEntries: Object.keys(sessionStorage||{}).reduce(function(o,k){o[k]=sessionStorage.getItem(k);return o;},{})"
+    ];
+    const fields = alwaysProbe.slice();
+    if (reveal === "keys-only" || reveal === "values") fields.push.apply(fields, keyProbe);
+    if (reveal === "values") fields.push.apply(fields, valueProbe);
+    const code = "({ " + fields.join(", ") + " })";
+
     const r = await browser.pageEval({
       owner: sb.owner, repo: sb.repo, slug: sb.slug, width: sb.width, height: sb.height,
-      code: [
-        "({",
-        "  url: location.href,",
-        "  title: document.title,",
-        "  scroll: { x: window.scrollX, y: window.scrollY },",
-        "  viewport: { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio },",
-        "  readyState: document.readyState,",
-        "  cookieKeys: document.cookie.split(';').map(function(p){return (p.split('=')[0]||'').trim();}).filter(Boolean),",
-        "  localStorageKeys: Object.keys(localStorage || {}),",
-        "  sessionStorageKeys: Object.keys(sessionStorage || {}),",
-        "  formsCount: document.forms.length,",
-        "  inputsCount: document.querySelectorAll('input,select,textarea').length,",
-        "  framesCount: document.querySelectorAll('iframe').length",
-        "})"
-      ].join("\n"),
-      captureLogs: false,
-      timeout: 5000
+      code, captureLogs: false, timeout: 5000
     });
     if (r.error) return dv.failCode("STATE_READ_FAILED", r.error);
     let state;
@@ -338,7 +355,9 @@ dv.defineTool({
       ageSeconds: Math.round((Date.now() - sb.createdAt) / 1000),
       execCount: sb.execCount,
       note: sb.note,
-      page: state
+      reveal,
+      page: state,
+      hint: reveal === "values" ? "You asked for storage values — treat these as sensitive." : undefined
     });
   }
 });
