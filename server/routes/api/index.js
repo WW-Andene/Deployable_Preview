@@ -3,7 +3,38 @@
 //   app.use("/api", require("./routes/api"))
 
 const express = require("express");
+const crypto = require("crypto");
 const router = express.Router();
+
+// ── Tunnel-exposure auth (F-C001) ────────────────────────────────────────────
+// Localhost is trusted (developer's own machine). Anything else must present
+// the auto-generated API token. Routes that are intentionally public —
+// /health (no secrets), /webhook (HMAC-protected), /live/... (own token) —
+// are skipped via the early-return below.
+const PUBLIC_PATHS = /^\/(health|metrics|webhook|live\/)/;
+
+function isLocalIp(ip) {
+  if (!ip) return false;
+  return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1" || /^::ffff:127\./.test(ip);
+}
+
+function constantTimeEq(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  try { return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b)); } catch (_) { return false; }
+}
+
+router.use(function(req, res, next) {
+  if (PUBLIC_PATHS.test(req.path)) return next();
+  const ip = req.ip || (req.connection && req.connection.remoteAddress);
+  if (isLocalIp(ip)) return next();
+  let expected = "";
+  try { expected = require("../../config").getApiSecret(); } catch (_) {}
+  if (!expected) return next(); // config not loaded yet — fail open during boot
+  const cookieToken = (req.headers.cookie || "").match(/(?:^|;\s*)dv_token=([^;]+)/);
+  const supplied = req.headers["x-dv-token"] || req.query.dv_token || (cookieToken && cookieToken[1]) || "";
+  if (constantTimeEq(supplied, expected)) return next();
+  res.status(401).json({ error: "Auth required for non-localhost access. Pass X-DV-Token header or ?dv_token= query." });
+});
 
 // ── Simple rate limiting ─────────────────────────────────────────────────────
 const _rateLimits = {};
