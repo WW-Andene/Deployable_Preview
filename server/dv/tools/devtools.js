@@ -11,6 +11,7 @@
 
 const dv = require("../core");
 const browser = require("../../browser");
+const session = require("../session");
 
 const OWNER = { type: "string" };
 const REPO  = { type: "string" };
@@ -55,5 +56,47 @@ dv.defineTool({
       });
     }
     return dv.ok(result);
+  }
+});
+
+// ── page_errors ───────────────────────────────────────────────────────────
+
+dv.defineTool({
+  name: "page_errors",
+  category: "devtools",
+  description:
+    "Read the always-on runtime error log for a preview session: uncaught JS errors, console.error / console.warn, and failed network requests (since the session was opened). Cheaper than a new console_logs capture. Set `clear: true` to reset the log after reading.",
+  requires: [],
+  schema: {
+    type: "object",
+    properties: {
+      owner: OWNER, repo: REPO, slug: SLUG,
+      clear: { type: "boolean", description: "Drop the log after reading (default false)" },
+      type:  { type: "string",  enum: ["all", "pageerror", "console.error", "console.warning", "requestfailed"], description: "Optional filter" },
+      limit: { type: "number",  description: "Max entries to return (default 100)" }
+    },
+    required: ["owner", "repo", "slug"]
+  },
+  async handler(args) {
+    const res = session.getSessionErrors(args.owner, args.repo, args.slug, { clear: !!args.clear });
+    if (!res.sessionExists) {
+      return dv.ok({
+        sessionExists: false,
+        count: 0,
+        errors: [],
+        hint: "No session for this preview yet. Take a screenshot or call inspect to open one — error capture starts automatically."
+      });
+    }
+    let list = res.errors;
+    if (args.type && args.type !== "all") list = list.filter(function(e){ return e.type === args.type; });
+    const limit = Math.max(1, Math.min(Number(args.limit) || 100, 200));
+    const shown = list.slice(-limit).map(function(e){ return Object.assign({}, e, { iso: new Date(e.t).toISOString() }); });
+    return dv.ok({
+      sessionExists: true,
+      total: res.errors.length,
+      shown: shown.length,
+      cleared: !!args.clear,
+      errors: shown
+    });
   }
 });

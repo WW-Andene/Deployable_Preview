@@ -62,11 +62,13 @@ function defineTool(def) {
 function listTools() {
   return Array.from(registry.values()).map((t) => ({
     name: t.name,
-    description: t.description,
+    description: t.description + (t.deprecatedFor ? "  [DEPRECATED — use `" + t.deprecatedFor + "` instead]" : ""),
     inputSchema: t.schema,
     // Non-standard extras — ignored by strict MCP clients, used by our dashboards
     category: t.category,
-    requires: t.requires
+    requires: t.requires,
+    deprecatedFor: t.deprecatedFor || undefined,
+    cached: t.cache ? { ttlMs: t.cache.ttlMs } : undefined
   }));
 }
 

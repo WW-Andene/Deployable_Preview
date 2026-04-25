@@ -74,11 +74,67 @@ async function getSessionPage(browser, owner, repo, slug, width, height) {
   // Create new session
   const page = await newPage(browser);
   await setViewport(page, w, h);
+
+  // Always-on runtime error capture — ring buffer per session.
+  const errorLog = [];
+  try {
+    page.on("pageerror", function(err) {
+      const entry = {
+        t: Date.now(),
+        type: "pageerror",
+        message: (err && err.message) || String(err),
+        stack: err && err.stack ? String(err.stack).split("\n").slice(0, 8).join("\n") : null
+      };
+      errorLog.push(entry);
+      if (errorLog.length > 200) errorLog.splice(0, errorLog.length - 200);
+    });
+    page.on("console", function(msg) {
+      try {
+        const type = msg.type ? msg.type() : "log";
+        if (type !== "error" && type !== "warning") return;
+        const entry = {
+          t: Date.now(),
+          type: "console." + type,
+          message: msg.text ? msg.text().slice(0, 2000) : String(msg),
+          stack: null
+        };
+        errorLog.push(entry);
+        if (errorLog.length > 200) errorLog.splice(0, errorLog.length - 200);
+      } catch (_) {}
+    });
+    page.on("requestfailed", function(req) {
+      try {
+        const entry = {
+          t: Date.now(),
+          type: "requestfailed",
+          message: req.url() + " — " + (req.failure && req.failure() ? req.failure().errorText : "unknown"),
+          stack: null
+        };
+        errorLog.push(entry);
+        if (errorLog.length > 200) errorLog.splice(0, errorLog.length - 200);
+      } catch (_) {}
+    });
+  } catch (_) { /* listener setup is best-effort */ }
+
   await page.goto(url, { waitUntil: waitUntilIdle(), timeout: 30000 });
 
-  pageSessions.set(key, { page, width: w, height: h, lastUsed: Date.now() });
+  pageSessions.set(key, { page, width: w, height: h, lastUsed: Date.now(), errorLog });
   console.log("[mcp-browser] New session: " + key + " (" + w + "x" + h + ")");
   return { page, url, isNew: true };
+}
+
+/**
+ * Read the captured error log for a preview session. Returns an empty
+ * array if no session exists. Optionally clears the log.
+ */
+function getSessionErrors(owner, repo, slug, opts) {
+  const key = owner + "/" + repo + "/" + slug;
+  const s = pageSessions.get(key);
+  if (!s) return { errors: [], sessionExists: false };
+  const log = s.errorLog || [];
+  const out = { errors: log.slice(), sessionExists: true, count: log.length };
+  if (opts && opts.clear) s.errorLog = [];
+  return out;
 }
 
 function closeSession(owner, repo, slug) {
@@ -565,6 +621,7 @@ module.exports = {
   getSessionPage,
   closeSession,
   closeAllSessions,
+  getSessionErrors,
 
   // Browser lifecycle
   loadLib,
