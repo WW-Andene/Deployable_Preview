@@ -33,7 +33,7 @@ dv.defineTool({
       owner: OWNER, repo: REPO, slug: SLUG,
       code: { type: "string", description: "JS expression or statement block to evaluate in the page" },
       await: { type: "boolean", description: "Force async-IIFE wrapping (auto-enabled if code contains 'await')" },
-      timeout: { type: "number", description: "Abort after N ms (default 15000, max 60000)" },
+      timeout: { type: "number", description: "Abort after N ms. Default 0 = no timeout (run as long as needed)." },
       captureLogs: { type: "boolean", description: "Collect console.* during eval (default true)" },
       width:  { type: "number" },
       height: { type: "number" }

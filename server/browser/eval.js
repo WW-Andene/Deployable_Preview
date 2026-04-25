@@ -10,7 +10,8 @@ const session = require("../dv/session");
  *   owner, repo, slug,
  *   code: string,            — the JS expression/statements to run
  *   await?: boolean,         — wrap in async IIFE (default: true if code contains "await")
- *   timeout?: number,        — abort after N ms (default: 15000, max: 60000)
+ *   timeout?: number,        — pass 0 (default) to never time out; any
+ *                              positive value means abort after N ms.
  *   captureLogs?: boolean,   — also collect console.* output during eval (default: true)
  *   width?, height?
  * }
@@ -21,7 +22,9 @@ async function pageEval(opts) {
   if (!session.hasPlaywright()) return { error: "No browser available." };
   if (typeof code !== "string" || !code.trim()) return { error: "`code` must be a non-empty string" };
 
-  const timeout = Math.max(1000, Math.min(Number(opts.timeout) || 15000, 60000));
+  // 0 / unset = no timeout. Caller can still pass a positive value to cap it.
+  const rawTimeout = Number(opts.timeout);
+  const timeout = Number.isFinite(rawTimeout) && rawTimeout > 0 ? rawTimeout : 0;
   const captureLogs = opts.captureLogs !== false;
   // Auto-detect: if the code has a top-level await or is an expression-returning-Promise,
   // wrap in async IIFE so the result serializes.
@@ -76,8 +79,13 @@ async function pageEval(opts) {
       }
     }, wrapped);
 
-    const timer = new Promise((_, reject) => setTimeout(() => reject(new Error("pageEval timed out after " + timeout + "ms")), timeout));
-    rawResult = await Promise.race([evalPromise, timer]);
+    if (timeout > 0) {
+      const timer = new Promise((_, reject) => setTimeout(() => reject(new Error("pageEval timed out after " + timeout + "ms")), timeout));
+      rawResult = await Promise.race([evalPromise, timer]);
+    } else {
+      // No timeout — wait forever (or until the page closes / process exits).
+      rawResult = await evalPromise;
+    }
   } catch (e) {
     err = e;
   } finally {

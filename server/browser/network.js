@@ -16,7 +16,7 @@ async function capturePreviewRequests(opts) {
   const browser = await session.getBrowser();
   const { page, url } = await session.getSessionPage(browser, owner, repo, slug, opts.width, opts.height);
 
-  const duration = Math.max(1, Math.min(Number(opts.duration) || 5, 60)) * 1000;
+  const duration = Math.max(1, Number(opts.duration) || 5) * 1000;
   const maxRequests = Math.max(10, Math.min(Number(opts.maxRequests) || 500, 2000));
   const requests = [];
   let truncated = false;
@@ -372,7 +372,7 @@ async function captureHar(opts) {
   const browser = await session.getBrowser();
   const { page, url } = await session.getSessionPage(browser, opts.owner, opts.repo, opts.slug, opts.width, opts.height);
 
-  const duration = Math.max(1, Math.min(Number(opts.duration) || 5, 60)) * 1000;
+  const duration = Math.max(1, Number(opts.duration) || 5) * 1000;
   const maxEntries = Math.max(10, Math.min(Number(opts.maxEntries) || 500, 2000));
   const entries = [];
   let truncated = false;
