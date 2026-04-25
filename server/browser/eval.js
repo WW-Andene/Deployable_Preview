@@ -1,4 +1,6 @@
 // browser/eval.js — devtools-console-like JS evaluation in a preview page
+const fs   = require("fs");
+const path = require("path");
 const session = require("../dv/session");
 
 /**
@@ -13,9 +15,17 @@ const session = require("../dv/session");
  *   timeout?: number,        — pass 0 (default) to never time out; any
  *                              positive value means abort after N ms.
  *   captureLogs?: boolean,   — also collect console.* output during eval (default: true)
+ *   maxResultBytes?: number, — cap stringified result; 0/unset = no cap
+ *   writeFilesTo?: string,   — if set, treat the eval result as a {relpath:
+ *                              base64} object and decode each value to
+ *                              <writeFilesTo>/<relpath>. Returns a manifest
+ *                              instead of the base64 — bypasses the MCP
+ *                              channel size limit so multi-MB asset dumps
+ *                              don't blow the agent's context.
+ *                              Path traversal (..) is rejected.
  *   width?, height?
  * }
- * @returns { result, type, logs, errors, url, duration, truncated } | { error }
+ * @returns { result, type, logs, errors, url, duration, truncated, files? } | { error }
  */
 async function pageEval(opts) {
   const { owner, repo, slug, code } = opts;
@@ -98,6 +108,56 @@ async function pageEval(opts) {
     return {
       error: err.message || String(err),
       url, duration,
+      logs: captureLogs ? logs : undefined,
+      errors: captureLogs ? errors : undefined
+    };
+  }
+
+  // ── Server-side file dump (writeFilesTo) ──
+  // When writeFilesTo is set, the caller wants page_eval to act as a
+  // bulk asset extractor: the eval result must be { "rel/path": base64,
+  // ... } and we decode + write each entry to disk. This sidesteps the
+  // 25k-token cap on MCP responses for callers that are dumping multi-MB
+  // binaries (e.g. webp portraits).
+  if (opts.writeFilesTo && rawResult && typeof rawResult === "object" && !Array.isArray(rawResult)) {
+    const targetDir = path.resolve(String(opts.writeFilesTo));
+    let written = [], skipped = [];
+    try { fs.mkdirSync(targetDir, { recursive: true }); }
+    catch (e) {
+      return { error: "writeFilesTo: cannot mkdir " + targetDir + ": " + e.message, url, duration };
+    }
+    for (const [rel, b64] of Object.entries(rawResult)) {
+      // Reject anything that escapes targetDir (no .. or absolute paths).
+      const out = path.resolve(targetDir, rel);
+      if (!out.startsWith(targetDir + path.sep) && out !== targetDir) {
+        skipped.push({ path: rel, reason: "path traversal rejected" });
+        continue;
+      }
+      if (typeof b64 !== "string") {
+        skipped.push({ path: rel, reason: "value not a string (got " + typeof b64 + ")" });
+        continue;
+      }
+      // Caller convention: anything starting with "ERR_" is a sentinel error
+      // string from the in-page code, not actual data.
+      if (b64.startsWith("ERR_")) {
+        skipped.push({ path: rel, reason: b64 });
+        continue;
+      }
+      try {
+        fs.mkdirSync(path.dirname(out), { recursive: true });
+        const buf = Buffer.from(b64, "base64");
+        fs.writeFileSync(out, buf);
+        written.push({ path: rel, fullPath: out, bytes: buf.length });
+      } catch (e) {
+        skipped.push({ path: rel, reason: e.message });
+      }
+    }
+    return {
+      url,
+      type: "files",
+      duration,
+      truncated: false,
+      files: { dir: targetDir, written, skipped, totalBytes: written.reduce((s, f) => s + f.bytes, 0) },
       logs: captureLogs ? logs : undefined,
       errors: captureLogs ? errors : undefined
     };

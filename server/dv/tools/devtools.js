@@ -25,7 +25,10 @@ dv.defineTool({
     "Returns the expression's value (serialized), plus any console.* output and page errors " +
     "emitted during evaluation. Supports `await` at the top level — the tool auto-wraps when " +
     "it detects it. Set `captureLogs:false` to skip console capture for cleaner output. " +
-    "Good for: probing app state, inspecting globals, reading framework stores, calling methods.",
+    "Good for: probing app state, inspecting globals, reading framework stores, calling methods. " +
+    "For bulk asset extraction, set `writeFilesTo:'<dir>'` and have the eval return " +
+    "{relpath: base64} — files are decoded server-side and only a manifest comes back, so " +
+    "multi-MB dumps don't burn the agent's context.",
   requires: [{ kind: "browser" }],
   schema: {
     type: "object",
@@ -35,6 +38,8 @@ dv.defineTool({
       await: { type: "boolean", description: "Force async-IIFE wrapping (auto-enabled if code contains 'await')" },
       timeout: { type: "number", description: "Abort after N ms. Default 0 = no timeout (run as long as needed)." },
       captureLogs: { type: "boolean", description: "Collect console.* during eval (default true)" },
+      maxResultBytes: { type: "number", description: "Cap the stringified result. 0/unset = no cap (default)." },
+      writeFilesTo: { type: "string", description: "Server-side directory to dump the eval result into. Result must be {relpath: base64}; files are written there and only a manifest is returned." },
       width:  { type: "number" },
       height: { type: "number" }
     },
