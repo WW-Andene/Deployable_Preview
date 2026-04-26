@@ -296,7 +296,12 @@ DV.views.addRepo = function(app) {
   }
   app.appendChild(w);
 
-  // Auto-focus the repo input on mount
-  setTimeout(function() { ri.focus(); }, 50);
+  // Auto-focus the URL input only on a FRESH entry into addRepo. Without
+  // this guard the unconditional focus() steals focus from the picker
+  // filter input and chip selectors on every re-render — making them
+  // effectively unusable.
+  if (DV._prevRenderedView !== "addRepo") {
+    setTimeout(function() { ri.focus(); }, 50);
+  }
 };
 })();

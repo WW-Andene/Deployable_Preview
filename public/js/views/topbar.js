@@ -74,6 +74,11 @@ if (!DV._kbBound) {
 }
 
 DV.views.topbar = function(app) {
+  // Track previous view across renders so per-view code can distinguish
+  // a fresh entry from a re-render (e.g. addRepo's auto-focus).
+  DV._prevRenderedView = DV._lastRenderedView || null;
+  DV._lastRenderedView = S.view;
+
   var bar = el("div", { c: "topbar" });
 
   /* ── Left: logo + back ── */
