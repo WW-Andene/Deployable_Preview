@@ -306,8 +306,17 @@ DV.renderPalette = function(root) {
   bg.appendChild(modal);
   root.appendChild(bg);
 
-  // Focus the input after mounting
-  setTimeout(function() { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }, 10);
+  // Focus the input after mounting AND scroll the highlighted row into
+  // view — without scrollIntoView, arrowing past ~10 items leaves the
+  // highlight stranded off-screen since the list overflows.
+  setTimeout(function() {
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    var active = document.querySelector(".palette-row-active");
+    if (active && active.scrollIntoView) {
+      try { active.scrollIntoView({ block: "nearest" }); } catch (_) {}
+    }
+  }, 10);
 };
 
 // ── Shortcuts overlay ──────────────────────────────────────────────────
