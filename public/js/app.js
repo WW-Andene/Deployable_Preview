@@ -348,7 +348,12 @@ function loadMcpTools() {
 // G1-007: errors get role=alert (announced immediately by screen readers);
 // info/success get role=status (polite). Errors don't auto-dismiss; the
 // user has to close them so a low-vision reader doesn't miss the message.
+//
+// We dedupe by (type, message) so the same error message firing every
+// 15s from a polling loop during an outage doesn't grow the container
+// indefinitely.
 var _toastContainer = null;
+var _activeToasts = Object.create(null); // key -> element
 function showToast(message, type) {
   if (!_toastContainer) {
     _toastContainer = document.createElement("div");
@@ -356,15 +361,22 @@ function showToast(message, type) {
     _toastContainer.setAttribute("aria-live", "polite");
     document.body.appendChild(_toastContainer);
   }
+  var key = (type || "info") + "\x00" + message;
+  if (_activeToasts[key]) return; // already showing this exact toast
   var role = type === "error" ? "alert" : "status";
   var toast = el("div", { c: "toast toast-" + (type || "info"), attr: { role: role, "aria-atomic": "true" } });
   toast.appendChild(document.createTextNode(message));
-  var close = el("button", { c: "toast-close", attr: { "aria-label": "Dismiss notification", title: "Dismiss" }, on: { click: function() { toast.remove(); } } }, "×");
+  function dispose() {
+    if (toast.parentNode) toast.remove();
+    delete _activeToasts[key];
+  }
+  var close = el("button", { c: "toast-close", attr: { "aria-label": "Dismiss notification", title: "Dismiss" }, on: { click: dispose } }, "×");
   toast.appendChild(close);
   _toastContainer.appendChild(toast);
+  _activeToasts[key] = toast;
   if (type !== "error") {
     setTimeout(function() { toast.classList.add("toast-exit"); }, 3500);
-    setTimeout(function() { if (toast.parentNode) toast.remove(); }, 4000);
+    setTimeout(dispose, 4000);
   }
 }
 
