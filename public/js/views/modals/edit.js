@@ -136,12 +136,22 @@ DV._modal.edit = function render(app) {
             catch (e) { DV.showToast("Edge rules JSON invalid: " + e.message, "error"); return; }
           }
         }
+        // schedule may be a number-of-seconds OR a 5-field cron expression
+        // (e.g. "0 3 * * *"). Coercing with Number() turned every cron
+        // string into NaN → 0, silently disabling the schedule. Preserve
+        // the type: empty → 0, numeric string → Number, anything else
+        // (cron expression) → trimmed string.
+        var schedRaw = String(m.schedule == null ? "" : m.schedule).trim();
+        var schedule;
+        if (!schedRaw) schedule = 0;
+        else if (/^-?\d+$/.test(schedRaw)) schedule = Number(schedRaw);
+        else schedule = schedRaw;
         var payload = {
           slug: m.slug, baseDir: m.baseDir, buildCommand: m.buildCommand, outputDir: m.outputDir,
           mode: m.mode, startCommand: m.startCommand, envVars: m.envVars, language: m.language,
           customSlug: m.customSlug, previewPassword: m.previewPassword,
           injectSecrets: m.injectSecrets, envGroupIds: m.envGroupIds || [],
-          schedule: Number(m.schedule) || 0
+          schedule: schedule
         };
         if (edge !== undefined) payload.edge = edge;
         if (m.budgetsJson !== undefined && m.budgetsJson !== null) {
