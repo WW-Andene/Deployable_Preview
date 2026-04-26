@@ -13,6 +13,14 @@ const { getConfig, saveConfig } = require("../../config");
 const { buildStatus, branchSlug, buildKey, getBranchDir, deployBranch } = require("../../build");
 const { runningServers, killServer } = require("../../process");
 
+// Body-supplied owner/repo names skip the router.param("owner"/"repo")
+// validator, which only fires on path parameters. POST /api/repos takes
+// these from req.body and feeds them straight into path.join via
+// getBranchDir; an owner containing "/" or starting with ".." escapes
+// the workspace root. Same shape as SAFE_NAME_RE in routes/api/index.js
+// — keep them in sync.
+const SAFE_NAME_RE = /^[a-zA-Z0-9._-]+$/;
+
 // ── List repos with branch statuses (ETag-aware) ────────────────────────────
 router.get("/repos", (req, res) => {
   const config = getConfig();
@@ -57,6 +65,12 @@ router.get("/repos", (req, res) => {
 router.post("/repos", (req, res) => {
   const config = getConfig();
   const { owner, repo, activeBranches, buildCommand, outputDir, baseDir, description, mode, startCommand, envVars, language } = req.body;
+  if (!owner || typeof owner !== "string" || !SAFE_NAME_RE.test(owner)) {
+    return res.status(400).json({ error: "Invalid owner name" });
+  }
+  if (!repo || typeof repo !== "string" || !SAFE_NAME_RE.test(repo)) {
+    return res.status(400).json({ error: "Invalid repo name" });
+  }
   const id = owner + "/" + repo;
   if (config.repos.some((r) => r.id === id)) return res.status(400).json({ error: "Already exists" });
   const branchConfigs = (activeBranches || []).map((b) => {
