@@ -13,7 +13,7 @@
 
 "use strict";
 
-const CACHE_VERSION = "dv-shell-v31";
+const CACHE_VERSION = "dv-shell-v32";
 const SHELL = [
   "/",
   "/index.html",

@@ -53,7 +53,20 @@ DV._modal.errors = function render(app) {
       el("button", { c: "bd flex-1", on: { click: function() {
         if (!confirm("Clear all errors for this branch?")) return;
         fetch("/api/preview-errors/" + em.owner + "/" + em.repo + "/" + encodeURIComponent(em.slug), { method: "DELETE" })
-          .then(function(){ S.errorsModal = null; if (S._previewErrorCounts) delete S._previewErrorCounts[em.owner+"/"+em.repo+":"+em.slug]; DV.render(); });
+          .then(function(r) {
+            if (!r.ok) {
+              // Used to swallow 4xx/5xx silently — closing the modal and
+              // pretending it worked. The errors would reappear on next
+              // refresh and the user wouldn't know why.
+              return r.json().catch(function(){ return {}; }).then(function(body) {
+                DV.showToast("Clear failed: " + (body.error || "HTTP " + r.status), "error");
+              });
+            }
+            S.errorsModal = null;
+            if (S._previewErrorCounts) delete S._previewErrorCounts[em.owner + "/" + em.repo + ":" + em.slug];
+            DV.render();
+          })
+          .catch(function() { DV.showToast("Clear failed: network error", "error"); });
       } } }, "Clear all"),
       el("button", { c: "bg flex-1", on: { click: function() { S.errorsModal = null; DV.render(); } } }, "Close")
     ]));
