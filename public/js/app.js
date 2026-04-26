@@ -285,6 +285,14 @@ api("GET", "/api/token").then(function(r) {
     }
   }
   else render();
+}).catch(function() {
+  // Network failure on the first /api/token round-trip — without this
+  // catch the SPA sits on the INITIALIZING spinner forever and the user
+  // has no idea why nothing is happening. Surface a toast and render
+  // the (still-empty) view so the toast is visible.
+  showToast("Could not reach server — refresh to retry.", "error");
+  S.view = "loading";
+  render();
 });
 
 // J3: pull the per-branch runtime-error summary every 15s. Cheap call
