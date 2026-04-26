@@ -715,12 +715,18 @@ DV.views.settings = function(app) {
           var file = input.files[0]; if (!file) return;
           var reader = new FileReader();
           reader.onload = function() {
-            try {
-              var data = JSON.parse(reader.result);
-              fetch("/api/config/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) })
-                .then(function(r) { return r.json(); })
-                .then(function(r) { DV.showToast("Imported " + r.added + " repo(s)", "success"); DV.loadRepos(); });
-            } catch (e) { DV.showToast("Invalid JSON", "error"); }
+            var data;
+            try { data = JSON.parse(reader.result); }
+            catch (e) { DV.showToast("Invalid JSON: " + e.message, "error"); return; }
+            // Surface server errors and network failures instead of
+            // silently saying "Imported undefined repo(s)" or nothing.
+            api("POST", "/api/config/import", data).then(function(r) {
+              if (r.error) { DV.showToast("Import failed: " + r.error, "error"); return; }
+              DV.showToast("Imported " + (r.added || 0) + " repo(s)", "success");
+              DV.loadRepos();
+            }).catch(function(e) {
+              DV.showToast("Import failed: " + (e && e.message ? e.message : "network error"), "error");
+            });
           };
           reader.readAsText(file);
         });
