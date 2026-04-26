@@ -389,18 +389,24 @@ DV.views.settings = function(app) {
 
   /* ══════════ Section: Workspace ══════════ */
   var wsBody = el("div", {});
-  fetch("/api/workspace/stats").then(function(r) { return r.json(); }).then(function(stats) {
+  function refreshWorkspaceStats() {
+    fetch("/api/workspace/stats").then(function(r) { return r.json(); }).then(function(stats) {
     wsBody.innerHTML = "";
     wsBody.appendChild(el("div", { c: "settings-hint mb-8" }, stats.total + " workspace dir(s) \u2014 " + stats.active + " active, " + stats.orphaned + " orphaned"));
     if (stats.orphaned > 0) {
       wsBody.appendChild(el("button", { c: "bd bs", on: { click: function() {
         if (!confirm("Remove " + stats.orphaned + " orphaned dir(s)?")) return;
         fetch("/api/workspace/cleanup", { method: "POST" }).then(function(r) { return r.json(); }).then(function(r) {
-          DV.showToast("Cleaned " + r.removed + " dir(s)", "success");
-        });
+          DV.showToast("Cleaned " + (r.removed || 0) + " dir(s)", "success");
+          // Refresh the displayed stats so the panel doesn't keep claiming
+          // N orphaned dirs after we just removed them.
+          refreshWorkspaceStats();
+        }).catch(function() { DV.showToast("Cleanup failed", "error"); });
       } } }, "Clean " + stats.orphaned + " orphaned"));
     }
-  }).catch(function() { wsBody.textContent = "Could not load."; });
+    }).catch(function() { wsBody.textContent = "Could not load."; });
+  }
+  refreshWorkspaceStats();
   appendIfExists(page, section("Workspace", [wsBody], "workspace"));
 
   /* ══════════ Section: Outgoing webhooks ══════════ */
