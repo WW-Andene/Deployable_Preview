@@ -148,7 +148,7 @@ DV._modal.history = function render(app) {
 
     hbg.appendChild(hbox);
     app.appendChild(hbg);
-    focusTrap(hbox);
+    focusTrap(hbox, "history");
   }
 
 };

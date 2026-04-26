@@ -74,7 +74,7 @@ DV._modal.diff = function render(app) {
     ]));
     dbg.appendChild(dbox);
     app.appendChild(dbg);
-    focusTrap(dbox);
+    focusTrap(dbox, "diff");
   }
 
 };

@@ -20,6 +20,8 @@ DV.views.modals = function (app) {
   if (DV._modal.history) DV._modal.history(app);
   if (DV._modal.diff)    DV._modal.diff(app);
   if (DV._modal.errors)  DV._modal.errors(app);
+  // Restore pre-modal focus when the active modal has just closed.
+  if (DV._modal.reconcile) DV._modal.reconcile();
 };
 
 })();

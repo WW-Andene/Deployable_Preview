@@ -82,7 +82,7 @@ DV._modal.log = function render(app) {
     ]));
     bg2.appendChild(box2);
     app.appendChild(bg2);
-    focusTrap(bg2);
+    focusTrap(bg2, "log");
 
     function appendChunk(chunk) {
       var processed = collapseCR(chunk);

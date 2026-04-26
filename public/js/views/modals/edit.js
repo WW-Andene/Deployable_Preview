@@ -158,7 +158,7 @@ DV._modal.edit = function render(app) {
     ]));
     bg.appendChild(box);
     app.appendChild(bg);
-    focusTrap(bg);
+    focusTrap(bg, "edit");
   }
 };
 })();

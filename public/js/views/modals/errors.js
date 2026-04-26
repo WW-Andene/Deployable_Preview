@@ -59,7 +59,7 @@ DV._modal.errors = function render(app) {
     ]));
     ebg.appendChild(ebox);
     app.appendChild(ebg);
-    focusTrap(ebox);
+    focusTrap(ebox, "errors");
   }
 };
 })();

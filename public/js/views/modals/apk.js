@@ -131,7 +131,7 @@ DV._modal.apk = function render(app) {
 
     apkBg.appendChild(apkBox);
     app.appendChild(apkBg);
-    focusTrap(apkBg);
+    focusTrap(apkBg, "apk");
   }
 
 };
