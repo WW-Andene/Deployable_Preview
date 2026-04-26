@@ -145,11 +145,15 @@ DV.views.topbar = function(app) {
   bar.appendChild(right);
   app.appendChild(bar);
 
-  // Fetch tunnel status once
+  // Fetch tunnel status once. Re-render afterwards so the HTTPS pill
+  // actually appears in the topbar — without DV.render() the new
+  // S._tunnelStatus only takes effect on the NEXT user-triggered
+  // render, which may be a long time on a quiet dashboard.
   if (S.view !== "setup" && S.view !== "loading" && !S._tunnelChecked) {
     S._tunnelChecked = true;
     fetch("/api/tunnel/status").then(function(r) { return r.json(); }).then(function(t) {
       S._tunnelStatus = t;
+      if (t && t.url) DV.render();
     }).catch(function() {});
   }
 };
