@@ -255,6 +255,13 @@ DV.views.dashboard = function(app) {
               thumb.src = "/api/thumb/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug) + "&t=" + (bs.thumbAt || 0);
               thumb.alt = "preview of " + label;
               thumb.title = "Latest preview — click to open";
+              // Defer offscreen thumb loads — a dashboard with N repos × M
+              // branches otherwise fires N×M PNG fetches at first render
+              // even for rows the user has to scroll to. Decoding async
+              // keeps the main thread free during the heavy initial paint.
+              thumb.loading = "lazy";
+              thumb.decoding = "async";
+              thumb.width = 72; thumb.height = 48;
               thumb.addEventListener("click", (function(r2, s2){ return function(){
                 S.activeRepo = r2; S.activeBranch = s2; S.compareMode = false; S.compareBranch = ""; S.view = "preview"; DV.render();
               }; })(repo, slug));
