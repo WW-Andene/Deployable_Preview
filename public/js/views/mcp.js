@@ -96,7 +96,13 @@ DV.views.mcp = function(app) {
   }
 
   function pollTunnelStatus() {
-    fetch("/api/tunnel/status").then(function(r) { return r.json(); }).then(renderTunnelBody).catch(function(){});
+    // Render even on failure — otherwise the Start/Stop button text
+    // (e.g. "Starting…") gets stuck because the .then() chain never
+    // resolved. Synthesise a not-running state on error.
+    fetch("/api/tunnel/status")
+      .then(function(r) { return r.json(); })
+      .then(renderTunnelBody)
+      .catch(function() { renderTunnelBody({ running: false, error: "Could not reach server" }); });
   }
 
   pollTunnelStatus();
