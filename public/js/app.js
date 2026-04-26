@@ -106,11 +106,22 @@ function el(tag, props, kids) {
   return e;
 }
 
-// API helper
+// API helper. Always resolves with an object: either the parsed JSON
+// response, or a synthetic { error } so existing `if (r.error)` /
+// toast(r.error) call sites keep working when the server returns a
+// non-JSON response (HTML proxy error page, empty body, etc.).
+// Network-level failures still propagate as rejections.
 function api(method, path, body) {
   var opts = { method: method, headers: { "Content-Type": "application/json" } };
   if (body) opts.body = JSON.stringify(body);
-  return fetch(path, opts).then(function(r) { return r.json(); });
+  return fetch(path, opts).then(function(r) {
+    return r.text().then(function(text) {
+      try { return text ? JSON.parse(text) : {}; }
+      catch (_) {
+        return { error: r.status >= 400 ? ("HTTP " + r.status) : "Unexpected response" };
+      }
+    });
+  });
 }
 
 function statusClass(s) { return "status-dot status-" + (s || "idle"); }
