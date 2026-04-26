@@ -255,6 +255,13 @@ DV.views.dashboard = function(app) {
               thumb.src = "/api/thumb/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug) + "&t=" + (bs.thumbAt || 0);
               thumb.alt = "preview of " + label;
               thumb.title = "Latest preview — click to open";
+              // Defer offscreen thumb loads — a dashboard with N repos × M
+              // branches otherwise fires N×M PNG fetches at first render
+              // even for rows the user has to scroll to. Decoding async
+              // keeps the main thread free during the heavy initial paint.
+              thumb.loading = "lazy";
+              thumb.decoding = "async";
+              thumb.width = 72; thumb.height = 48;
               thumb.addEventListener("click", (function(r2, s2){ return function(){
                 S.activeRepo = r2; S.activeBranch = s2; S.compareMode = false; S.compareBranch = ""; S.view = "preview"; DV.render();
               }; })(repo, slug));
@@ -272,7 +279,7 @@ DV.views.dashboard = function(app) {
                 attr: { title: "Pixel change vs. previous build — click for heatmap" },
                 on: { click: (function(r2, s2){ return function(ev) {
                   ev.stopPropagation();
-                  window.open("/api/thumb-diff/" + r2.owner + "/" + r2.repo + "?slug=" + encodeURIComponent(s2), "_blank");
+                  window.open("/api/thumb-diff/" + r2.owner + "/" + r2.repo + "?slug=" + encodeURIComponent(s2), "_blank", "noopener");
                 }; })(repo, slug) }
               }, "Δ " + pct.toFixed(1) + "%");
               info.appendChild(diffPill);
@@ -412,7 +419,7 @@ DV.views.dashboard = function(app) {
               if (isLive) {
                 menu.appendChild(_item({
                   glyph: "↗", label: "Open in new tab",
-                  run: function() { window.open(previewUrl, "_blank"); }
+                  run: function() { window.open(previewUrl, "_blank", "noopener"); }
                 }));
                 menu.appendChild(_item({
                   glyph: "⊞", label: "Share (QR / sheet / copy link)",

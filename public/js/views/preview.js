@@ -221,39 +221,56 @@ DV.views.preview = function(app) {
   urlBar.appendChild(el("span", { c: "flex-1 truncate" }, url));
   urlBar.appendChild(el("button", { c: "bg bs", attr: { title: "Copy URL" }, on: { click: function() {
     var fullUrl = window.location.origin + url;
-    navigator.clipboard && navigator.clipboard.writeText(fullUrl);
-    DV.showToast("URL copied", "info");
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(fullUrl)
+        .then(function() { DV.showToast("URL copied", "info"); })
+        .catch(function() { DV.showToast("Copy failed", "error"); });
+    } else {
+      DV.showToast("Clipboard unavailable", "error");
+    }
   } } }, "Copy"));
   urlBar.appendChild(el("button", { c: "bg bs", attr: { title: "Open in new tab" }, on: { click: function() {
-    window.open(url, "_blank");
+    window.open(url, "_blank", "noopener");
   } } }, DV.iconEl("arrow_out")));
   app.appendChild(urlBar);
 
   // View toggles
   var ratioBar = el("div", { c: "preview-branch-bar" });
   var presetKeys = Object.keys(VIEW_PRESETS);
+  // Helper: build a chip <div> with keyboard support (Space/Enter activates)
+  // and aria-pressed reflecting the toggle state. Without this, the chips
+  // were divs invisible to keyboard navigation.
+  function toggleChip(label, on, onActivate) {
+    return el("div", {
+      c: "chip" + (on ? " on" : ""),
+      attr: { role: "button", tabindex: "0", "aria-pressed": on ? "true" : "false" },
+      on: {
+        click: onActivate,
+        keydown: function(e) { if (e.key === " " || e.key === "Enter") { e.preventDefault(); onActivate(); } }
+      }
+    }, label);
+  }
+
   for (var pi = 0; pi < presetKeys.length; pi++) {
     (function(key) {
       var preset = VIEW_PRESETS[key];
       var isOn = S.activeViews.indexOf(key) !== -1;
-      ratioBar.appendChild(el("div", { c: "chip" + (isOn ? " on" : ""), on: { click: function() {
+      ratioBar.appendChild(toggleChip(preset.label, isOn, function() {
         var idx = S.activeViews.indexOf(key);
         if (idx !== -1 && S.activeViews.length > 1) S.activeViews.splice(idx, 1);
         else if (idx === -1) S.activeViews.push(key);
         DV.render();
-      } } }, preset.label));
+      }));
     })(presetKeys[pi]);
   }
 
-  ratioBar.appendChild(el("div", { c: "chip" + (S.isFullscreen ? " on" : ""), on: { click: function() {
-    S.isFullscreen = !S.isFullscreen;
-    DV.render();
-  } } }, "Fullscreen"));
+  ratioBar.appendChild(toggleChip("Fullscreen", S.isFullscreen, function() {
+    S.isFullscreen = !S.isFullscreen; DV.render();
+  }));
 
-  ratioBar.appendChild(el("div", { c: "chip" + (S.rotated ? " on" : ""), on: { click: function() {
-    S.rotated = !S.rotated;
-    DV.render();
-  } } }, "Rotate"));
+  ratioBar.appendChild(toggleChip("Rotate", S.rotated, function() {
+    S.rotated = !S.rotated; DV.render();
+  }));
 
   app.appendChild(ratioBar);
 
@@ -290,8 +307,15 @@ DV.views.preview = function(app) {
             "location=no",
             "status=no",
             "resizable=yes",
-            "scrollbars=yes"
+            "scrollbars=yes",
+            // Sever window.opener so the popped-out preview can't redirect
+            // the dashboard tab back to a phishing page.
+            "noopener"
           ].join(",");
+          // Note: with "noopener" in the feature string, window.open()
+          // returns null per spec on SUCCESS too — so we can't reliably
+          // detect popup-blocker rejections from the return value.
+          // Browsers signal blocks via the URL-bar icon instead.
           window.open(src + "?_r=" + S.refreshKey, winName, features);
         } }
       }, DV.iconEl("arrow_out"));  // ↗ pop-out arrow

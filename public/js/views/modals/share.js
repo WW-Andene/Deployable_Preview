@@ -73,7 +73,7 @@ DV._modal.share = function render(app) {
 
     sg.appendChild(sb);
     app.appendChild(sg);
-    focusTrap(sb);
+    focusTrap(sb, "share");
   }
 
 };

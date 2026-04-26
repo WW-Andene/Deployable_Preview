@@ -253,6 +253,18 @@ async function shutdown(signal) {
   // Stop the tunnel before HTTP — otherwise the tunnel keeps the event loop alive.
   try { require("./tunnel").stop(); } catch (_) {}
 
+  // Close any open SSE clients first. httpServer.close() waits for
+  // in-flight connections to drain — without this, dashboards with
+  // open status / log SSE streams keep the close() call pending until
+  // the 5s force-exit fallback fires, every shutdown.
+  try {
+    const { logStreams } = require("./logs");
+    for (const s of logStreams) {
+      try { s.res.end(); s.closed = true; } catch (_) {}
+    }
+    logStreams.length = 0;
+  } catch (_) {}
+
   // Close HTTP and HTTPS servers, awaiting both, with a 5s force-exit fallback.
   const closes = [];
   if (httpServer)  closes.push(new Promise((resolve) => httpServer.close(() => resolve())));

@@ -1,5 +1,7 @@
 const https = require("https");
 
+const GH_TIMEOUT_MS = parseInt(process.env.DV_GH_API_TIMEOUT_MS, 10) || 30000;
+
 function ghApi(apiPath, token) {
   return new Promise((resolve, reject) => {
     const opts = {
@@ -7,7 +9,7 @@ function ghApi(apiPath, token) {
       path: apiPath,
       headers: { Authorization: "Bearer " + token, Accept: "application/vnd.github.v3+json", "User-Agent": "DeployView" }
     };
-    https.get(opts, (res) => {
+    const req = https.get(opts, (res) => {
       let data = "";
       res.on("data", (c) => (data += c));
       res.on("end", () => {
@@ -17,7 +19,14 @@ function ghApi(apiPath, token) {
           else resolve(parsed);
         } catch (e) { reject(e); }
       });
-    }).on("error", reject);
+    });
+    req.on("error", reject);
+    // Without a timeout the promise never settles when GitHub stalls,
+    // leaving HTTP request handlers and build-pipeline awaits hung
+    // forever. destroy() triggers the "error" listener above.
+    req.setTimeout(GH_TIMEOUT_MS, () => {
+      req.destroy(new Error("GitHub API timeout after " + GH_TIMEOUT_MS + "ms: " + apiPath));
+    });
   });
 }
 

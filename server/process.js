@@ -4,12 +4,19 @@ const net = require("net");
 function runCmd(cmd, cwd, extraEnv) {
   return new Promise((resolve, reject) => {
     const child = exec(cmd, { cwd, maxBuffer: 50 * 1024 * 1024, timeout: 600000, env: { ...process.env, CI: "true", ...(extraEnv || {}) } });
-    let stdout = "", stderr = "";
-    child.stdout.on("data", (d) => (stdout += d));
-    child.stderr.on("data", (d) => (stderr += d));
+    // Collect chunks in arrays — concatenating into a string per chunk is
+    // O(n²) on output size and dominates wall time for ~10MB+ build logs
+    // (npm install on a big project, webpack verbose output, etc.).
+    const stdoutChunks = [], stderrChunks = [];
+    child.stdout.on("data", (d) => stdoutChunks.push(d));
+    child.stderr.on("data", (d) => stderrChunks.push(d));
     child.on("close", (code) => {
-      if (code === 0) resolve(stdout);
-      else reject(new Error("Exit " + code + "\n" + (stderr || "").slice(-2000)));
+      if (code === 0) {
+        resolve(Buffer.concat(stdoutChunks.map(c => Buffer.isBuffer(c) ? c : Buffer.from(c))).toString("utf8"));
+      } else {
+        const stderr = Buffer.concat(stderrChunks.map(c => Buffer.isBuffer(c) ? c : Buffer.from(c))).toString("utf8");
+        reject(new Error("Exit " + code + "\n" + stderr.slice(-2000)));
+      }
     });
     child.on("error", reject);
   });
@@ -51,11 +58,16 @@ function killServer(key) {
   try { process.kill(-srv.proc.pid, "SIGTERM"); } catch (e) {
     try { srv.proc.kill("SIGTERM"); } catch (e2) {}
   }
-  // SIGKILL fallback after 5s if process is still alive
-  const pid = srv.proc.pid;
+  // SIGKILL fallback after 5s if process is still alive. Check the
+  // ChildProcess object's exitCode/signalCode rather than just probing
+  // the raw PID — the OS may have reused the PID for an unrelated
+  // process by now and we'd SIGKILL someone else's work.
+  const proc = srv.proc;
+  const pid  = proc.pid;
   setTimeout(() => {
-    try { process.kill(pid, 0); /* check if alive */ process.kill(-pid, "SIGKILL"); } catch (_) {}
-    try { process.kill(pid, 0); process.kill(pid, "SIGKILL"); } catch (_) {}
+    if (proc.exitCode !== null || proc.signalCode !== null) return;
+    try { process.kill(-pid, "SIGKILL"); } catch (_) {}
+    try { proc.kill("SIGKILL"); } catch (_) {}
   }, 5000);
   delete runningServers[key];
 }

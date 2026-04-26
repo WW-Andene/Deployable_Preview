@@ -11,9 +11,18 @@ const router = express.Router();
 // the auto-generated API token. Routes that are intentionally public —
 // /health (no secrets), /webhook (HMAC-protected), /live/... (own token) —
 // are skipped via the early-return below.
-// /api/preview-errors is also public — it's called by the user's own
-// app code (injected via the proxy), no auth makes sense there.
-const PUBLIC_PATHS = /^\/(health|metrics|webhook|live\/|preview-errors\/)/;
+//
+// /api/preview-errors POST is public (the in-app collector posts back from
+// the user's deployed JS). GET/DELETE on the same path are NOT public:
+// they expose internal stack traces / file paths and let anyone wipe the
+// error log, so they go through the normal auth check.
+const PUBLIC_PATHS = /^\/(health|metrics|webhook|live\/)/;
+
+function isPublicRequest(req) {
+  if (PUBLIC_PATHS.test(req.path)) return true;
+  if (req.method === "POST" && req.path.indexOf("/preview-errors/") === 0) return true;
+  return false;
+}
 
 function isLocalIp(ip) {
   if (!ip) return false;
@@ -26,7 +35,7 @@ function constantTimeEq(a, b) {
 }
 
 router.use(function(req, res, next) {
-  if (PUBLIC_PATHS.test(req.path)) return next();
+  if (isPublicRequest(req)) return next();
   const ip = req.ip || (req.connection && req.connection.remoteAddress);
   if (isLocalIp(ip)) return next();
   let expected = "";
@@ -39,17 +48,24 @@ router.use(function(req, res, next) {
 });
 
 // ── Simple rate limiting ─────────────────────────────────────────────────────
+// Each rateLimit() call segregates its bucket by a unique id so endpoints
+// don't trample each other's windows. Previously every limiter shared the
+// _rateLimits[ip] slot, and a hit on /api/webhook (5s window) would
+// override the in-flight /api/token window (60s) for that IP.
 const _rateLimits = {};
+let _rateLimitSeq = 0;
 function rateLimit(windowMs, maxRequests) {
+  const id = "rl" + (++_rateLimitSeq) + ":";
   return function(req, res, next) {
     const ip = req.ip || req.connection.remoteAddress || "unknown";
     const now = Date.now();
-    if (!_rateLimits[ip] || _rateLimits[ip].reset < now) {
-      _rateLimits[ip] = { count: 1, reset: now + windowMs };
+    const key = id + ip;
+    if (!_rateLimits[key] || _rateLimits[key].reset < now) {
+      _rateLimits[key] = { count: 1, reset: now + windowMs };
     } else {
-      _rateLimits[ip].count++;
+      _rateLimits[key].count++;
     }
-    if (_rateLimits[ip].count > maxRequests) {
+    if (_rateLimits[key].count > maxRequests) {
       return res.status(429).json({ error: "Too many requests, try again later" });
     }
     next();
@@ -58,7 +74,7 @@ function rateLimit(windowMs, maxRequests) {
 // Clean up stale entries every 5 minutes
 setInterval(function() {
   var now = Date.now();
-  for (var ip in _rateLimits) { if (_rateLimits[ip].reset < now) delete _rateLimits[ip]; }
+  for (var key in _rateLimits) { if (_rateLimits[key].reset < now) delete _rateLimits[key]; }
 }, 5 * 60 * 1000);
 
 // Apply rate limiting to mutation endpoints

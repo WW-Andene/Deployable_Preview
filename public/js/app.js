@@ -92,14 +92,36 @@ function el(tag, props, kids) {
       e.appendChild(typeof kids[i] === "string" || typeof kids[i] === "number" ? document.createTextNode("" + kids[i]) : kids[i]);
     }
   }
+  // a11y fallback: interactive elements whose visible label is just an
+  // icon or glyph (e.g. "x", "•••", an SVG) often have a title attribute
+  // for tooltips but no aria-label. Promote title → aria-label so screen
+  // readers announce something meaningful. Explicit aria-label wins.
+  if (e.hasAttribute("title") && !e.hasAttribute("aria-label")) {
+    var role = e.getAttribute("role");
+    var interactive = tag === "button" || tag === "a" ||
+      role === "button" || role === "menuitem" || role === "tab" ||
+      role === "checkbox" || role === "switch";
+    if (interactive) e.setAttribute("aria-label", e.getAttribute("title"));
+  }
   return e;
 }
 
-// API helper
+// API helper. Always resolves with an object: either the parsed JSON
+// response, or a synthetic { error } so existing `if (r.error)` /
+// toast(r.error) call sites keep working when the server returns a
+// non-JSON response (HTML proxy error page, empty body, etc.).
+// Network-level failures still propagate as rejections.
 function api(method, path, body) {
   var opts = { method: method, headers: { "Content-Type": "application/json" } };
   if (body) opts.body = JSON.stringify(body);
-  return fetch(path, opts).then(function(r) { return r.json(); });
+  return fetch(path, opts).then(function(r) {
+    return r.text().then(function(text) {
+      try { return text ? JSON.parse(text) : {}; }
+      catch (_) {
+        return { error: r.status >= 400 ? ("HTTP " + r.status) : "Unexpected response" };
+      }
+    });
+  });
 }
 
 function statusClass(s) { return "status-dot status-" + (s || "idle"); }
@@ -162,7 +184,7 @@ function addBranchToRepo(branch, baseDir, mode, startCommand, language) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
   }).then(function(res) { return res.json(); }).then(function(r) {
-    if (r.error) { alert("Error: " + r.error); return; }
+    if (r.error) { showToast(r.error, "error"); return; }
     if (r.ok) {
       S.activeRepo.activeBranches = r.activeBranches;
       S.showBranchDropdown = false;
@@ -170,9 +192,10 @@ function addBranchToRepo(branch, baseDir, mode, startCommand, language) {
       S.addBranchBaseDir = "";
       S.addBranchMode = "static";
       S.addBranchStartCmd = "";
+      showToast("Branch " + branch + " added", "success");
       loadRepos();
     }
-  }).catch(function(e) { alert("Failed to add branch: " + e.message); });
+  }).catch(function(e) { showToast("Failed to add branch: " + (e && e.message ? e.message : "network error"), "error"); });
 }
 
 // View registry — populated by view files
@@ -201,8 +224,11 @@ function render() {
   if (views.topbar) views.topbar(app);
 
   if (S.view === "loading") {
-    app.appendChild(el("div", { c: "loading-view" }, [
-      el("div", { c: "loading-spinner" }),
+    // role=status + aria-live=polite so screen readers announce
+    // "Initializing" when the page first loads instead of staying
+    // silent until a real view renders.
+    app.appendChild(el("div", { c: "loading-view", attr: { role: "status", "aria-live": "polite" } }, [
+      el("div", { c: "loading-spinner", attr: { "aria-hidden": "true" } }),
       el("div", { c: "loading-text" }, "INITIALIZING...")
     ]));
   } else if (S.view === "setup" && views.setup) {
@@ -262,6 +288,14 @@ api("GET", "/api/token").then(function(r) {
     }
   }
   else render();
+}).catch(function() {
+  // Network failure on the first /api/token round-trip — without this
+  // catch the SPA sits on the INITIALIZING spinner forever and the user
+  // has no idea why nothing is happening. Surface a toast and render
+  // the (still-empty) view so the toast is visible.
+  showToast("Could not reach server — refresh to retry.", "error");
+  S.view = "loading";
+  render();
 });
 
 // J3: pull the per-branch runtime-error summary every 15s. Cheap call
@@ -300,9 +334,15 @@ function installErrorCountSync() {
 // Auto-reconnects with a 5s back-off if the connection drops.
 function installStatusStream() {
   if (S._statusES) return;
+  // Exponential backoff: start at 5s, double each consecutive failure
+  // up to 60s. Reset to 5s on every successful connect (open event).
+  // Without this, a long outage produces a 5s reconnect storm against
+  // a server that's already broken or unreachable.
+  var _backoff = 5000;
   function open() {
     var es = new EventSource("/api/status/stream");
     S._statusES = es;
+    es.addEventListener("open", function() { _backoff = 5000; });
     es.addEventListener("message", function(ev) {
       var msg; try { msg = JSON.parse(ev.data); } catch (_) { return; }
       if (!msg || !msg.key || !msg.slot) return;
@@ -321,7 +361,9 @@ function installStatusStream() {
     es.addEventListener("error", function() {
       try { es.close(); } catch (_) {}
       S._statusES = null;
-      setTimeout(open, 5000);
+      var delay = Math.min(_backoff, 60000);
+      _backoff = Math.min(_backoff * 2, 60000);
+      setTimeout(open, delay);
     });
   }
   open();
@@ -337,7 +379,12 @@ function loadMcpTools() {
 // G1-007: errors get role=alert (announced immediately by screen readers);
 // info/success get role=status (polite). Errors don't auto-dismiss; the
 // user has to close them so a low-vision reader doesn't miss the message.
+//
+// We dedupe by (type, message) so the same error message firing every
+// 15s from a polling loop during an outage doesn't grow the container
+// indefinitely.
 var _toastContainer = null;
+var _activeToasts = Object.create(null); // key -> element
 function showToast(message, type) {
   if (!_toastContainer) {
     _toastContainer = document.createElement("div");
@@ -345,15 +392,22 @@ function showToast(message, type) {
     _toastContainer.setAttribute("aria-live", "polite");
     document.body.appendChild(_toastContainer);
   }
+  var key = (type || "info") + "\x00" + message;
+  if (_activeToasts[key]) return; // already showing this exact toast
   var role = type === "error" ? "alert" : "status";
   var toast = el("div", { c: "toast toast-" + (type || "info"), attr: { role: role, "aria-atomic": "true" } });
   toast.appendChild(document.createTextNode(message));
-  var close = el("button", { c: "toast-close", attr: { "aria-label": "Dismiss notification", title: "Dismiss" }, on: { click: function() { toast.remove(); } } }, "×");
+  function dispose() {
+    if (toast.parentNode) toast.remove();
+    delete _activeToasts[key];
+  }
+  var close = el("button", { c: "toast-close", attr: { "aria-label": "Dismiss notification", title: "Dismiss" }, on: { click: dispose } }, "×");
   toast.appendChild(close);
   _toastContainer.appendChild(toast);
+  _activeToasts[key] = toast;
   if (type !== "error") {
     setTimeout(function() { toast.classList.add("toast-exit"); }, 3500);
-    setTimeout(function() { if (toast.parentNode) toast.remove(); }, 4000);
+    setTimeout(dispose, 4000);
   }
 }
 

@@ -2,7 +2,11 @@
 var S = DV.S, el = DV.el, api = DV.api;
 
 function parseRepoUrl(raw) {
-  var c = raw.trim().replace(/\.git$/, "").replace(/\/$/, "");
+  // Strip query (?...) and fragment (#...) BEFORE the .git / trailing-
+  // slash cleanup, otherwise URLs like
+  //   https://github.com/owner/repo?ref=main
+  // capture "repo?ref=main" as the repo name and fail server validation.
+  var c = raw.trim().replace(/[?#].*$/, "").replace(/\.git$/, "").replace(/\/$/, "");
   return c.match(/(?:github\.com\/)?([^\/]+)\/([^\/]+)$/);
 }
 
@@ -296,7 +300,12 @@ DV.views.addRepo = function(app) {
   }
   app.appendChild(w);
 
-  // Auto-focus the repo input on mount
-  setTimeout(function() { ri.focus(); }, 50);
+  // Auto-focus the URL input only on a FRESH entry into addRepo. Without
+  // this guard the unconditional focus() steals focus from the picker
+  // filter input and chip selectors on every re-render — making them
+  // effectively unusable.
+  if (DV._prevRenderedView !== "addRepo") {
+    setTimeout(function() { ri.focus(); }, 50);
+  }
 };
 })();

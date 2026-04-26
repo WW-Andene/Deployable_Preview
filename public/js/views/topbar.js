@@ -52,11 +52,11 @@ if (!DV._kbBound) {
         }
         break;
       case "c": case "C":
-        if (S.view === "preview") { S.compareMode = !S.compareMode; S.compareBranch = ""; DV.render(); e.preventDefault(); }
+        if (S.view === "preview") { S.compareMode = !S.compareMode; S.compareBranch = ""; S._compareFilter = null; S._compareFocus = false; DV.render(); e.preventDefault(); }
         break;
       case "t": case "T":
         if (S.view === "preview" && S.activeRepo) {
-          window.open("/test/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/" + S.activeBranch, "_blank");
+          window.open("/test/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/" + S.activeBranch, "_blank", "noopener");
           e.preventDefault();
         }
         break;
@@ -74,6 +74,11 @@ if (!DV._kbBound) {
 }
 
 DV.views.topbar = function(app) {
+  // Track previous view across renders so per-view code can distinguish
+  // a fresh entry from a re-render (e.g. addRepo's auto-focus).
+  DV._prevRenderedView = DV._lastRenderedView || null;
+  DV._lastRenderedView = S.view;
+
   var bar = el("div", { c: "topbar" });
 
   /* ── Left: logo + back ── */
@@ -81,7 +86,9 @@ DV.views.topbar = function(app) {
   if (S.view !== "setup" && S.view !== "dashboard" && S.view !== "loading") {
     left.appendChild(el("button", { c: "bg bs", on: { click: function() { S.view = "dashboard"; S.showBranchDropdown = false; DV.render(); } } }, "\u2190"));
   }
-  left.appendChild(el("span", { c: "dv-badge", on: { click: function() { if (S.hasToken) { S.view = "dashboard"; DV.render(); } } } }, "DeployView"));
+  // Make this a real button so keyboard and screen-reader users can
+  // activate it. The dv-badge styles work on either tag.
+  left.appendChild(el("button", { c: "dv-badge", attr: { type: "button", "aria-label": "Go to dashboard" }, on: { click: function() { if (S.hasToken) { S.view = "dashboard"; DV.render(); } } } }, "DeployView"));
 
   // Tunnel indicator
   if (S._tunnelStatus && S._tunnelStatus.url) {
@@ -102,7 +109,7 @@ DV.views.topbar = function(app) {
   }
 
   if (S.view === "preview") {
-    right.appendChild(el("button", { c: "bg bs", on: { click: function() { S.compareMode = !S.compareMode; S.compareBranch = ""; DV.render(); } } }, S.compareMode ? "Single" : "Compare"));
+    right.appendChild(el("button", { c: "bg bs", on: { click: function() { S.compareMode = !S.compareMode; S.compareBranch = ""; S._compareFilter = null; S._compareFocus = false; DV.render(); } } }, S.compareMode ? "Single" : "Compare"));
     right.appendChild(el("button", { c: "bg bs", on: { click: function() { S.refreshKey++; DV.render(); } } }, "Refresh"));
     // Share button — uses native share sheet on mobile, QR + clipboard
     // modal on desktop. Especially useful for opening a desktop preview
@@ -112,7 +119,7 @@ DV.views.topbar = function(app) {
       DV.openShare(url, S.activeRepo.owner + "/" + S.activeRepo.repo + " · " + S.activeBranch);
     } } }, "Share"));
     right.appendChild(el("button", { c: "bg bs", on: { click: function() {
-      window.open("/test/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/" + S.activeBranch, "_blank");
+      window.open("/test/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/" + S.activeBranch, "_blank", "noopener");
     } } }, "Test"));
   }
 
@@ -140,11 +147,15 @@ DV.views.topbar = function(app) {
   bar.appendChild(right);
   app.appendChild(bar);
 
-  // Fetch tunnel status once
+  // Fetch tunnel status once. Re-render afterwards so the HTTPS pill
+  // actually appears in the topbar — without DV.render() the new
+  // S._tunnelStatus only takes effect on the NEXT user-triggered
+  // render, which may be a long time on a quiet dashboard.
   if (S.view !== "setup" && S.view !== "loading" && !S._tunnelChecked) {
     S._tunnelChecked = true;
     fetch("/api/tunnel/status").then(function(r) { return r.json(); }).then(function(t) {
       S._tunnelStatus = t;
+      if (t && t.url) DV.render();
     }).catch(function() {});
   }
 };

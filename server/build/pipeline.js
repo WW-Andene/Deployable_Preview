@@ -120,6 +120,17 @@ function resolveWorkDir(branchDir, branchConfig, repoConfig, addLog) {
   const workDir = baseDir ? path.join(branchDir, baseDir) : branchDir;
   if (baseDir) {
     addLog("Base directory: " + baseDir);
+    // Containment check: an authed user can set baseDir freely on a
+    // branch config, and path.join collapses ".." segments. Without
+    // this check a baseDir like "../../etc" would put workDir outside
+    // the workspace and the build's `rm -rf dist build out web-build`
+    // + `npm install` would operate on external directories.
+    const branchAbs = path.resolve(branchDir);
+    const workAbs = path.resolve(workDir);
+    const rel = path.relative(branchAbs, workAbs);
+    if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) {
+      throw new Error("Base directory '" + baseDir + "' escapes the branch workspace");
+    }
     if (!fs.existsSync(workDir)) throw new Error("Base directory '" + baseDir + "' not found in repo");
   }
   return workDir;

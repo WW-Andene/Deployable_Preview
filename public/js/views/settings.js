@@ -73,8 +73,12 @@ function keyRow(secret, onSave, onDelete) {
   inp.className = "flex-1 font-mono text-12";
   inp.type = "password";
   inp.placeholder = secret.hasValue ? "New value\u2026" : "Paste key\u2026";
+  // Reveal while focused so the user can verify what they typed/pasted,
+  // then always re-mask on blur. Previously we only re-masked when the
+  // field was empty, which left fresh API keys readable on screen until
+  // the next render.
   inp.addEventListener("focus", function() { inp.type = "text"; });
-  inp.addEventListener("blur", function() { if (!inp.value) inp.type = "password"; });
+  inp.addEventListener("blur", function() { inp.type = "password"; });
   row.appendChild(inp);
 
   row.appendChild(el("button", { c: "bp bs", on: { click: function() {
@@ -163,14 +167,19 @@ DV.views.settings = function(app) {
 
   function deleteKey(key) {
     fetch("/api/secrets/" + encodeURIComponent(key), { method: "DELETE" })
-      .then(function(r) { return r.json(); })
+      .then(function(r) { return r.json().catch(function(){ return { error: "HTTP " + r.status }; }); })
       .then(function(r) {
-        if (r.ok) {
+        if (r && r.ok) {
           DV.showToast(key + " removed", "info");
           if (key === "GITHUB_TOKEN") S.hasToken = false;
           loadKeys();
+        } else {
+          // Surface server-side validation errors and similar — without
+          // this the click silently no-ops and the user has no idea why.
+          DV.showToast("Remove failed: " + ((r && r.error) || "unknown"), "error");
         }
-      });
+      })
+      .catch(function() { DV.showToast("Remove failed: network error", "error"); });
   }
 
   function loadKeys() {
@@ -380,18 +389,24 @@ DV.views.settings = function(app) {
 
   /* ══════════ Section: Workspace ══════════ */
   var wsBody = el("div", {});
-  fetch("/api/workspace/stats").then(function(r) { return r.json(); }).then(function(stats) {
+  function refreshWorkspaceStats() {
+    fetch("/api/workspace/stats").then(function(r) { return r.json(); }).then(function(stats) {
     wsBody.innerHTML = "";
     wsBody.appendChild(el("div", { c: "settings-hint mb-8" }, stats.total + " workspace dir(s) \u2014 " + stats.active + " active, " + stats.orphaned + " orphaned"));
     if (stats.orphaned > 0) {
       wsBody.appendChild(el("button", { c: "bd bs", on: { click: function() {
         if (!confirm("Remove " + stats.orphaned + " orphaned dir(s)?")) return;
         fetch("/api/workspace/cleanup", { method: "POST" }).then(function(r) { return r.json(); }).then(function(r) {
-          DV.showToast("Cleaned " + r.removed + " dir(s)", "success");
-        });
+          DV.showToast("Cleaned " + (r.removed || 0) + " dir(s)", "success");
+          // Refresh the displayed stats so the panel doesn't keep claiming
+          // N orphaned dirs after we just removed them.
+          refreshWorkspaceStats();
+        }).catch(function() { DV.showToast("Cleanup failed", "error"); });
       } } }, "Clean " + stats.orphaned + " orphaned"));
     }
-  }).catch(function() { wsBody.textContent = "Could not load."; });
+    }).catch(function() { wsBody.textContent = "Could not load."; });
+  }
+  refreshWorkspaceStats();
   appendIfExists(page, section("Workspace", [wsBody], "workspace"));
 
   /* ══════════ Section: Outgoing webhooks ══════════ */
@@ -711,12 +726,18 @@ DV.views.settings = function(app) {
           var file = input.files[0]; if (!file) return;
           var reader = new FileReader();
           reader.onload = function() {
-            try {
-              var data = JSON.parse(reader.result);
-              fetch("/api/config/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) })
-                .then(function(r) { return r.json(); })
-                .then(function(r) { DV.showToast("Imported " + r.added + " repo(s)", "success"); DV.loadRepos(); });
-            } catch (e) { DV.showToast("Invalid JSON", "error"); }
+            var data;
+            try { data = JSON.parse(reader.result); }
+            catch (e) { DV.showToast("Invalid JSON: " + e.message, "error"); return; }
+            // Surface server errors and network failures instead of
+            // silently saying "Imported undefined repo(s)" or nothing.
+            api("POST", "/api/config/import", data).then(function(r) {
+              if (r.error) { DV.showToast("Import failed: " + r.error, "error"); return; }
+              DV.showToast("Imported " + (r.added || 0) + " repo(s)", "success");
+              DV.loadRepos();
+            }).catch(function(e) {
+              DV.showToast("Import failed: " + (e && e.message ? e.message : "network error"), "error");
+            });
           };
           reader.readAsText(file);
         });

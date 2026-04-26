@@ -1992,7 +1992,10 @@ button:disabled, button[disabled] {
 .preview-frame.fullscreen {
   position: fixed;
   inset: 0;
-  z-index: 999;
+  /* Modal-tier: above topbar/popover, below toasts so error notifications
+     still reach the user, and below the command palette so it can still
+     be opened over a fullscreen preview. */
+  z-index: var(--z-modal);
   background: var(--bg);
   border-radius: 0;
   border: none;
@@ -2480,6 +2483,10 @@ button:disabled, button[disabled] {
   .add-repo-page { padding: 16px 12px; }
   .page-header { gap: 8px; margin-bottom: 16px; }
   .preview-controls { padding: 8px 10px; gap: 8px; }
+  /* iOS Safari force-zooms when a focused input has font-size < 16px,
+     yanking the layout around the user. Bump form fields to 16px on
+     mobile so focus is silent. */
+  input, select, textarea { font-size: 16px; }
 }
 
 /* ══════════════════════════════════════════════════
@@ -2493,7 +2500,7 @@ button:disabled, button[disabled] {
   flex-wrap: wrap;
 }
 .tunnel-url {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 13px;
   color: var(--ok);
   word-break: break-all;
@@ -2515,7 +2522,7 @@ button:disabled, button[disabled] {
   flex-direction: column;
   gap: 4px;
   padding: 10px 0 6px;
-  border-top: 1px solid var(--br);
+  border-top: 1px solid var(--border);
   margin-bottom: 4px;
 }
 .apk-wd-label {
@@ -2526,15 +2533,15 @@ button:disabled, button[disabled] {
   letter-spacing: .04em;
 }
 .apk-wd-input {
-  background: var(--bg2);
-  border: 1px solid var(--br);
-  border-radius: 6px;
+  background: var(--sf2);
+  border: 1px solid var(--border-h);
+  border-radius: var(--r-input);
   color: var(--tx1);
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 13px;
   padding: 6px 10px;
   outline: none;
-  transition: border-color .15s;
+  transition: border-color var(--dur-micro) var(--ease-fast);
 }
 .apk-wd-input:focus { border-color: var(--accent); }
 .apk-wd-hint {

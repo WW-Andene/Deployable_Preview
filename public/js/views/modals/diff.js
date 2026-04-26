@@ -57,10 +57,20 @@ DV._modal.diff = function render(app) {
       var x = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
       setSlider(x / rect.width);
     }
-    var dragging = false;
-    stage.addEventListener("pointerdown", function(ev) { dragging = true; onPointer(ev); });
-    document.addEventListener("pointermove", function(ev) { if (dragging) onPointer(ev); });
-    document.addEventListener("pointerup", function() { dragging = false; });
+    // Use pointer capture instead of document-level listeners so the
+    // listeners die with the DOM. The previous implementation attached
+    // pointermove + pointerup to document on every render and never
+    // removed them, leaking N listeners per open/close cycle.
+    stage.addEventListener("pointerdown", function(ev) {
+      onPointer(ev);
+      try { stage.setPointerCapture(ev.pointerId); } catch (_) {}
+    });
+    stage.addEventListener("pointermove", function(ev) {
+      if (stage.hasPointerCapture && stage.hasPointerCapture(ev.pointerId)) onPointer(ev);
+    });
+    stage.addEventListener("pointerup", function(ev) {
+      try { stage.releasePointerCapture(ev.pointerId); } catch (_) {}
+    });
     handle.addEventListener("keydown", function(ev) {
       var step = ev.shiftKey ? 0.10 : 0.02;
       if (ev.key === "ArrowLeft")  { ev.preventDefault(); setSlider(parseFloat(handle.style.left) / 100 - step); }
@@ -74,7 +84,7 @@ DV._modal.diff = function render(app) {
     ]));
     dbg.appendChild(dbox);
     app.appendChild(dbg);
-    focusTrap(dbox);
+    focusTrap(dbox, "diff");
   }
 
 };

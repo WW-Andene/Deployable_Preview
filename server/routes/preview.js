@@ -12,6 +12,19 @@ const { edgeMiddleware } = require("../edge");
 const imageOpt = require("../image-opt");
 const { getHistory } = require("../build");
 
+// Escape user-controlled strings before splicing into the small HTML
+// error pages this router emits. Without this an attacker can craft
+// /preview/.../__snapshot/<script>... and trigger reflected XSS in
+// DV's origin (which has the dv_token cookie).
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 // Login form POST handler — must be registered before the catch-all
 // preview routes so __auth doesn't get proxied to the user's app.
 router.post("/preview/:owner/:repo/:branchSlug/__auth", express.urlencoded({ extended: false }), previewAuthLogin);
@@ -26,7 +39,7 @@ router.use("/preview/:owner/:repo/:branchSlug/__snapshot/:snapId", function(req,
   // K4: snapId may be either a raw history id OR a tag. Tag wins so
   // /preview/.../__snapshot/v1.0/ keeps working as v1.0 moves.
   const entry = hist.find(function(h){ return h.id === snapId || h.tag === snapId; });
-  if (!entry) return res.status(404).type("text/html").send("<h1>404 — Snapshot not found</h1><p>id: " + snapId + "</p>");
+  if (!entry) return res.status(404).type("text/html").send("<h1>404 — Snapshot not found</h1><p>id: " + escHtml(snapId) + "</p>");
   if (!entry.snapshotDir || !fs.existsSync(entry.snapshotDir)) {
     return res.status(410).type("text/html").send("<h1>410 — Snapshot evicted</h1><p>The snapshot directory is no longer on disk.</p>");
   }
