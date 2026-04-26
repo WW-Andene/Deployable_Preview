@@ -4,12 +4,19 @@ const net = require("net");
 function runCmd(cmd, cwd, extraEnv) {
   return new Promise((resolve, reject) => {
     const child = exec(cmd, { cwd, maxBuffer: 50 * 1024 * 1024, timeout: 600000, env: { ...process.env, CI: "true", ...(extraEnv || {}) } });
-    let stdout = "", stderr = "";
-    child.stdout.on("data", (d) => (stdout += d));
-    child.stderr.on("data", (d) => (stderr += d));
+    // Collect chunks in arrays — concatenating into a string per chunk is
+    // O(n²) on output size and dominates wall time for ~10MB+ build logs
+    // (npm install on a big project, webpack verbose output, etc.).
+    const stdoutChunks = [], stderrChunks = [];
+    child.stdout.on("data", (d) => stdoutChunks.push(d));
+    child.stderr.on("data", (d) => stderrChunks.push(d));
     child.on("close", (code) => {
-      if (code === 0) resolve(stdout);
-      else reject(new Error("Exit " + code + "\n" + (stderr || "").slice(-2000)));
+      if (code === 0) {
+        resolve(Buffer.concat(stdoutChunks.map(c => Buffer.isBuffer(c) ? c : Buffer.from(c))).toString("utf8"));
+      } else {
+        const stderr = Buffer.concat(stderrChunks.map(c => Buffer.isBuffer(c) ? c : Buffer.from(c))).toString("utf8");
+        reject(new Error("Exit " + code + "\n" + stderr.slice(-2000)));
+      }
     });
     child.on("error", reject);
   });
