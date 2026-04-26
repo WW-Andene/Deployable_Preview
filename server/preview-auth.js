@@ -62,8 +62,17 @@ function _constantTimeEq(a, b) {
   try { return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b)); } catch (_) { return false; }
 }
 
+function _escHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function _loginPage(owner, repo, slug, error) {
-  const errorBlock = error ? '<div class="err">' + error + '</div>' : '';
+  const errorBlock = error ? '<div class="err">' + _escHtml(error) + '</div>' : '';
   return '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">'
     + '<title>Preview locked</title>'
     + '<style>'
@@ -80,7 +89,7 @@ function _loginPage(owner, repo, slug, error) {
     + '</style></head><body>'
     + '<form class="card" method="POST" action="/preview/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/__auth">'
     + '<h1>Preview locked</h1>'
-    + '<p class="sub">' + owner + '/' + repo + ' · ' + slug + '</p>'
+    + '<p class="sub">' + _escHtml(owner) + '/' + _escHtml(repo) + ' · ' + _escHtml(slug) + '</p>'
     + '<label for="pw">Password</label>'
     + '<input id="pw" name="password" type="password" autocomplete="current-password" autofocus required>'
     + errorBlock
