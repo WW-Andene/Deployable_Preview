@@ -1992,7 +1992,10 @@ button:disabled, button[disabled] {
 .preview-frame.fullscreen {
   position: fixed;
   inset: 0;
-  z-index: 999;
+  /* Modal-tier: above topbar/popover, below toasts so error notifications
+     still reach the user, and below the command palette so it can still
+     be opened over a fullscreen preview. */
+  z-index: var(--z-modal);
   background: var(--bg);
   border-radius: 0;
   border: none;
