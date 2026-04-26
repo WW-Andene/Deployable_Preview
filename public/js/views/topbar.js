@@ -119,7 +119,7 @@ DV.views.topbar = function(app) {
       DV.openShare(url, S.activeRepo.owner + "/" + S.activeRepo.repo + " · " + S.activeBranch);
     } } }, "Share"));
     right.appendChild(el("button", { c: "bg bs", on: { click: function() {
-      window.open("/test/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/" + S.activeBranch, "_blank");
+      window.open("/test/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/" + S.activeBranch, "_blank", "noopener");
     } } }, "Test"));
   }
 
