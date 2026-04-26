@@ -86,8 +86,30 @@ function updateWebhook(id, patch) {
   if (!Array.isArray(cfg.webhooks)) return null;
   const wh = cfg.webhooks.find((w) => w.id === id);
   if (!wh) return null;
+  patch = patch || {};
+  // Validate the same way addWebhook does — without this an update can
+  // smuggle in an invalid URL, an unknown event name, or an unsupported
+  // format, and emit() will silently never fire the subscriber.
+  if (Object.prototype.hasOwnProperty.call(patch, "url")) {
+    let parsed;
+    try { parsed = new URL(patch.url); } catch (e) { throw new Error("invalid url: " + e.message); }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("only http(s) URLs accepted");
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "events")) {
+    if (!Array.isArray(patch.events) || !patch.events.length) throw new Error("events must be a non-empty array");
+    for (const e of patch.events) {
+      if (e !== "*" && VALID_EVENTS.indexOf(e) === -1) {
+        throw new Error("unknown event: " + e + " (valid: " + VALID_EVENTS.join(", ") + ")");
+      }
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "format")) {
+    if (["json", "slack", "discord"].indexOf(patch.format) === -1) {
+      throw new Error("unknown format: " + patch.format + " (valid: json, slack, discord)");
+    }
+  }
   for (const k of ["url", "events", "format", "enabled", "secret", "label"]) {
-    if (Object.prototype.hasOwnProperty.call(patch || {}, k)) wh[k] = patch[k];
+    if (Object.prototype.hasOwnProperty.call(patch, k)) wh[k] = patch[k];
   }
   saveConfig();
   return wh;

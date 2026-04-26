@@ -25,9 +25,11 @@ router.post("/webhooks", (req, res) => {
 });
 
 router.put("/webhooks/:id", (req, res) => {
-  const wh = webhooks.updateWebhook(req.params.id, req.body || {});
-  if (!wh) return res.status(404).json({ error: "webhook not found" });
-  res.json({ ok: true, webhook: { ...wh, secret: undefined, hasSecret: !!wh.secret } });
+  try {
+    const wh = webhooks.updateWebhook(req.params.id, req.body || {});
+    if (!wh) return res.status(404).json({ error: "webhook not found" });
+    res.json({ ok: true, webhook: { ...wh, secret: undefined, hasSecret: !!wh.secret } });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 router.delete("/webhooks/:id", (req, res) => {
