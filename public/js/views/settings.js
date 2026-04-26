@@ -167,14 +167,19 @@ DV.views.settings = function(app) {
 
   function deleteKey(key) {
     fetch("/api/secrets/" + encodeURIComponent(key), { method: "DELETE" })
-      .then(function(r) { return r.json(); })
+      .then(function(r) { return r.json().catch(function(){ return { error: "HTTP " + r.status }; }); })
       .then(function(r) {
-        if (r.ok) {
+        if (r && r.ok) {
           DV.showToast(key + " removed", "info");
           if (key === "GITHUB_TOKEN") S.hasToken = false;
           loadKeys();
+        } else {
+          // Surface server-side validation errors and similar — without
+          // this the click silently no-ops and the user has no idea why.
+          DV.showToast("Remove failed: " + ((r && r.error) || "unknown"), "error");
         }
-      });
+      })
+      .catch(function() { DV.showToast("Remove failed: network error", "error"); });
   }
 
   function loadKeys() {
