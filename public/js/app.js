@@ -224,8 +224,11 @@ function render() {
   if (views.topbar) views.topbar(app);
 
   if (S.view === "loading") {
-    app.appendChild(el("div", { c: "loading-view" }, [
-      el("div", { c: "loading-spinner" }),
+    // role=status + aria-live=polite so screen readers announce
+    // "Initializing" when the page first loads instead of staying
+    // silent until a real view renders.
+    app.appendChild(el("div", { c: "loading-view", attr: { role: "status", "aria-live": "polite" } }, [
+      el("div", { c: "loading-spinner", attr: { "aria-hidden": "true" } }),
       el("div", { c: "loading-text" }, "INITIALIZING...")
     ]));
   } else if (S.view === "setup" && views.setup) {
