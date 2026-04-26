@@ -300,7 +300,11 @@ DV.views.preview = function(app) {
             // the dashboard tab back to a phishing page.
             "noopener"
           ].join(",");
-          window.open(src + "?_r=" + S.refreshKey, winName, features);
+          var w = window.open(src + "?_r=" + S.refreshKey, winName, features);
+          // Popup blockers return null (or an unfocused window). Tell the
+          // user — without this, clicking the pop-out icon silently does
+          // nothing and they think the button is broken.
+          if (!w) DV.showToast("Popup blocked — allow popups for this site to use Pop-out.", "error");
         } }
       }, DV.iconEl("arrow_out"));  // ↗ pop-out arrow
     }
