@@ -11,9 +11,18 @@ const router = express.Router();
 // the auto-generated API token. Routes that are intentionally public —
 // /health (no secrets), /webhook (HMAC-protected), /live/... (own token) —
 // are skipped via the early-return below.
-// /api/preview-errors is also public — it's called by the user's own
-// app code (injected via the proxy), no auth makes sense there.
-const PUBLIC_PATHS = /^\/(health|metrics|webhook|live\/|preview-errors\/)/;
+//
+// /api/preview-errors POST is public (the in-app collector posts back from
+// the user's deployed JS). GET/DELETE on the same path are NOT public:
+// they expose internal stack traces / file paths and let anyone wipe the
+// error log, so they go through the normal auth check.
+const PUBLIC_PATHS = /^\/(health|metrics|webhook|live\/)/;
+
+function isPublicRequest(req) {
+  if (PUBLIC_PATHS.test(req.path)) return true;
+  if (req.method === "POST" && req.path.indexOf("/preview-errors/") === 0) return true;
+  return false;
+}
 
 function isLocalIp(ip) {
   if (!ip) return false;
@@ -26,7 +35,7 @@ function constantTimeEq(a, b) {
 }
 
 router.use(function(req, res, next) {
-  if (PUBLIC_PATHS.test(req.path)) return next();
+  if (isPublicRequest(req)) return next();
   const ip = req.ip || (req.connection && req.connection.remoteAddress);
   if (isLocalIp(ip)) return next();
   let expected = "";
