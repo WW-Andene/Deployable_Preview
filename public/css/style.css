@@ -2480,6 +2480,10 @@ button:disabled, button[disabled] {
   .add-repo-page { padding: 16px 12px; }
   .page-header { gap: 8px; margin-bottom: 16px; }
   .preview-controls { padding: 8px 10px; gap: 8px; }
+  /* iOS Safari force-zooms when a focused input has font-size < 16px,
+     yanking the layout around the user. Bump form fields to 16px on
+     mobile so focus is silent. */
+  input, select, textarea { font-size: 16px; }
 }
 
 /* ══════════════════════════════════════════════════
