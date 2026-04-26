@@ -48,17 +48,24 @@ router.use(function(req, res, next) {
 });
 
 // ── Simple rate limiting ─────────────────────────────────────────────────────
+// Each rateLimit() call segregates its bucket by a unique id so endpoints
+// don't trample each other's windows. Previously every limiter shared the
+// _rateLimits[ip] slot, and a hit on /api/webhook (5s window) would
+// override the in-flight /api/token window (60s) for that IP.
 const _rateLimits = {};
+let _rateLimitSeq = 0;
 function rateLimit(windowMs, maxRequests) {
+  const id = "rl" + (++_rateLimitSeq) + ":";
   return function(req, res, next) {
     const ip = req.ip || req.connection.remoteAddress || "unknown";
     const now = Date.now();
-    if (!_rateLimits[ip] || _rateLimits[ip].reset < now) {
-      _rateLimits[ip] = { count: 1, reset: now + windowMs };
+    const key = id + ip;
+    if (!_rateLimits[key] || _rateLimits[key].reset < now) {
+      _rateLimits[key] = { count: 1, reset: now + windowMs };
     } else {
-      _rateLimits[ip].count++;
+      _rateLimits[key].count++;
     }
-    if (_rateLimits[ip].count > maxRequests) {
+    if (_rateLimits[key].count > maxRequests) {
       return res.status(429).json({ error: "Too many requests, try again later" });
     }
     next();
@@ -67,7 +74,7 @@ function rateLimit(windowMs, maxRequests) {
 // Clean up stale entries every 5 minutes
 setInterval(function() {
   var now = Date.now();
-  for (var ip in _rateLimits) { if (_rateLimits[ip].reset < now) delete _rateLimits[ip]; }
+  for (var key in _rateLimits) { if (_rateLimits[key].reset < now) delete _rateLimits[key]; }
 }, 5 * 60 * 1000);
 
 // Apply rate limiting to mutation endpoints
