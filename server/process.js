@@ -58,11 +58,16 @@ function killServer(key) {
   try { process.kill(-srv.proc.pid, "SIGTERM"); } catch (e) {
     try { srv.proc.kill("SIGTERM"); } catch (e2) {}
   }
-  // SIGKILL fallback after 5s if process is still alive
-  const pid = srv.proc.pid;
+  // SIGKILL fallback after 5s if process is still alive. Check the
+  // ChildProcess object's exitCode/signalCode rather than just probing
+  // the raw PID — the OS may have reused the PID for an unrelated
+  // process by now and we'd SIGKILL someone else's work.
+  const proc = srv.proc;
+  const pid  = proc.pid;
   setTimeout(() => {
-    try { process.kill(pid, 0); /* check if alive */ process.kill(-pid, "SIGKILL"); } catch (_) {}
-    try { process.kill(pid, 0); process.kill(pid, "SIGKILL"); } catch (_) {}
+    if (proc.exitCode !== null || proc.signalCode !== null) return;
+    try { process.kill(-pid, "SIGKILL"); } catch (_) {}
+    try { proc.kill("SIGKILL"); } catch (_) {}
   }, 5000);
   delete runningServers[key];
 }
