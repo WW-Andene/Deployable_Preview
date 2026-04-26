@@ -2493,7 +2493,7 @@ button:disabled, button[disabled] {
   flex-wrap: wrap;
 }
 .tunnel-url {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 13px;
   color: var(--ok);
   word-break: break-all;
@@ -2515,7 +2515,7 @@ button:disabled, button[disabled] {
   flex-direction: column;
   gap: 4px;
   padding: 10px 0 6px;
-  border-top: 1px solid var(--br);
+  border-top: 1px solid var(--border);
   margin-bottom: 4px;
 }
 .apk-wd-label {
@@ -2526,15 +2526,15 @@ button:disabled, button[disabled] {
   letter-spacing: .04em;
 }
 .apk-wd-input {
-  background: var(--bg2);
-  border: 1px solid var(--br);
-  border-radius: 6px;
+  background: var(--sf2);
+  border: 1px solid var(--border-h);
+  border-radius: var(--r-input);
   color: var(--tx1);
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 13px;
   padding: 6px 10px;
   outline: none;
-  transition: border-color .15s;
+  transition: border-color var(--dur-micro) var(--ease-fast);
 }
 .apk-wd-input:focus { border-color: var(--accent); }
 .apk-wd-hint {
