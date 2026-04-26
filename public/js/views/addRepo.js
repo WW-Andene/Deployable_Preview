@@ -2,7 +2,11 @@
 var S = DV.S, el = DV.el, api = DV.api;
 
 function parseRepoUrl(raw) {
-  var c = raw.trim().replace(/\.git$/, "").replace(/\/$/, "");
+  // Strip query (?...) and fragment (#...) BEFORE the .git / trailing-
+  // slash cleanup, otherwise URLs like
+  //   https://github.com/owner/repo?ref=main
+  // capture "repo?ref=main" as the repo name and fail server validation.
+  var c = raw.trim().replace(/[?#].*$/, "").replace(/\.git$/, "").replace(/\/$/, "");
   return c.match(/(?:github\.com\/)?([^\/]+)\/([^\/]+)$/);
 }
 
