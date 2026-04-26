@@ -2,6 +2,19 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 
+// Escape user-controlled values before splicing into HTML responses.
+// File names, error messages, etc. would otherwise be reflected
+// raw — a build that produces `<img src=x onerror=…>.html` would
+// land in the file-browser fallback and run script in DV's origin.
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function proxyTo(port, req, res, stripPrefix) {
   // Strip the /preview/owner/repo/slug prefix so the target app receives clean paths
   var targetPath = req.originalUrl || req.url;
@@ -50,7 +63,7 @@ function proxyTo(port, req, res, stripPrefix) {
   });
   proxyReq.on("error", (e) => {
     res.writeHead(502, { "Content-Type": "text/html" });
-    res.end('<!DOCTYPE html><html><head><meta charset="utf-8"><title>502 - Server Not Responding</title><style>body{background:#090a10;color:#e6e1d5;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}div{text-align:center;max-width:400px}h1{color:#d4a030;font-size:20px}p{color:#9e9890;font-size:14px;margin:12px 0}button{background:#d4a030;color:#090a10;border:none;padding:10px 24px;border-radius:5px;cursor:pointer;font-size:14px;font-weight:600}button:hover{background:#eab840}</style></head><body><div><h1>502 - Server Not Responding</h1><p>' + e.message + '</p><button onclick="location.reload()">Retry</button><p style="font-size:12px;color:#6a665e;margin-top:24px">The preview server may still be starting up.</p></div></body></html>');
+    res.end('<!DOCTYPE html><html><head><meta charset="utf-8"><title>502 - Server Not Responding</title><style>body{background:#090a10;color:#e6e1d5;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}div{text-align:center;max-width:400px}h1{color:#d4a030;font-size:20px}p{color:#9e9890;font-size:14px;margin:12px 0}button{background:#d4a030;color:#090a10;border:none;padding:10px 24px;border-radius:5px;cursor:pointer;font-size:14px;font-weight:600}button:hover{background:#eab840}</style></head><body><div><h1>502 - Server Not Responding</h1><p>' + escHtml(e.message || "") + '</p><button onclick="location.reload()">Retry</button><p style="font-size:12px;color:#6a665e;margin-top:24px">The preview server may still be starting up.</p></div></body></html>');
   });
   req.pipe(proxyReq);
 }
@@ -77,8 +90,10 @@ function serveFileBrowser(outDir, res, previewBase) {
 
   var rows = items.map(function(it) {
     var icon = it.isDir ? "\uD83D\uDCC1" : "\uD83D\uDCC4";
-    var href = (previewBase || "") + "/" + it.name + (it.isDir ? "/" : "");
-    return '<tr><td>' + icon + '</td><td><a href="' + href + '" style="color:#d4a030;text-decoration:none">' + it.name + '</a></td><td style="color:#6a665e;text-align:right">' + (it.isDir ? "-" : fmtSize(it.size)) + '</td></tr>';
+    // URI-encode for the href segment (correct browser interpretation),
+    // HTML-escape both the href and the visible name (XSS defence).
+    var href = (previewBase || "") + "/" + encodeURIComponent(it.name) + (it.isDir ? "/" : "");
+    return '<tr><td>' + icon + '</td><td><a href="' + escHtml(href) + '" style="color:#d4a030;text-decoration:none">' + escHtml(it.name) + '</a></td><td style="color:#6a665e;text-align:right">' + (it.isDir ? "-" : fmtSize(it.size)) + '</td></tr>';
   }).join("");
 
   res.removeHeader("X-Frame-Options");
