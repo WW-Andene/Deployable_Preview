@@ -52,7 +52,7 @@ if (!DV._kbBound) {
         }
         break;
       case "c": case "C":
-        if (S.view === "preview") { S.compareMode = !S.compareMode; S.compareBranch = ""; DV.render(); e.preventDefault(); }
+        if (S.view === "preview") { S.compareMode = !S.compareMode; S.compareBranch = ""; S._compareFilter = null; S._compareFocus = false; DV.render(); e.preventDefault(); }
         break;
       case "t": case "T":
         if (S.view === "preview" && S.activeRepo) {
@@ -107,7 +107,7 @@ DV.views.topbar = function(app) {
   }
 
   if (S.view === "preview") {
-    right.appendChild(el("button", { c: "bg bs", on: { click: function() { S.compareMode = !S.compareMode; S.compareBranch = ""; DV.render(); } } }, S.compareMode ? "Single" : "Compare"));
+    right.appendChild(el("button", { c: "bg bs", on: { click: function() { S.compareMode = !S.compareMode; S.compareBranch = ""; S._compareFilter = null; S._compareFocus = false; DV.render(); } } }, S.compareMode ? "Single" : "Compare"));
     right.appendChild(el("button", { c: "bg bs", on: { click: function() { S.refreshKey++; DV.render(); } } }, "Refresh"));
     // Share button — uses native share sheet on mobile, QR + clipboard
     // modal on desktop. Especially useful for opening a desktop preview
