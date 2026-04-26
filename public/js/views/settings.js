@@ -73,8 +73,12 @@ function keyRow(secret, onSave, onDelete) {
   inp.className = "flex-1 font-mono text-12";
   inp.type = "password";
   inp.placeholder = secret.hasValue ? "New value\u2026" : "Paste key\u2026";
+  // Reveal while focused so the user can verify what they typed/pasted,
+  // then always re-mask on blur. Previously we only re-masked when the
+  // field was empty, which left fresh API keys readable on screen until
+  // the next render.
   inp.addEventListener("focus", function() { inp.type = "text"; });
-  inp.addEventListener("blur", function() { if (!inp.value) inp.type = "password"; });
+  inp.addEventListener("blur", function() { inp.type = "password"; });
   row.appendChild(inp);
 
   row.appendChild(el("button", { c: "bp bs", on: { click: function() {
