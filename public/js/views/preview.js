@@ -237,28 +237,40 @@ DV.views.preview = function(app) {
   // View toggles
   var ratioBar = el("div", { c: "preview-branch-bar" });
   var presetKeys = Object.keys(VIEW_PRESETS);
+  // Helper: build a chip <div> with keyboard support (Space/Enter activates)
+  // and aria-pressed reflecting the toggle state. Without this, the chips
+  // were divs invisible to keyboard navigation.
+  function toggleChip(label, on, onActivate) {
+    return el("div", {
+      c: "chip" + (on ? " on" : ""),
+      attr: { role: "button", tabindex: "0", "aria-pressed": on ? "true" : "false" },
+      on: {
+        click: onActivate,
+        keydown: function(e) { if (e.key === " " || e.key === "Enter") { e.preventDefault(); onActivate(); } }
+      }
+    }, label);
+  }
+
   for (var pi = 0; pi < presetKeys.length; pi++) {
     (function(key) {
       var preset = VIEW_PRESETS[key];
       var isOn = S.activeViews.indexOf(key) !== -1;
-      ratioBar.appendChild(el("div", { c: "chip" + (isOn ? " on" : ""), on: { click: function() {
+      ratioBar.appendChild(toggleChip(preset.label, isOn, function() {
         var idx = S.activeViews.indexOf(key);
         if (idx !== -1 && S.activeViews.length > 1) S.activeViews.splice(idx, 1);
         else if (idx === -1) S.activeViews.push(key);
         DV.render();
-      } } }, preset.label));
+      }));
     })(presetKeys[pi]);
   }
 
-  ratioBar.appendChild(el("div", { c: "chip" + (S.isFullscreen ? " on" : ""), on: { click: function() {
-    S.isFullscreen = !S.isFullscreen;
-    DV.render();
-  } } }, "Fullscreen"));
+  ratioBar.appendChild(toggleChip("Fullscreen", S.isFullscreen, function() {
+    S.isFullscreen = !S.isFullscreen; DV.render();
+  }));
 
-  ratioBar.appendChild(el("div", { c: "chip" + (S.rotated ? " on" : ""), on: { click: function() {
-    S.rotated = !S.rotated;
-    DV.render();
-  } } }, "Rotate"));
+  ratioBar.appendChild(toggleChip("Rotate", S.rotated, function() {
+    S.rotated = !S.rotated; DV.render();
+  }));
 
   app.appendChild(ratioBar);
 
