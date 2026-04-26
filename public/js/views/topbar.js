@@ -56,7 +56,7 @@ if (!DV._kbBound) {
         break;
       case "t": case "T":
         if (S.view === "preview" && S.activeRepo) {
-          window.open("/test/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/" + S.activeBranch, "_blank");
+          window.open("/test/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/" + S.activeBranch, "_blank", "noopener");
           e.preventDefault();
         }
         break;

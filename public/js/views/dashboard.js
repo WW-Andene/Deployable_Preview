@@ -279,7 +279,7 @@ DV.views.dashboard = function(app) {
                 attr: { title: "Pixel change vs. previous build — click for heatmap" },
                 on: { click: (function(r2, s2){ return function(ev) {
                   ev.stopPropagation();
-                  window.open("/api/thumb-diff/" + r2.owner + "/" + r2.repo + "?slug=" + encodeURIComponent(s2), "_blank");
+                  window.open("/api/thumb-diff/" + r2.owner + "/" + r2.repo + "?slug=" + encodeURIComponent(s2), "_blank", "noopener");
                 }; })(repo, slug) }
               }, "Δ " + pct.toFixed(1) + "%");
               info.appendChild(diffPill);
@@ -419,7 +419,7 @@ DV.views.dashboard = function(app) {
               if (isLive) {
                 menu.appendChild(_item({
                   glyph: "↗", label: "Open in new tab",
-                  run: function() { window.open(previewUrl, "_blank"); }
+                  run: function() { window.open(previewUrl, "_blank", "noopener"); }
                 }));
                 menu.appendChild(_item({
                   glyph: "⊞", label: "Share (QR / sheet / copy link)",

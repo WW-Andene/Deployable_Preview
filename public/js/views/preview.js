@@ -230,7 +230,7 @@ DV.views.preview = function(app) {
     }
   } } }, "Copy"));
   urlBar.appendChild(el("button", { c: "bg bs", attr: { title: "Open in new tab" }, on: { click: function() {
-    window.open(url, "_blank");
+    window.open(url, "_blank", "noopener");
   } } }, DV.iconEl("arrow_out")));
   app.appendChild(urlBar);
 
@@ -295,7 +295,10 @@ DV.views.preview = function(app) {
             "location=no",
             "status=no",
             "resizable=yes",
-            "scrollbars=yes"
+            "scrollbars=yes",
+            // Sever window.opener so the popped-out preview can't redirect
+            // the dashboard tab back to a phishing page.
+            "noopener"
           ].join(",");
           window.open(src + "?_r=" + S.refreshKey, winName, features);
         } }
