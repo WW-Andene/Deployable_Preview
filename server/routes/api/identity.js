@@ -111,11 +111,16 @@ router.delete("/secrets/:key", audit.logAction("secret.delete", { target: ["para
   const config = getConfig();
   if (!config.secrets) config.secrets = {};
   const key = req.params.key;
+  if (!SAFE_KEY_RE.test(key)) return res.status(400).json({ error: "Invalid key name" });
+  // Only clear process.env when DV is the one that put the value there.
+  // Otherwise an authed DELETE could wipe a system-provided env var
+  // (PATH, HOME, …) that DV never set, breaking the running process.
+  const wasOurs = Object.prototype.hasOwnProperty.call(config.secrets, key);
   delete config.secrets[key];
   if (key === "GITHUB_TOKEN") config.token = "";
-  delete process.env[key];
+  if (wasOurs) delete process.env[key];
   saveConfig();
-  res.json({ ok: true, key, removed: true });
+  res.json({ ok: true, key, removed: wasOurs });
 });
 
 // ── Preferences ──────────────────────────────────────────────────────────────
