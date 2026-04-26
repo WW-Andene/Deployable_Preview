@@ -100,7 +100,17 @@ DV._modal.apk = function render(app) {
         body: JSON.stringify({ workingDir: wd })
       })
         .then(function(r) { return r.json(); })
-        .then(function() {
+        .then(function(body) {
+          // Server may return {error: "APK build already in progress"} or
+          // similar. Without this check we'd open the SSE and poll status
+          // as if the build started, leaving the user staring at an
+          // empty log while the modal spinner pretends it's working.
+          if (body && body.error) {
+            DV.showToast(body.error, "error");
+            apkLogDiv.textContent = body.error;
+            e.target.disabled = false; e.target.textContent = "Build APK";
+            return;
+          }
           if (S._apkSSE) S._apkSSE.close();
           S._apkSSE = new EventSource("/api/apk/" + am.owner + "/" + am.repo + "/log-stream?slug=" + encodeURIComponent(am.slug));
           S._apkSSE.onmessage = function(ev) {
