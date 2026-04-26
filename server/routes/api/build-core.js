@@ -98,9 +98,11 @@ router.get("/thumb-diff/:owner/:repo", (req, res) => {
   const slug = req.query.slug || req.query.branch || "";
   const r = deployment.getDiffThumb(req.params.owner, req.params.repo, slug);
   if (!r.ok) { res.status(STATUS[r.code] || 404).end(); return; }
+  const etag = '"diff-' + r.thumbAt + '"';
   res.type("image/png");
   res.setHeader("Cache-Control", "public, max-age=30");
-  res.setHeader("ETag", '"diff-' + r.thumbAt + '"');
+  res.setHeader("ETag", etag);
+  if (req.headers["if-none-match"] === etag) { res.status(304).end(); return; }
   res.end(r.buffer);
 });
 
