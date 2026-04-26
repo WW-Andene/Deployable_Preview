@@ -92,6 +92,17 @@ function el(tag, props, kids) {
       e.appendChild(typeof kids[i] === "string" || typeof kids[i] === "number" ? document.createTextNode("" + kids[i]) : kids[i]);
     }
   }
+  // a11y fallback: interactive elements whose visible label is just an
+  // icon or glyph (e.g. "x", "•••", an SVG) often have a title attribute
+  // for tooltips but no aria-label. Promote title → aria-label so screen
+  // readers announce something meaningful. Explicit aria-label wins.
+  if (e.hasAttribute("title") && !e.hasAttribute("aria-label")) {
+    var role = e.getAttribute("role");
+    var interactive = tag === "button" || tag === "a" ||
+      role === "button" || role === "menuitem" || role === "tab" ||
+      role === "checkbox" || role === "switch";
+    if (interactive) e.setAttribute("aria-label", e.getAttribute("title"));
+  }
   return e;
 }
 
