@@ -9,9 +9,29 @@ const express = require("express");
 const router = express.Router();
 
 const previewErrors = require("../../preview-errors");
+const { getConfig } = require("../../config");
+const { branchSlug } = require("../../build");
+
+// The POST endpoint is intentionally public (called by the in-app
+// collector that the proxy injects into deployed HTML), but accepting
+// arbitrary owner/repo/slug from the open internet would let any
+// unauthenticated client fill the in-memory errorsByKey Map with
+// junk keys — DoS / memory pressure / drowning out real entries.
+// Drop any post whose key doesn't match a real configured branch.
+function _isKnownBranch(owner, repo, slug) {
+  const cfg = getConfig();
+  const r = (cfg.repos || []).find((x) => x.owner === owner && x.repo === repo);
+  if (!r) return false;
+  return (r.activeBranches || []).some((bc) => branchSlug(bc) === slug);
+}
 
 router.post("/preview-errors/:owner/:repo/:slug", express.json({ limit: "32kb" }), (req, res) => {
-  const key = req.params.owner + "/" + req.params.repo + ":" + req.params.slug;
+  const { owner, repo, slug } = req.params;
+  if (!_isKnownBranch(owner, repo, slug)) {
+    // 204 (not 404) so probes don't get a useful signal.
+    return res.status(204).end();
+  }
+  const key = owner + "/" + repo + ":" + slug;
   previewErrors.record(key, req.body || {});
   res.status(204).end();
 });
