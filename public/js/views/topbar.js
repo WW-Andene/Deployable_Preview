@@ -86,7 +86,9 @@ DV.views.topbar = function(app) {
   if (S.view !== "setup" && S.view !== "dashboard" && S.view !== "loading") {
     left.appendChild(el("button", { c: "bg bs", on: { click: function() { S.view = "dashboard"; S.showBranchDropdown = false; DV.render(); } } }, "\u2190"));
   }
-  left.appendChild(el("span", { c: "dv-badge", on: { click: function() { if (S.hasToken) { S.view = "dashboard"; DV.render(); } } } }, "DeployView"));
+  // Make this a real button so keyboard and screen-reader users can
+  // activate it. The dv-badge styles work on either tag.
+  left.appendChild(el("button", { c: "dv-badge", attr: { type: "button", "aria-label": "Go to dashboard" }, on: { click: function() { if (S.hasToken) { S.view = "dashboard"; DV.render(); } } } }, "DeployView"));
 
   // Tunnel indicator
   if (S._tunnelStatus && S._tunnelStatus.url) {
