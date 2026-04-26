@@ -118,7 +118,21 @@ router.post("/repos/:owner/:repo/branch", (req, res) => {
 
 router.delete("/repos/:owner/:repo", (req, res) => {
   const config = getConfig();
-  config.repos = config.repos.filter((r) => r.id !== req.params.owner + "/" + req.params.repo);
+  const id = req.params.owner + "/" + req.params.repo;
+  const repoConfig = config.repos.find((r) => r.id === id);
+  // Tear down each branch's runtime state before forgetting the repo —
+  // otherwise server-mode processes keep running, ports stay allocated,
+  // buildStatus slots leak, and workspace clones accumulate on disk.
+  if (repoConfig) {
+    for (const bc of repoConfig.activeBranches || []) {
+      const key = buildKey(req.params.owner, req.params.repo, bc);
+      killServer(key);
+      delete buildStatus[key];
+      const dir = getBranchDir(req.params.owner, req.params.repo, bc);
+      exec("rm -rf " + JSON.stringify(dir), () => {});
+    }
+  }
+  config.repos = config.repos.filter((r) => r.id !== id);
   saveConfig();
   res.json({ ok: true });
 });
