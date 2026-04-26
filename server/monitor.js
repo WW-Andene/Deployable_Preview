@@ -111,7 +111,13 @@ async function _runOnce() {
     for (const bc of (r.activeBranches || [])) {
       if (!bc.schedule) continue;
       const key = r.owner + "/" + r.repo + ":" + branchSlug(bc);
-      const slot = buildStatus[key] || {};
+      // Materialise the slot so lastScheduledAt mutations persist. Before
+      // this, the `buildStatus[key] || {}` fallback created a temp object
+      // for never-built branches; mutating it didn't stick, so the
+      // scheduler kept firing on every tick until the first build wrote
+      // a real slot.
+      if (!buildStatus[key]) buildStatus[key] = {};
+      const slot = buildStatus[key];
       if (slot.status === "building" || slot.status === "queued") continue;
 
       let shouldFire = false, reason = "";
