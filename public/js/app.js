@@ -334,9 +334,15 @@ function installErrorCountSync() {
 // Auto-reconnects with a 5s back-off if the connection drops.
 function installStatusStream() {
   if (S._statusES) return;
+  // Exponential backoff: start at 5s, double each consecutive failure
+  // up to 60s. Reset to 5s on every successful connect (open event).
+  // Without this, a long outage produces a 5s reconnect storm against
+  // a server that's already broken or unreachable.
+  var _backoff = 5000;
   function open() {
     var es = new EventSource("/api/status/stream");
     S._statusES = es;
+    es.addEventListener("open", function() { _backoff = 5000; });
     es.addEventListener("message", function(ev) {
       var msg; try { msg = JSON.parse(ev.data); } catch (_) { return; }
       if (!msg || !msg.key || !msg.slot) return;
@@ -355,7 +361,9 @@ function installStatusStream() {
     es.addEventListener("error", function() {
       try { es.close(); } catch (_) {}
       S._statusES = null;
-      setTimeout(open, 5000);
+      var delay = Math.min(_backoff, 60000);
+      _backoff = Math.min(_backoff * 2, 60000);
+      setTimeout(open, delay);
     });
   }
   open();
