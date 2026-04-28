@@ -65,7 +65,7 @@ async function buildBranch(repoConfig, branchConfig) {
   // Enforce max concurrent builds
   if (countActiveBuilds() >= MAX_CONCURRENT_BUILDS) {
     console.log("[" + key + "] Max concurrent builds (" + MAX_CONCURRENT_BUILDS + ") reached, queuing...");
-    buildStatus[key] = { status: "queued", log: "Waiting for build slot...\n", lastBuild: null, commitSha: "", mode: "static" };
+    buildStatus[key] = { status: "queued", log: "Waiting for build slot...\n", lastBuild: null, commitSha: "", mode: "static", queuedAt: Date.now() };
     broadcastStatus(key, buildStatus[key]);
     setTimeout(() => {
       const slot = buildStatus[key];

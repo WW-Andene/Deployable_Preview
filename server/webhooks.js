@@ -191,6 +191,25 @@ function _post(targetUrl, body, secret, format) {
   });
 }
 
+// recordDelivery(wh, event, result) — write the most recent delivery
+// outcome onto the webhook record so the Settings UI can show "last
+// delivery: 200 OK 12s ago" or "last: 503 (5m ago)". Persists via
+// saveConfig (queued, async) — fire-and-forget is fine here.
+function recordDelivery(wh, event, result) {
+  const cfg = getConfig();
+  if (!Array.isArray(cfg.webhooks)) return;
+  const live = cfg.webhooks.find((w) => w.id === wh.id);
+  if (!live) return; // user deleted it mid-flight
+  live.lastDelivery = {
+    at: Date.now(),
+    event,
+    ok: !!result.ok,
+    statusCode: result.statusCode || null,
+    error: result.ok ? null : (result.error || ("HTTP " + (result.statusCode || "?")))
+  };
+  try { saveConfig(); } catch (_) {}
+}
+
 // emit(eventName, payload) — fire-and-forget. Errors logged, never thrown.
 function emit(event, payload) {
   if (VALID_EVENTS.indexOf(event) === -1) return;
@@ -199,6 +218,7 @@ function emit(event, payload) {
   for (const wh of subs) {
     const body = _shapePayload(wh.format, event, payload);
     _post(wh.url, body, wh.secret, wh.format).then(function(r) {
+      recordDelivery(wh, event, r);
       if (!r.ok) console.warn("[webhook] " + wh.id + " " + event + " failed: " + (r.error || r.statusCode));
     });
   }
@@ -208,6 +228,7 @@ module.exports = {
   VALID_EVENTS,
   _shapePayload,
   _post,
+  recordDelivery,
   listWebhooks,
   addWebhook,
   removeWebhook,

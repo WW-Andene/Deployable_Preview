@@ -53,6 +53,7 @@ router.post("/webhooks/:id/test", async (req, res) => {
   try {
     const body = webhooks._shapePayload(wh.format, "build.ready", fake);
     const r = await webhooks._post(wh.url, body, wh.secret, wh.format);
+    webhooks.recordDelivery(wh, "build.ready", r);
     if (r.ok) {
       res.json({ ok: true, statusCode: r.statusCode, message: "Receiver returned " + r.statusCode });
     } else {

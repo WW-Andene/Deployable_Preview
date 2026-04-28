@@ -52,7 +52,7 @@ async function startServer(repoConfig, branchConfig, isRestart) {
   // Enforce max concurrent builds (restarts skip the queue)
   if (!isRestart && countActiveBuilds() >= MAX_CONCURRENT_BUILDS) {
     console.log("[" + key + "] Max concurrent builds (" + MAX_CONCURRENT_BUILDS + ") reached, queuing...");
-    buildStatus[key] = { status: "queued", log: "Waiting for build slot...\n", lastBuild: null, commitSha: "", mode: "server" };
+    buildStatus[key] = { status: "queued", log: "Waiting for build slot...\n", lastBuild: null, commitSha: "", mode: "server", queuedAt: Date.now() };
     broadcastStatus(key, buildStatus[key]);
     setTimeout(() => {
       const slot = buildStatus[key];

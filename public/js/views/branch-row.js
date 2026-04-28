@@ -87,7 +87,12 @@ function computeStatusSignal(bs, runtimeErrCount) {
   }
   // In-flight states
   if (bs.status === "queued") {
-    return { level: "queued", text: "Queued", title: "Waiting for a build slot", className: "pill" };
+    var ahead = (typeof bs.queuedAhead === "number") ? bs.queuedAhead : 0;
+    var qtext = ahead > 0 ? ("Queued (" + ahead + " ahead)") : "Queued";
+    var qtitle = ahead > 0
+      ? ("Waiting for a build slot — position " + (ahead + 1))
+      : "Waiting for a build slot";
+    return { level: "queued", text: qtext, title: withAlso(-1, qtitle), className: "pill" };
   }
   if (bs.status === "building") {
     return { level: "building", text: "Building", title: "Build in progress", className: "pill pill-info" };

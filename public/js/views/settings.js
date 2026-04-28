@@ -469,6 +469,16 @@ DV.views.settings = function(app) {
   var whBody = el("div", {});
   whBody.appendChild(el("div", { c: "text-center pad-md" }, [el("span", { c: "spin" })]));
 
+  // Compact "Xs/m/h ago" formatter for last-delivery pills.
+  function _wTimeAgo(ms) {
+    if (!ms) return "";
+    var s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+    if (s < 60) return s + "s ago";
+    if (s < 3600) return Math.floor(s / 60) + "m ago";
+    if (s < 86400) return Math.floor(s / 3600) + "h ago";
+    return Math.floor(s / 86400) + "d ago";
+  }
+
   function loadWebhooks() {
     api("GET", "/api/webhooks").then(function(r) {
       whBody.innerHTML = "";
@@ -486,12 +496,22 @@ DV.views.settings = function(app) {
         for (var i = 0; i < list.length; i++) {
           (function(wh) {
             var card = el("div", { c: "settings-key-row" });
-            card.appendChild(el("div", { c: "flex-row gap-8 items-center" }, [
+            var headerKids = [
               el("span", { c: "settings-key-name" }, wh.label || wh.url),
               el("span", { c: "pill " + (wh.enabled ? "pill-ok" : "pill-warn") }, wh.enabled ? "on" : "off"),
               el("span", { c: "pill pill-info" }, wh.format),
               el("span", { c: "color-tx3 text-11 font-mono" }, wh.events.join(","))
-            ]));
+            ];
+            if (wh.lastDelivery) {
+              var ld = wh.lastDelivery;
+              var pillCls = ld.ok ? "pill pill-ok" : "pill pill-err";
+              var pillText = (ld.ok ? "✓ " : "✗ ") + (ld.statusCode || (ld.error ? "err" : "?")) + " · " + _wTimeAgo(ld.at);
+              var pillTitle = "Last " + (ld.event || "delivery") + ": " + (ld.ok ? ("HTTP " + ld.statusCode) : (ld.error || ("HTTP " + ld.statusCode))) + " (" + new Date(ld.at).toLocaleString() + ")";
+              headerKids.push(el("span", { c: pillCls, attr: { title: pillTitle } }, pillText));
+            } else {
+              headerKids.push(el("span", { c: "pill", attr: { title: "No delivery yet — click Test to fire one now" } }, "no delivery yet"));
+            }
+            card.appendChild(el("div", { c: "flex-row gap-8 items-center flex-wrap" }, headerKids));
             card.appendChild(el("div", { c: "color-tx3 text-12 font-mono mt-4" }, wh.url));
             card.appendChild(el("div", { c: "flex-row gap-6 mt-6" }, [
               el("button", { c: "bg bs", on: { click: function() {
