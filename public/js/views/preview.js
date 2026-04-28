@@ -39,6 +39,7 @@ DV.views.preview = function(app) {
 
     var pickerWrap = el("div", { c: "compare-picker" });
     var pickerInp = document.createElement("input");
+    pickerInp.id = "preview-compare-filter";
     pickerInp.className = "compare-picker-input";
     pickerInp.placeholder = "Filter branches\u2026";
     pickerInp.autocomplete = "off"; pickerInp.spellcheck = false;
@@ -129,6 +130,7 @@ DV.views.preview = function(app) {
 
     if ((S.addBranchMode || "static") === "server") {
       var startCmdInput = document.createElement("input");
+      startCmdInput.id = "addbranch-start-cmd";
       startCmdInput.className = "dd-input run-border";
       startCmdInput.placeholder = "Start command (npm start)";
       startCmdInput.value = S.addBranchStartCmd || "";
@@ -138,6 +140,7 @@ DV.views.preview = function(app) {
     }
 
     var rootDirInput = document.createElement("input");
+    rootDirInput.id = "addbranch-base-dir";
     rootDirInput.className = "dd-input accent-border";
     rootDirInput.placeholder = "Root dir (empty = repo root)";
     rootDirInput.value = S.addBranchBaseDir || "";
@@ -146,6 +149,7 @@ DV.views.preview = function(app) {
     dd.appendChild(rootDirInput);
 
     var searchInput = document.createElement("input");
+    searchInput.id = "addbranch-filter";
     searchInput.className = "dd-input";
     searchInput.placeholder = "Filter branches...";
     searchInput.value = S.branchFilter;
@@ -216,9 +220,12 @@ DV.views.preview = function(app) {
   ]));
   app.appendChild(ctrls);
 
-  // URL bar with copy and open-in-tab
+  // URL bar with reload, copy, open-in-tab.
   var urlBar = el("div", { c: "preview-url-bar flex-row gap-6 items-center" });
   urlBar.appendChild(el("span", { c: "flex-1 truncate" }, url));
+  urlBar.appendChild(el("button", { c: "bg bs", attr: { title: "Reload iframes (R)" }, on: { click: function() {
+    S.refreshKey++; DV.render();
+  } } }, "↻"));
   urlBar.appendChild(el("button", { c: "bg bs", attr: { title: "Copy URL" }, on: { click: function() {
     DV.copyToClipboard(window.location.origin + url, { successMessage: "URL copied" });
   } } }, "Copy"));

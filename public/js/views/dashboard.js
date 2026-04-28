@@ -69,12 +69,7 @@ DV.views.dashboard = function(app) {
       el("div", { c: "setup-logo" }, "DV"),
       el("h2", { c: "page-title" }, "Deploy your first app"),
       el("p", { c: "preview-empty-text mb-32" }, "Pick a repo, choose branches, and DeployView handles the rest \u2014 clone, build, serve, auto-rebuild on push."),
-      el("button", { c: "bp p-10-28 text-14", on: { click: function() {
-        S.repoUrl = ""; S.repoError = ""; S.fetchedBranches = []; S.selectedBranches = [];
-        S.repoInfo = null; S.buildCommand = "npm run build"; S.outputDir = "dist"; S.baseDir = "";
-        S.mode = "static"; S.startCommand = "npm start"; S.envVars = "";
-        S.view = "addRepo"; DV.render();
-      } } }, "+ Add Repository")
+      el("button", { c: "bp p-10-28 text-14", on: { click: function() { DV.openAddRepo(); } } }, "+ Add Repository")
     ]));
   } else {
     var totalBranches = 0, readyCount = 0, buildingCount = 0, errorCount = 0;

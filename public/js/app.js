@@ -598,6 +598,18 @@ window.DV = {
     rootEl._dvPTR = cleanup;
     return cleanup;
   },
+  // openAddRepo() — single entry point for navigating to the Add-Repo
+  // form. Resets the inputs to known defaults so a stale half-filled
+  // form from a previous session doesn't bleed in. Three callsites
+  // duplicated this verbatim before this helper.
+  openAddRepo: function() {
+    S.repoUrl = ""; S.repoError = ""; S.fetchedBranches = []; S.selectedBranches = [];
+    S.repoInfo = null; S.detectedFramework = null; S.detectError = "";
+    S.buildCommand = "npm run build"; S.outputDir = "dist"; S.baseDir = "";
+    S.mode = "static"; S.startCommand = "npm start"; S.envVars = "";
+    S.language = "auto";
+    S.view = "addRepo"; render();
+  },
   // openShare(url, title?) — preferred entry point. Uses native share sheet
   // on supported devices (Android/iOS/macOS Safari), falls back to the QR
   // modal on desktop / unsupported browsers. Always also offers clipboard.

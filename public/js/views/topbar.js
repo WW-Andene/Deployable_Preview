@@ -44,12 +44,7 @@ if (!DV._kbBound) {
         if (S.view === "preview") { S.refreshKey++; DV.render(); e.preventDefault(); }
         break;
       case "n": case "N":
-        if (S.view === "dashboard") {
-          S.repoUrl = ""; S.repoError = ""; S.fetchedBranches = []; S.selectedBranches = [];
-          S.repoInfo = null; S.buildCommand = "npm run build"; S.outputDir = "dist"; S.baseDir = "";
-          S.mode = "static"; S.startCommand = "npm start"; S.envVars = "";
-          S.view = "addRepo"; DV.render(); e.preventDefault();
-        }
+        if (S.view === "dashboard") { DV.openAddRepo(); e.preventDefault(); }
         break;
       case "c": case "C":
         if (S.view === "preview") { S.compareMode = !S.compareMode; S.compareBranch = ""; S._compareFilter = null; S._compareFocus = false; DV.render(); e.preventDefault(); }
@@ -100,25 +95,23 @@ DV.views.topbar = function(app) {
   var right = el("div", { c: "topbar-right" });
 
   if (S.view === "dashboard" && S.repos.length > 0) {
-    right.appendChild(el("button", { c: "bp bs", on: { click: function() {
-      S.repoUrl = ""; S.repoError = ""; S.fetchedBranches = []; S.selectedBranches = [];
-      S.repoInfo = null; S.buildCommand = "npm run build"; S.outputDir = "dist"; S.baseDir = "";
-      S.mode = "static"; S.startCommand = "npm start"; S.envVars = "";
-      S.view = "addRepo"; DV.render();
-    } } }, "+ Add Repo"));
+    right.appendChild(el("button", { c: "bp bs", attr: { title: "Add a repository (N)" }, on: { click: function() { DV.openAddRepo(); } } }, "+ Add Repo"));
   }
 
   if (S.view === "preview") {
-    right.appendChild(el("button", { c: "bg bs", on: { click: function() { S.compareMode = !S.compareMode; S.compareBranch = ""; S._compareFilter = null; S._compareFocus = false; DV.render(); } } }, S.compareMode ? "Single" : "Compare"));
-    right.appendChild(el("button", { c: "bg bs", on: { click: function() { S.refreshKey++; DV.render(); } } }, "Refresh"));
+    right.appendChild(el("button", { c: "bg bs", attr: { title: "Toggle compare mode (C)" }, on: { click: function() { S.compareMode = !S.compareMode; S.compareBranch = ""; S._compareFilter = null; S._compareFocus = false; DV.render(); } } }, S.compareMode ? "Single" : "Compare"));
+    // Refresh: bumps S.refreshKey to force iframe reload AND re-fetches
+    // /api/repos so build status updates land too. The keyboard 'r' does
+    // the same.
+    right.appendChild(el("button", { c: "bg bs", attr: { title: "Reload iframes + build status (R)" }, on: { click: function() { S.refreshKey++; DV.loadRepos(); DV.render(); } } }, "Refresh"));
     // Share button — uses native share sheet on mobile, QR + clipboard
     // modal on desktop. Especially useful for opening a desktop preview
     // on a phone via QR scan.
-    right.appendChild(el("button", { c: "bg bs", attr: { title: "Share preview", "aria-label": "Share preview URL" }, on: { click: function() {
+    right.appendChild(el("button", { c: "bg bs", attr: { title: "Share preview URL", "aria-label": "Share preview URL" }, on: { click: function() {
       var url = "/preview/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/" + S.activeBranch + "/";
       DV.openShare(url, S.activeRepo.owner + "/" + S.activeRepo.repo + " · " + S.activeBranch);
     } } }, "Share"));
-    right.appendChild(el("button", { c: "bg bs", on: { click: function() {
+    right.appendChild(el("button", { c: "bg bs", attr: { title: "Open MCP-driven test page (T)" }, on: { click: function() {
       window.open("/test/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/" + S.activeBranch, "_blank", "noopener");
     } } }, "Test"));
   }
