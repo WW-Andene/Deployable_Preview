@@ -676,19 +676,31 @@ DV.views.settings = function(app) {
       form.appendChild(el("button", { c: "bp bs", on: { click: function() {
         if (!idInp.value.trim()) { DV.showToast("id required", "error"); return; }
         var vars = {};
+        var interpolated = []; // keys whose values still have $VAR / ${VAR}
         varsInp.value.split("\n").forEach(function(line){
           var t = line.trim(); if (!t || t.startsWith("#")) return;
+          // Tolerate `export KEY=value` style pastes the same way the
+          // bulk-secrets import does — parity matters because users
+          // copy-paste the same .env between the two textareas.
+          t = t.replace(/^export\s+/i, "");
           var eq = t.indexOf("="); if (eq < 1) return;
-          vars[t.slice(0, eq).trim()] = t.slice(eq + 1).trim();
+          var k = t.slice(0, eq).trim();
+          // Strip a single matched layer of leading/trailing quotes.
+          var v = t.slice(eq + 1).trim().replace(/^"(.*)"$|^'(.*)'$/, "$1$2");
+          if (/\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*/.test(v)) interpolated.push(k);
+          vars[k] = v;
         });
+        if (interpolated.length) {
+          DV.showToast("Heads up: " + interpolated.join(", ") + " contain $VAR / ${VAR} — saved literally (no shell interpolation).", "info");
+        }
         api("POST", "/api/env-groups", {
           id: idInp.value.trim(), name: nameInp.value.trim() || idInp.value.trim(), vars: vars
         }).then(function(r){
-          if (r.error) { DV.showToast(r.error, "error"); return; }
+          if (r && r.error) { DV.showToast(r.error, "error"); return; }
           DV.showToast("Group created", "success");
           idInp.value = ""; nameInp.value = ""; varsInp.value = "";
           loadEnvGroups();
-        });
+        }).catch(function(e){ DV.showToast("Failed: " + ((e && e.message) || "network"), "error"); });
       } } }, "Create"));
       egBody.appendChild(form);
     }).catch(function() { egBody.textContent = "Could not load."; });
@@ -696,24 +708,34 @@ DV.views.settings = function(app) {
 
   function editEnvGroup(id) {
     api("GET", "/api/env-groups/" + id).then(function(g) {
-      if (g.error) { DV.showToast(g.error, "error"); return; }
+      if (g && g.error) { DV.showToast(g.error, "error"); return; }
       var current = "";
       Object.keys(g.vars || {}).forEach(function(k){ current += k + "=\n"; });
       var newVars = prompt("Replace ALL values for '" + g.name + "'.\n\nFormat: KEY=value, one per line.\nMasked existing keys:\n" + Object.keys(g.vars || {}).join(", "), current);
       if (newVars === null) return;
       var vars = {};
+      var interpolated = [];
       newVars.split("\n").forEach(function(line){
         var t = line.trim(); if (!t || t.startsWith("#")) return;
+        // Same parser as the create form: tolerate `export KEY=…`,
+        // strip matching wrap quotes, warn on $VAR / ${VAR}.
+        t = t.replace(/^export\s+/i, "");
         var eq = t.indexOf("="); if (eq < 1) return;
-        var v = t.slice(eq + 1).trim();
-        if (v) vars[t.slice(0, eq).trim()] = v;
+        var k = t.slice(0, eq).trim();
+        var v = t.slice(eq + 1).trim().replace(/^"(.*)"$|^'(.*)'$/, "$1$2");
+        if (!v) return;
+        if (/\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*/.test(v)) interpolated.push(k);
+        vars[k] = v;
       });
+      if (interpolated.length) {
+        DV.showToast("Heads up: " + interpolated.join(", ") + " contain $VAR / ${VAR} — saved literally.", "info");
+      }
       api("PUT", "/api/env-groups/" + id, { vars: vars }).then(function(r){
-        if (r.error) { DV.showToast(r.error, "error"); return; }
+        if (r && r.error) { DV.showToast(r.error, "error"); return; }
         DV.showToast("Saved", "success");
         loadEnvGroups();
-      });
-    });
+      }).catch(function(e){ DV.showToast("Save failed: " + ((e && e.message) || "network"), "error"); });
+    }).catch(function(e){ DV.showToast("Load failed: " + ((e && e.message) || "network"), "error"); });
   }
   loadEnvGroups();
   appendIfExists(page, section("Env-Var Groups", [egBody], "envgroups"));
