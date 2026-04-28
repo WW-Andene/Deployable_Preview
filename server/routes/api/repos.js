@@ -6,12 +6,25 @@
 "use strict";
 
 const express = require("express");
-const { exec } = require("child_process");
+const fs = require("fs");
+const fsp = fs.promises;
 const router = express.Router();
 
 const { getConfig, saveConfig } = require("../../config");
 const { buildStatus, branchSlug, buildKey, getBranchDir, deployBranch, queueAhead } = require("../../build");
 const { runningServers, killServer } = require("../../process");
+
+// Find a configured repo case-insensitively. GitHub treats owner/repo
+// as case-insensitive, so the lookup must too — otherwise PATCH/DELETE
+// against a URL with one case can't reach a config saved under another
+// case (the user adds 'Foo/Bar' from the picker, then the dashboard
+// links via the lower-cased path baked into earlier history entries
+// 404 silently). Single helper avoids per-route drift.
+function findRepo(config, owner, repo) {
+  const ol = String(owner || "").toLowerCase();
+  const rl = String(repo || "").toLowerCase();
+  return (config.repos || []).find((r) => r.owner.toLowerCase() === ol && r.repo.toLowerCase() === rl);
+}
 
 // Body-supplied owner/repo names skip the router.param("owner"/"repo")
 // validator, which only fires on path parameters. POST /api/repos takes
@@ -96,7 +109,7 @@ router.post("/repos", (req, res) => {
 const PATCHABLE_REPO_KEYS = ["autoPRPreviews", "description", "buildCommand", "outputDir", "baseDir", "startCommand", "mode"];
 router.patch("/repos/:owner/:repo", (req, res) => {
   const config = getConfig();
-  const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
+  const repoConfig = findRepo(config, req.params.owner, req.params.repo);
   if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
   for (const k of PATCHABLE_REPO_KEYS) {
     if (Object.prototype.hasOwnProperty.call(req.body || {}, k)) {
@@ -112,53 +125,69 @@ router.post("/repos/:owner/:repo/branch", (req, res) => {
   const config = getConfig();
   const { branch, baseDir, buildCommand, outputDir, mode, startCommand, envVars, language } = req.body;
   if (!branch) return res.status(400).json({ error: "branch required" });
-  const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
+  const repoConfig = findRepo(config, req.params.owner, req.params.repo);
   if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
   const bd = baseDir || "";
   if (repoConfig.activeBranches.some((bc) => bc.branch === branch && (bc.baseDir || "") === bd))
     return res.status(400).json({ error: "Branch with this root directory already active" });
-  const bc = { branch, baseDir: bd, buildCommand: buildCommand || "", outputDir: outputDir || "", mode: mode || "static", startCommand: startCommand || "", envVars: envVars || "", language: language || "auto" };
-  repoConfig.activeBranches.push(bc);
+  // Slug-collision guard. Two branches that resolve to the same
+  // branchSlug() share build keys, workspace dirs, preview URLs and
+  // status entries — the second push silently overwrites the first
+  // every time either rebuilds. PUT had this check (line 221); POST
+  // didn't. Now both do. Example collisions: branch='main' added
+  // when another branch already has customSlug='main'; branch
+  // 'feat__main' added when 'feat/main' already exists (auto-slug
+  // collapses both to feat__main).
+  const newBc = { branch, baseDir: bd, buildCommand: buildCommand || "", outputDir: outputDir || "", mode: mode || "static", startCommand: startCommand || "", envVars: envVars || "", language: language || "auto" };
+  const proposedSlug = branchSlug(newBc);
+  const slugClash = repoConfig.activeBranches.some((other) => branchSlug(other) === proposedSlug);
+  if (slugClash) return res.status(409).json({ error: "Slug '" + proposedSlug + "' already in use by another branch in this repo" });
+  repoConfig.activeBranches.push(newBc);
   saveConfig();
-  deployBranch(repoConfig, bc);
+  deployBranch(repoConfig, newBc);
   res.json({ ok: true, activeBranches: repoConfig.activeBranches });
 });
 
 router.delete("/repos/:owner/:repo", (req, res) => {
   const config = getConfig();
-  const id = req.params.owner + "/" + req.params.repo;
-  const repoConfig = config.repos.find((r) => r.id === id);
+  const repoConfig = findRepo(config, req.params.owner, req.params.repo);
   // Tear down each branch's runtime state before forgetting the repo —
   // otherwise server-mode processes keep running, ports stay allocated,
   // buildStatus slots leak, and workspace clones accumulate on disk.
+  // Use the canonical owner/repo from the stored config (not the
+  // request URL) when computing build keys + workspace dirs, so a
+  // case-mismatched URL still tears down the right state.
   if (repoConfig) {
     for (const bc of repoConfig.activeBranches || []) {
-      const key = buildKey(req.params.owner, req.params.repo, bc);
+      const key = buildKey(repoConfig.owner, repoConfig.repo, bc);
       killServer(key);
       delete buildStatus[key];
-      const dir = getBranchDir(req.params.owner, req.params.repo, bc);
-      exec("rm -rf " + JSON.stringify(dir), () => {});
+      const dir = getBranchDir(repoConfig.owner, repoConfig.repo, bc);
+      // fsp.rm replaces the prior fire-and-forget exec(rm -rf): no
+      // shell, no quoting concern, errors are at least catchable
+      // even if we don't await them.
+      fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
     }
+    config.repos = config.repos.filter((r) => r !== repoConfig);
   }
-  config.repos = config.repos.filter((r) => r.id !== id);
   saveConfig();
-  res.json({ ok: true });
+  res.json({ ok: true, removed: !!repoConfig });
 });
 
 router.delete("/repos/:owner/:repo/branch", (req, res) => {
   const config = getConfig();
   const slug = req.query.slug;
   if (!slug) return res.status(400).json({ error: "slug query param required" });
-  const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
+  const repoConfig = findRepo(config, req.params.owner, req.params.repo);
   if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
   const idx = repoConfig.activeBranches.findIndex((bc) => branchSlug(bc) === slug);
   if (idx === -1) return res.status(404).json({ error: "Branch config not found" });
   const bc = repoConfig.activeBranches[idx];
-  const key = buildKey(req.params.owner, req.params.repo, bc);
+  const key = buildKey(repoConfig.owner, repoConfig.repo, bc);
   killServer(key);
   delete buildStatus[key];
-  const dir = getBranchDir(req.params.owner, req.params.repo, bc);
-  exec("rm -rf " + JSON.stringify(dir), () => {});
+  const dir = getBranchDir(repoConfig.owner, repoConfig.repo, bc);
+  fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
   repoConfig.activeBranches.splice(idx, 1);
   saveConfig();
   res.json({ ok: true, activeBranches: repoConfig.activeBranches });
@@ -171,7 +200,7 @@ router.put("/repos/:owner/:repo/branch", (req, res) => {
   const config = getConfig();
   const { slug, baseDir, buildCommand, outputDir, mode, startCommand, envVars, language, customSlug, previewPassword } = req.body;
   if (!slug) return res.status(400).json({ error: "slug required" });
-  const repoConfig = config.repos.find((r) => r.owner === req.params.owner && r.repo === req.params.repo);
+  const repoConfig = findRepo(config, req.params.owner, req.params.repo);
   if (!repoConfig) return res.status(404).json({ error: "Repo not found" });
   const bc = repoConfig.activeBranches.find((b) => branchSlug(b) === slug);
   if (!bc) return res.status(404).json({ error: "Branch config not found" });
