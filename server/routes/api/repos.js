@@ -10,7 +10,7 @@ const { exec } = require("child_process");
 const router = express.Router();
 
 const { getConfig, saveConfig } = require("../../config");
-const { buildStatus, branchSlug, buildKey, getBranchDir, deployBranch } = require("../../build");
+const { buildStatus, branchSlug, buildKey, getBranchDir, deployBranch, queueAhead } = require("../../build");
 const { runningServers, killServer } = require("../../process");
 
 // Body-supplied owner/repo names skip the router.param("owner"/"repo")
@@ -48,7 +48,8 @@ router.get("/repos", (req, res) => {
         startCommand: bc.startCommand || "",
         envVars: bc.envVars || "",
         language: bc.language || "auto",
-        serverPort: srv ? srv.port : null
+        serverPort: srv ? srv.port : null,
+        queuedAhead: lean.status === "queued" ? queueAhead(bk) : 0
       };
     }
     return { ...r, branchStatuses };

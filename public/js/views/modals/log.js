@@ -79,14 +79,7 @@ DV._modal.log = function render(app) {
     box2.appendChild(el("div", { c: "btn-row-sm" }, [
       el("button", { c: "bg", on: { click: function() { S.logModal = null; if (S._logSSE) { S._logSSE.close(); S._logSSE = null; } DV.render(); } } }, "Close"),
       el("button", { c: "bg", on: { click: function() {
-        var text = logDiv.textContent;
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(text)
-            .then(function() { DV.showToast && DV.showToast("Log copied", "info"); })
-            .catch(function() { DV.showToast && DV.showToast("Copy failed", "error"); });
-        } else {
-          DV.showToast && DV.showToast("Clipboard unavailable", "error");
-        }
+        DV.copyToClipboard(logDiv.textContent, { successMessage: "Log copied" });
       } } }, "Copy")
     ]));
     bg2.appendChild(box2);
@@ -129,8 +122,19 @@ DV._modal.log = function render(app) {
     S._logSSE.onmessage = function(e) {
       try { var data = JSON.parse(e.data); if (data.msg) appendChunk(data.msg + "\n"); } catch (err) {}
     };
+    // EventSource auto-reconnects on transient failures, replaying with
+    // Last-Event-ID set to the last id we saw — so a wifi blip mid-build
+    // is recovered server-side via /api/logs/stream's replay path.
+    // Closing the connection on every onerror would defeat that, so we
+    // only force-close when the browser has marked the source as
+    // permanently dead (readyState === 2 / CLOSED). The modal's own
+    // teardown path explicitly closes when the user closes the modal.
     S._logSSE.onerror = function() {
-      if (S._logSSE) { S._logSSE.close(); S._logSSE = null; }
+      if (S._logSSE && S._logSSE.readyState === 2) {
+        S._logSSE = null;
+      }
+      // readyState === 0 (CONNECTING) means the browser is already
+      // attempting to reconnect — let it.
     };
   }
 

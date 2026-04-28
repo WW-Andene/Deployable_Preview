@@ -7,8 +7,8 @@
 "use strict";
 
 const express = require("express");
-const { exec } = require("child_process");
 const fs = require("fs");
+const fsp = fs.promises;
 const path = require("path");
 const router = express.Router();
 
@@ -37,7 +37,7 @@ router.get("/workspace/stats", (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.post("/workspace/cleanup", (req, res) => {
+router.post("/workspace/cleanup", async (req, res) => {
   const { WORKSPACE, branchSlug } = require("../../build");
   const config = getConfig();
   const activeKeys = new Set();
@@ -47,17 +47,27 @@ router.post("/workspace/cleanup", (req, res) => {
     }
   }
   try {
-    const dirs = fs.readdirSync(WORKSPACE);
-    let removed = 0;
+    const dirs = await fsp.readdir(WORKSPACE);
+    const targets = [];
     for (const d of dirs) {
       if (activeKeys.has(d)) continue;
       const fullPath = path.resolve(WORKSPACE, d);
-      // Belt-and-braces: rejected paths that escape the workspace root.
+      // Belt-and-braces: skip paths that escape the workspace root.
       if (!fullPath.startsWith(path.resolve(WORKSPACE) + path.sep)) continue;
-      exec("rm -rf " + JSON.stringify(fullPath), () => {});
-      removed++;
+      targets.push(fullPath);
     }
-    res.json({ ok: true, removed, remaining: dirs.length - removed });
+    // fs.rm with shell=false is faster, atomic per-call, and surfaces
+    // errors. The previous shell-out fire-and-forget hid disk-full +
+    // permission failures and the user got an optimistic "removed N"
+    // toast even when nothing was deleted.
+    const results = await Promise.allSettled(targets.map((p) => fsp.rm(p, { recursive: true, force: true })));
+    const removed = results.filter((r) => r.status === "fulfilled").length;
+    const failed = results.length - removed;
+    const errors = results
+      .filter((r) => r.status === "rejected")
+      .slice(0, 5)
+      .map((r) => (r.reason && r.reason.message) || "rm failed");
+    res.json({ ok: true, removed, failed, remaining: dirs.length - removed, errors });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

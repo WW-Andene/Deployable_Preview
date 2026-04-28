@@ -4,17 +4,34 @@ var S = DV.S, el = DV.el, api = DV.api;
 DV.views.setup = function(app) {
   // G1-005: explicit label tied to input via id/for
   var inp = el("input", { c: "input-mono", attr: { id: "setup-token-input", type: "password", placeholder: "ghp_xxxx...", "aria-describedby": "setup-token-hint" } });
-  var err = el("p", { c: "setup-error hidden", attr: { role: "alert" } }, "> Invalid token. Check it has 'repo' scope and isn't expired.");
+  var err = el("p", { c: "setup-error hidden", attr: { role: "alert" } }, "");
+  function showErr(msg) { err.textContent = "> " + msg; err.classList.remove("hidden"); btn.textContent = "Connect"; }
   function submit() {
-    var t = inp.value; if (!t) return; btn.innerHTML = "<span class='spin'></span>";
+    var t = (inp.value || "").trim(); if (!t) return;
+    err.classList.add("hidden");
+    btn.innerHTML = "<span class='spin'></span>";
     api("POST", "/api/token", { token: t }).then(function(r) {
-      if (r.ok) {
-        // Also save to secrets store so it appears in Settings
+      if (r && r.ok) {
         fetch("/api/secrets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "GITHUB_TOKEN", value: t }) }).catch(function(){});
         S.hasToken = true; S.view = "dashboard"; DV.loadRepos();
+        return;
       }
-      else { err.classList.remove("hidden"); btn.textContent = "Connect"; }
-    }).catch(function() { err.classList.remove("hidden"); btn.textContent = "Connect"; });
+      // Map server error codes to actionable hints.
+      var code = r && r.code;
+      if (code === "missing_scope") {
+        showErr("Token is missing the `repo` scope. Open the Create token link below and re-issue with `repo` (and `workflow` if you'll trigger Actions).");
+      } else if (code === "invalid") {
+        showErr("Invalid or expired token. Re-issue at github.com/settings/tokens.");
+      } else if (code === "forbidden") {
+        showErr((r && r.error) || "Token rejected by GitHub.");
+      } else if (code === "empty") {
+        showErr("Paste a token first.");
+      } else if (code === "network") {
+        showErr("Network error reaching api.github.com. Check connectivity and retry.");
+      } else {
+        showErr((r && r.error) || "Invalid token. Check it has 'repo' scope and isn't expired.");
+      }
+    }).catch(function(e) { showErr("Network error: " + ((e && e.message) || "unknown")); });
   }
   var btn = el("button", { c: "bp input-min-w", attr: { "aria-label": "Connect to GitHub" }, on: { click: submit } }, "Connect");
   inp.addEventListener("keydown", function(e) { if (e.key === "Enter") submit(); });

@@ -25,12 +25,26 @@
 function computeStatusSignal(bs, runtimeErrCount) {
   if (!bs) return null;
 
+  // Collect *all* current issues so the worst-of pill's tooltip can name
+  // the secondary ones. Without this the user sees one pill and never
+  // learns that, say, a budget violation also fired.
+  var alsoLines = [];
+  if (bs.status !== "error" && bs.health === "broken") alsoLines.push("· broken: " + (bs.healthReason || "health check failed"));
+  if (Array.isArray(bs.secretFindings) && bs.secretFindings.length) alsoLines.push("· " + bs.secretFindings.length + " possible leaked secret(s)");
+  if (Array.isArray(bs.budgetViolations) && bs.budgetViolations.length) alsoLines.push("· over budget: " + bs.budgetViolations.map(function(v){ return v.message; }).join("; "));
+  if (runtimeErrCount && runtimeErrCount.uniqueErrors) alsoLines.push("· " + runtimeErrCount.uniqueErrors + " runtime error(s)");
+  function withAlso(primary, title) {
+    var rest = alsoLines.filter(function(_, i) { return i !== primary; });
+    if (!rest.length) return title;
+    return title + "\nAlso:\n" + rest.join("\n");
+  }
+
   // Hard error / build failure
   if (bs.status === "error") {
     return {
       level: "error",
       text: "Failed",
-      title: "Build or server failed — open the log for details",
+      title: withAlso(-1, "Build or server failed — open the log for details"),
       className: "pill pill-err"
     };
   }
@@ -39,7 +53,7 @@ function computeStatusSignal(bs, runtimeErrCount) {
     return {
       level: "broken",
       text: "Broken",
-      title: "Health check failed: " + (bs.healthReason || "unknown"),
+      title: withAlso(0, "Health check failed: " + (bs.healthReason || "unknown")),
       className: "pill pill-err"
     };
   }
@@ -48,7 +62,7 @@ function computeStatusSignal(bs, runtimeErrCount) {
     return {
       level: "secret",
       text: bs.secretFindings.length + " leak" + (bs.secretFindings.length === 1 ? "" : "s"),
-      title: bs.secretFindings.length + " possible leaked secret(s) — open log for details",
+      title: withAlso(1, bs.secretFindings.length + " possible leaked secret(s) — open log for details"),
       className: "pill pill-err"
     };
   }
@@ -57,7 +71,7 @@ function computeStatusSignal(bs, runtimeErrCount) {
     return {
       level: "budget",
       text: "Over budget",
-      title: bs.budgetViolations.map(function (v) { return v.message; }).join("\n"),
+      title: withAlso(2, bs.budgetViolations.map(function (v) { return v.message; }).join("\n")),
       className: "pill pill-warn"
     };
   }
@@ -66,14 +80,19 @@ function computeStatusSignal(bs, runtimeErrCount) {
     return {
       level: "runtime",
       text: runtimeErrCount.uniqueErrors + " runtime",
-      title: runtimeErrCount.totalEvents + " runtime event(s) across " +
-             runtimeErrCount.uniqueErrors + " unique error(s) — click the row's runtime pill to inspect",
+      title: withAlso(3, runtimeErrCount.totalEvents + " runtime event(s) across " +
+             runtimeErrCount.uniqueErrors + " unique error(s) — click the row's runtime pill to inspect"),
       className: "pill pill-warn"
     };
   }
   // In-flight states
   if (bs.status === "queued") {
-    return { level: "queued", text: "Queued", title: "Waiting for a build slot", className: "pill" };
+    var ahead = (typeof bs.queuedAhead === "number") ? bs.queuedAhead : 0;
+    var qtext = ahead > 0 ? ("Queued (" + ahead + " ahead)") : "Queued";
+    var qtitle = ahead > 0
+      ? ("Waiting for a build slot — position " + (ahead + 1))
+      : "Waiting for a build slot";
+    return { level: "queued", text: qtext, title: withAlso(-1, qtitle), className: "pill" };
   }
   if (bs.status === "building") {
     return { level: "building", text: "Building", title: "Build in progress", className: "pill pill-info" };

@@ -75,26 +75,32 @@ function buildCommands() {
   cmds.push({ id: "nav.mcp",       label: "Open MCP Tools",    hint: "navigation", section: "Nav",
               run: function() { S.mcpAction = null; S.mcpResult = null; DV.loadMcpTools(); S.view = "mcp"; DV.render(); } });
   cmds.push({ id: "nav.addRepo",   label: "Add Repository",    hint: "navigation · n", section: "Nav",
-              run: function() {
-                S.repoUrl = ""; S.repoError = ""; S.fetchedBranches = []; S.selectedBranches = [];
-                S.repoInfo = null; S.buildCommand = "npm run build"; S.outputDir = "dist"; S.baseDir = "";
-                S.mode = "static"; S.startCommand = "npm start"; S.envVars = "";
-                S.view = "addRepo"; DV.render();
-              } });
+              run: function() { DV.openAddRepo(); } });
 
   // Global actions
   cmds.push({ id: "action.refresh", label: "Refresh repo list", hint: "action · r", section: "Actions",
               run: function() { DV.loadRepos(); } });
   cmds.push({ id: "action.rebuildAll", label: "Rebuild All branches", hint: "action · destructive", section: "Actions",
               run: function() {
-                if (!confirm("Rebuild every branch across every repo?")) return;
+                var pairs = [];
                 for (var i = 0; i < S.repos.length; i++) {
                   var r = S.repos[i], slugs = Object.keys(r.branchStatuses || {});
-                  for (var j = 0; j < slugs.length; j++) {
-                    api("POST", "/api/build/" + r.owner + "/" + r.repo + "?slug=" + encodeURIComponent(slugs[j]));
-                  }
+                  for (var j = 0; j < slugs.length; j++) pairs.push([r.owner, r.repo, slugs[j]]);
                 }
-                DV.showToast("Rebuilding all…", "info");
+                if (!pairs.length) { DV.showToast("Nothing to rebuild", "info"); return; }
+                if (!confirm("Rebuild " + pairs.length + " branch" + (pairs.length === 1 ? "" : "es") + " across " + S.repos.length + " repo" + (S.repos.length === 1 ? "" : "s") + "?")) return;
+                var ok = 0, err = 0;
+                pairs.forEach(function(p) {
+                  api("POST", "/api/build/" + p[0] + "/" + p[1] + "?slug=" + encodeURIComponent(p[2]))
+                    .then(function(r) { if (r && r.error) err++; else ok++; })
+                    .catch(function() { err++; })
+                    .finally(function() {
+                      if (ok + err === pairs.length) {
+                        DV.showToast("Rebuild queued: " + ok + " ok" + (err ? ", " + err + " failed" : ""), err ? "error" : "info");
+                        DV.loadRepos();
+                      }
+                    });
+                });
               } });
   cmds.push({ id: "action.shortcuts", label: "Show keyboard shortcuts", hint: "help · ?", section: "Actions",
               run: function() { S.shortcutsOpen = true; DV.render(); } });
@@ -264,6 +270,11 @@ DV.renderPalette = function(root) {
     if (e.key === "Escape") { e.preventDefault(); DV.closePalette(); return; }
     if (e.key === "ArrowDown") { e.preventDefault(); S.paletteIndex = Math.min(ranked.length - 1, S.paletteIndex + 1); DV.render(); var n = document.querySelector(".palette-input"); if (n) n.focus(); return; }
     if (e.key === "ArrowUp")   { e.preventDefault(); S.paletteIndex = Math.max(0, S.paletteIndex - 1);                  DV.render(); var n2 = document.querySelector(".palette-input"); if (n2) n2.focus(); return; }
+    // Home / End for fast jumps when the list is long.
+    if (e.key === "Home") { e.preventDefault(); S.paletteIndex = 0; DV.render(); var nh = document.querySelector(".palette-input"); if (nh) nh.focus(); return; }
+    if (e.key === "End")  { e.preventDefault(); S.paletteIndex = Math.max(0, ranked.length - 1); DV.render(); var ne = document.querySelector(".palette-input"); if (ne) ne.focus(); return; }
+    if (e.key === "PageDown") { e.preventDefault(); S.paletteIndex = Math.min(ranked.length - 1, S.paletteIndex + 5); DV.render(); var npd = document.querySelector(".palette-input"); if (npd) npd.focus(); return; }
+    if (e.key === "PageUp")   { e.preventDefault(); S.paletteIndex = Math.max(0, S.paletteIndex - 5); DV.render(); var npu = document.querySelector(".palette-input"); if (npu) npu.focus(); return; }
     if (e.key === "Enter") {
       e.preventDefault();
       var hit = ranked[S.paletteIndex];

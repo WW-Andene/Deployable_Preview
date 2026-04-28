@@ -61,6 +61,10 @@ DV._modal.apk = function render(app) {
             apkLogDiv.textContent = st.log;
             apkLogDiv.scrollTop = apkLogDiv.scrollHeight;
           }
+        })
+        .catch(function(e) {
+          apkStatusDiv.innerHTML = "";
+          apkStatusDiv.appendChild(el("div", { c: "color-err text-12" }, "Status check failed: " + ((e && e.message) || "network")));
         });
     }
 
@@ -92,7 +96,8 @@ DV._modal.apk = function render(app) {
     apkBtnRow.appendChild(el("button", { c: "bp flex-1", on: { click: function(e) {
       var wd = wdInput.value.trim() || ".";
       am.workingDir = wd; // remember for re-renders
-      e.target.disabled = true; e.target.textContent = "Starting\u2026";
+      var btn = e.target;
+      btn.disabled = true; btn.textContent = "Starting\u2026";
       apkLogDiv.classList.remove("hidden"); apkLogDiv.textContent = "";
       fetch("/api/apk/" + am.owner + "/" + am.repo + "?slug=" + encodeURIComponent(am.slug), {
         method: "POST",
@@ -101,16 +106,15 @@ DV._modal.apk = function render(app) {
       })
         .then(function(r) { return r.json(); })
         .then(function(body) {
-          // Server may return {error: "APK build already in progress"} or
-          // similar. Without this check we'd open the SSE and poll status
-          // as if the build started, leaving the user staring at an
-          // empty log while the modal spinner pretends it's working.
           if (body && body.error) {
             DV.showToast(body.error, "error");
             apkLogDiv.textContent = body.error;
-            e.target.disabled = false; e.target.textContent = "Build APK";
+            btn.disabled = false; btn.textContent = "Build APK";
             return;
           }
+          // Reflect "request accepted, build in progress" so the button
+          // text isn't a stuck "Starting\u2026" for 4\u20138 minutes.
+          btn.textContent = "Building\u2026";
           if (S._apkSSE) S._apkSSE.close();
           S._apkSSE = new EventSource("/api/apk/" + am.owner + "/" + am.repo + "/log-stream?slug=" + encodeURIComponent(am.slug));
           S._apkSSE.onmessage = function(ev) {
@@ -130,12 +134,21 @@ DV._modal.apk = function render(app) {
                   clearInterval(pollId);
                   if (S._apkSSE) { S._apkSSE.close(); S._apkSSE = null; }
                   refreshApkStatus();
+                  // Build either succeeded or failed \u2014 re-enable the
+                  // button so the user can build again from this same
+                  // modal without closing/reopening it.
+                  btn.disabled = false;
+                  btn.textContent = st.status === "ready" ? "Rebuild APK" : "Build APK";
                 }
               })
               .catch(function() { /* ignore transient poll errors */ });
           }, 3000);
         })
-        .catch(function(err) { apkLogDiv.textContent = "Failed to start: " + err.message; e.target.disabled = false; e.target.textContent = "Build APK"; });
+        .catch(function(err) {
+          apkLogDiv.textContent = "Failed to start: " + err.message;
+          DV.showToast("Build failed: " + err.message, "error");
+          btn.disabled = false; btn.textContent = "Build APK";
+        });
     } } }, "Build APK"));
     apkBox.appendChild(apkBtnRow);
 

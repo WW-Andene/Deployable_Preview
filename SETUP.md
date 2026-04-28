@@ -26,7 +26,7 @@ Values from `.env.local` override `.env`.
 | `PORT` | HTTP port | `3000` |
 | `HTTPS_CERT` / `HTTPS_KEY` / `HTTPS_PORT` | Local HTTPS (lets claude.ai connect without a tunnel) | unset |
 | `NGROK_AUTHTOKEN` | Required for the ngrok tunnel provider | unset |
-| `BROWSERLESS_API_KEY` / `BROWSERLESS_WS_ENDPOINT` | Remote browser instead of local Playwright | unset |
+| `BROWSERLESS_API_KEY` / `BROWSER_WS_ENDPOINT` | Remote browser instead of local Playwright | unset |
 | `WEBHOOK_SECRET` | Required to accept GitHub webhooks (server fail-secures with 403 otherwise) | unset |
 | `MAX_CONCURRENT_BUILDS` | Build queue width | `4` |
 | `DV_MAX_THUMBS` | LRU cap for thumbnails kept in RAM | `40` |

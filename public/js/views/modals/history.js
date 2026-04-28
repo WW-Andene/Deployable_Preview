@@ -64,13 +64,13 @@ DV._modal.history = function render(app) {
                   el("div", { c: "history-comment-text" }, c.text),
                   el("button", { c: "bg bs history-comment-del", attr: { title: "Delete comment", "aria-label": "Delete comment" }, on: { click: function() {
                     if (!confirm("Delete this comment?")) return;
-                    fetch("/api/history/" + hm.owner + "/" + hm.repo + "/comment/" + encodeURIComponent(c.id) + "?slug=" + encodeURIComponent(hm.slug) + "&historyId=" + encodeURIComponent(entry.id), { method: "DELETE" })
-                      .then(function(r){ return r.json(); })
+                    api("DELETE", "/api/history/" + hm.owner + "/" + hm.repo + "/comment/" + encodeURIComponent(c.id) + "?slug=" + encodeURIComponent(hm.slug) + "&historyId=" + encodeURIComponent(entry.id))
                       .then(function(r){
-                        if (r.error) { DV.showToast(r.error, "error"); return; }
+                        if (r && r.error) { DV.showToast(r.error, "error"); return; }
                         entry.comments = entry.comments.filter(function(x){ return x.id !== c.id; });
                         DV.render();
-                      });
+                      })
+                      .catch(function(e) { DV.showToast("Delete failed: " + ((e && e.message) || "network"), "error"); });
                   } } }, "×")
                 ]));
               })(entry.comments[ci]);
@@ -84,12 +84,11 @@ DV._modal.history = function render(app) {
             api("POST", "/api/history/" + hm.owner + "/" + hm.repo + "/tag", {
               slug: hm.slug, historyId: entry.id, tag: newTag
             }).then(function(r) {
-              if (r.error) { DV.showToast(r.error, "error"); return; }
-              // Update local view (also clear the tag from any other entry)
+              if (r && r.error) { DV.showToast(r.error, "error"); return; }
               if (newTag) for (var k = 0; k < hm.history.length; k++) if (hm.history[k] !== entry) delete hm.history[k].tag;
               entry.tag = newTag ? newTag.trim().slice(0, 64) : undefined;
               DV.render();
-            });
+            }).catch(function(e) { DV.showToast("Tag failed: " + ((e && e.message) || "network"), "error"); });
           } } }, entry.tag ? "🏷 Re-tag" : "🏷 Tag");
           // Inline buttons: add comment, set/clear note
           var actionRow = el("div", { c: "flex-row gap-6 history-row-actions" }, [
@@ -100,11 +99,11 @@ DV._modal.history = function render(app) {
               api("POST", "/api/history/" + hm.owner + "/" + hm.repo + "/comment", {
                 slug: hm.slug, historyId: entry.id, by: "you", text: text
               }).then(function(r) {
-                if (r.error) { DV.showToast(r.error, "error"); return; }
+                if (r && r.error) { DV.showToast(r.error, "error"); return; }
                 if (!Array.isArray(entry.comments)) entry.comments = [];
                 entry.comments.push(r.comment);
                 DV.render();
-              });
+              }).catch(function(e) { DV.showToast("Comment failed: " + ((e && e.message) || "network"), "error"); });
             } } }, "+ Comment"),
             el("button", { c: "bg bs", attr: { title: entry.note ? "Edit note" : "Add note" }, on: { click: function() {
               var fresh = prompt("Note for " + (entry.commitShort || entry.id) + " (≤2000 chars, blank to clear):", entry.note || "");
@@ -112,10 +111,10 @@ DV._modal.history = function render(app) {
               api("POST", "/api/history/" + hm.owner + "/" + hm.repo + "/note", {
                 slug: hm.slug, historyId: entry.id, note: fresh
               }).then(function(r) {
-                if (r.error) { DV.showToast(r.error, "error"); return; }
+                if (r && r.error) { DV.showToast(r.error, "error"); return; }
                 entry.note = fresh ? fresh.slice(0, 2000) : undefined;
                 DV.render();
-              });
+              }).catch(function(e) { DV.showToast("Note failed: " + ((e && e.message) || "network"), "error"); });
             } } }, entry.note ? "✎ Note" : "+ Note")
           ]);
           meta.appendChild(actionRow);
@@ -127,11 +126,19 @@ DV._modal.history = function render(app) {
           if (entry.by === "build") {
             row.appendChild(el("button", { c: "bg bs", on: { click: function() {
               if (!confirm("Roll the live preview back to commit " + (entry.commitShort || entry.id) + "?\n\nDoes NOT re-run the build — instantly serves the older bytes.")) return;
+              var b = this; var orig = b.textContent; b.disabled = true; b.textContent = "Rolling back…";
               api("POST", "/api/rollback/" + hm.owner + "/" + hm.repo, { slug: hm.slug, historyId: entry.id }).then(function(r) {
-                if (r.error) { DV.showToast(r.error, "error"); return; }
+                if (r && r.error) {
+                  DV.showToast(r.error, "error");
+                  b.disabled = false; b.textContent = orig;
+                  return;
+                }
                 DV.showToast("Rolled back to " + (entry.commitShort || entry.id), "success");
                 S.historyModal = null;
                 DV.loadRepos();
+              }).catch(function(e) {
+                DV.showToast("Rollback failed: " + ((e && e.message) || "network"), "error");
+                b.disabled = false; b.textContent = orig;
               });
             } } }, "Rollback"));
           }

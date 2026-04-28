@@ -32,6 +32,13 @@ DV._modal.diff = function render(app) {
     imgAfter.src = thumbBase + "&t=" + t;
     imgAfter.alt = "After build";
     imgAfter.className = "diff-img diff-img-after";
+    // If a thumb 404s (rare — happens when the build hasn't finished
+    // capturing one yet) the modal previously showed a broken-image
+    // icon. Replace with a clear text placeholder.
+    imgAfter.addEventListener("error", function() {
+      var ph = el("div", { c: "color-tx3 text-12 pad-md" }, "After-build thumbnail not available yet — trigger a rebuild to capture one.");
+      if (imgAfter.parentNode) imgAfter.parentNode.replaceChild(ph, imgAfter);
+    });
     stage.appendChild(imgAfter);
 
     var imgDiff = document.createElement("img");
@@ -39,6 +46,12 @@ DV._modal.diff = function render(app) {
     imgDiff.alt = "Pixel-diff heatmap";
     imgDiff.className = "diff-img diff-img-overlay";
     imgDiff.style.clipPath = "inset(0 50% 0 0)";  // initial: half-half
+    imgDiff.addEventListener("error", function() {
+      // No diff heatmap means this is the first build (or the previous
+      // thumb was evicted from the LRU). Hide silently — the after-image
+      // already conveys the current state.
+      imgDiff.style.display = "none";
+    });
     stage.appendChild(imgDiff);
 
     var handle = el("div", { c: "diff-handle", attr: { role: "slider", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": "50", tabindex: "0", "aria-label": "Diff slider" } });

@@ -16,6 +16,12 @@
   "use strict";
 
   var ICONS = {
+    // Brand mark — Aperture & Prompt. Asymmetric viewport (sharp TL,
+    // rounded other 3 corners) + chevron prompt cursor. Reads as both
+    // CRT viewport and play/preview triangle. Hand-tuned for 14×14
+    // viewBox so it stays crisp at favicon sizes. Renders in currentColor.
+    dvmark:     '<path d="M2 2 H10 A2 2 0 0 1 12 4 V10 A2 2 0 0 1 10 12 H4 A2 2 0 0 1 2 10 Z" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linejoin="round"/><path d="M5.5 4.5 L8 7 L5.5 9.5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+
     // Playback / nav
     preview:    '<polygon points="4,3 12,7 4,11" fill="currentColor"/>',
     stop:       '<rect x="3.5" y="3.5" width="7" height="7" fill="currentColor"/>',

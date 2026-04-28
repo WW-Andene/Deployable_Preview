@@ -229,7 +229,7 @@ fallback (no external dep). `process.env` always wins over file values.
 | `MAX_CONCURRENT_BUILDS` | `4` | Build queue width |
 | `WEBHOOK_SECRET` | unset | **Required** — `POST /api/webhook` returns 403 if unset (fail-secure) |
 | `NGROK_AUTHTOKEN` | unset | Used by `tunnel.js` ngrok provider |
-| `BROWSERLESS_API_KEY` / `BROWSERLESS_WS_ENDPOINT` | unset | Remote browser instead of local Playwright |
+| `BROWSERLESS_API_KEY` / `BROWSER_WS_ENDPOINT` | unset | Remote browser instead of local Playwright |
 | `GROQ_API_KEY` | unset | Auth grant for Groq-backed MCP tools |
 | `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` | unset | `1` skips Chromium download in `npm install` |
 | `DEPLOYVIEW_SKIP_ENRICHMENTS` | unset | `1` disables lazy enrichment loading |

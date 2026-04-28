@@ -22,20 +22,42 @@ router.post("/webhook", (req, res) => {
     console.warn("[WEBHOOK] Rejected: WEBHOOK_SECRET is unset (set it in Settings → Secrets to enable webhooks)");
     return res.status(403).json({ error: "WEBHOOK_SECRET not configured on server" });
   }
+  // raw body MUST be captured by the json-body verify hook in index.js —
+  // re-serializing req.body would change key order and bytes (whitespace,
+  // unicode escaping) and the HMAC would always mismatch. Fail loudly
+  // instead of falsely rejecting every legitimate webhook.
+  if (!req.rawBody) {
+    console.error("[WEBHOOK] req.rawBody missing — body-parser verify hook not wired. Payload cannot be HMAC-verified.");
+    return res.status(500).json({ error: "Server misconfigured: raw body not captured" });
+  }
   const sig = req.headers["x-hub-signature-256"] || "";
-  const rawBody = req.rawBody || Buffer.from(JSON.stringify(req.body));
-  const expected = "sha256=" + crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
-  if (!sig || sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+  const expected = "sha256=" + crypto.createHmac("sha256", secret).update(req.rawBody).digest("hex");
+  let sigBuf, expBuf;
+  try { sigBuf = Buffer.from(sig); expBuf = Buffer.from(expected); }
+  catch (_) { sigBuf = Buffer.alloc(0); expBuf = Buffer.alloc(0); }
+  if (!sig || sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
     console.warn("[WEBHOOK] Signature mismatch from " + (req.ip || "unknown"));
     return res.status(401).json({ error: "Invalid webhook signature" });
   }
 
   const event = req.headers["x-github-event"];
   const fullName = req.body.repository && req.body.repository.full_name;
-  if (!fullName) return res.status(400).json({ error: "Invalid payload — missing repository" });
-  const [owner, repo] = fullName.split("/");
+  if (!fullName || typeof fullName !== "string") return res.status(400).json({ error: "Invalid payload — missing repository" });
+  // GitHub names are ASCII and may contain dot/underscore/dash only; the
+  // first slash splits owner from repo. Don't naive-split — pathological
+  // payloads with multiple slashes would silently mismatch lookups.
+  const slashAt = fullName.indexOf("/");
+  if (slashAt <= 0 || slashAt === fullName.length - 1) return res.status(400).json({ error: "Invalid repository name" });
+  const owner = fullName.slice(0, slashAt);
+  const repo = fullName.slice(slashAt + 1);
   const config = getConfig();
-  const repoConfig = config.repos.find((r) => r.owner === owner && r.repo === repo);
+  // GitHub treats owner/repo case-insensitively (you can clone Foo/Bar
+  // as foo/bar). Match the same way so a webhook for "Foo/Bar" still
+  // hits a config stored as "foo/bar".
+  const repoConfig = config.repos.find((r) =>
+    r.owner.toLowerCase() === owner.toLowerCase() &&
+    r.repo.toLowerCase() === repo.toLowerCase()
+  );
   if (!repoConfig) return res.json({ ok: true, skipped: true });
 
   if (event === "push") {

@@ -35,6 +35,22 @@ function countActiveBuilds() {
   return count;
 }
 
+// queueAhead(key) — how many other keys are currently queued AND were
+// queued before this one. Returns 0 if the key isn't queued or has no
+// queuedAt timestamp. Approximate (the queue itself isn't an array) but
+// gives the dashboard something concrete to show instead of bare "Queued".
+function queueAhead(key) {
+  const slot = buildStatus[key];
+  if (!slot || slot.status !== "queued" || !slot.queuedAt) return 0;
+  let ahead = 0;
+  for (const k in buildStatus) {
+    if (k === key) continue;
+    const s = buildStatus[k];
+    if (s && s.status === "queued" && s.queuedAt && s.queuedAt < slot.queuedAt) ahead++;
+  }
+  return ahead;
+}
+
 // ── Key & path helpers ──────────────────────────────────────────────────────
 
 function branchSlug(bc) {
@@ -107,6 +123,7 @@ module.exports = {
   buildStatus,
   buildLocks,
   countActiveBuilds,
+  queueAhead,
   branchSlug,
   getBranchDir,
   buildKey,

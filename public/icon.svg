@@ -1,6 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Maskable safe zone is roughly the inner 80% (60–460). -->
-  <rect width="512" height="512" fill="#090a10"/>
-  <text x="256" y="338" font-family="JetBrains Mono, ui-monospace, monospace" font-size="240" font-weight="700"
-        fill="#d4a030" text-anchor="middle">DV</text>
+  <!-- DeployView mark — Aperture & Prompt
+       The asymmetric viewport (sharp top-left, rounded other 3 corners)
+       reads as both a CRT viewport and a stylized "D". The chevron
+       inside reads simultaneously as a terminal prompt cursor (>) and
+       a play/preview triangle. Two strokes, one mark, no decoration.
+       Maskable safe zone: inner 80% (52-460) — mark fits within. -->
+  <rect width="512" height="512" rx="48" fill="#090a10"/>
+  <!-- Frame: M starts top-left (sharp), H to top-right corner start,
+       arc to top-right (rounded r60), V down, arc bottom-right, H back,
+       arc bottom-left, Z closes back up the straight left edge. -->
+  <path d="M76 76 H376 A60 60 0 0 1 436 136 V376 A60 60 0 0 1 376 436 H136 A60 60 0 0 1 76 376 Z"
+        fill="none" stroke="#d4a030" stroke-width="28" stroke-linejoin="round"/>
+  <!-- Chevron: opens 90° to the right, tip at center. -->
+  <path d="M211 181 L301 256 L211 331"
+        fill="none" stroke="#d4a030" stroke-width="36"
+        stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

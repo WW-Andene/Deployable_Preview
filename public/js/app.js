@@ -111,31 +111,53 @@ function el(tag, props, kids) {
 // toast(r.error) call sites keep working when the server returns a
 // non-JSON response (HTML proxy error page, empty body, etc.).
 // Network-level failures still propagate as rejections.
+// Default timeout for API calls. SSE / artifact / log endpoints aren't
+// routed through here; this is for plain JSON round-trips. A 30s ceiling
+// is generous enough for a slow GitHub round-trip but keeps a hung
+// server from turning the dashboard into a permanent spinner.
+var _API_TIMEOUT_MS = 30000;
+
 function api(method, path, body) {
   var opts = { method: method, headers: { "Content-Type": "application/json" } };
   if (body) opts.body = JSON.stringify(body);
-  return fetch(path, opts).then(function(r) {
-    return r.text().then(function(text) {
-      try { return text ? JSON.parse(text) : {}; }
-      catch (_) {
-        return { error: r.status >= 400 ? ("HTTP " + r.status) : "Unexpected response" };
+  // AbortController is widely supported (everything since 2019). Fall
+  // back to a plain fetch if the runtime somehow doesn't have it.
+  var ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+  if (ctrl) opts.signal = ctrl.signal;
+  var timer = ctrl ? setTimeout(function() { ctrl.abort(); }, _API_TIMEOUT_MS) : null;
+  return fetch(path, opts)
+    .then(function(r) {
+      return r.text().then(function(text) {
+        try { return text ? JSON.parse(text) : {}; }
+        catch (_) {
+          return { error: r.status >= 400 ? ("HTTP " + r.status) : "Unexpected response" };
+        }
+      });
+    })
+    .catch(function(e) {
+      if (e && e.name === "AbortError") {
+        return { error: "Request timed out after " + Math.round(_API_TIMEOUT_MS / 1000) + "s" };
       }
-    });
-  });
+      throw e;
+    })
+    .finally(function() { if (timer) clearTimeout(timer); });
 }
 
 function statusClass(s) { return "status-dot status-" + (s || "idle"); }
 
 // Data loading — uses ETag/If-None-Match so the server can 304 unchanged polls.
 var _reposEtag = null;
+var _reposLoadFailures = 0;
 function loadRepos() {
   var headers = { "Content-Type": "application/json" };
   if (_reposEtag) headers["If-None-Match"] = _reposEtag;
   fetch("/api/repos", { method: "GET", headers: headers }).then(function(res) {
     if (res.status === 304) return null; // unchanged — keep current state
+    if (!res.ok) throw new Error("HTTP " + res.status);
     _reposEtag = res.headers.get("ETag") || _reposEtag;
     return res.json();
   }).then(function(repos) {
+    _reposLoadFailures = 0;
     if (!repos) return; // nothing changed
     S.repos = repos;
     if (S.activeRepo) {
@@ -143,6 +165,14 @@ function loadRepos() {
       if (updated) S.activeRepo = updated;
     }
     render();
+  }).catch(function(e) {
+    // Quiet on transient blips; complain after 3 in a row so the user
+    // knows the dashboard is stale instead of silently showing an
+    // outdated repo list.
+    _reposLoadFailures++;
+    if (_reposLoadFailures === 3) {
+      showToast("Could not refresh repos (" + ((e && e.message) || "network") + "). Reconnect and the next poll will recover.", "error");
+    }
   });
 }
 
@@ -151,8 +181,17 @@ function fetchAvailableBranches() {
   S.availableBranches = [];
   render();
   api("GET", "/api/github/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/branches").then(function(r) {
-    if (r.branches) { S.availableBranches = r.branches; render(); }
-  }).catch(function() {});
+    if (r && r.error) {
+      // Without surfacing this, the +Branch dropdown sits on its
+      // spinner forever and the user never finds out the GitHub
+      // token expired or the repo is gone.
+      showToast("Couldn't load branches: " + r.error, "error");
+      return;
+    }
+    if (r && r.branches) { S.availableBranches = r.branches; render(); }
+  }).catch(function(e) {
+    showToast("Couldn't load branches: " + ((e && e.message) || "network"), "error");
+  });
 }
 
 // Fetch the user's GitHub repositories. Cached server-side for 5 min;
@@ -218,6 +257,15 @@ function render() {
     _dropdownCloseHandler = null;
   }
   closeStaleStreams();
+  // Preserve focus + selection on inputs across the full innerHTML wipe.
+  // Any <input>/<textarea> with a stable id gets refocused after render.
+  // Without this, every keystroke that triggers DV.render() (filters,
+  // search bars) drops the cursor and the user has to click back in.
+  var ae = document.activeElement;
+  var preserved = null;
+  if (ae && ae.id && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) {
+    preserved = { id: ae.id, start: ae.selectionStart, end: ae.selectionEnd, value: ae.value };
+  }
   var app = document.getElementById("app"); app.innerHTML = "";
 
   // Topbar
@@ -265,6 +313,44 @@ function render() {
     ]);
     app.appendChild(fab);
   }
+
+  if (preserved) {
+    var fresh = document.getElementById(preserved.id);
+    if (fresh && (fresh.tagName === "INPUT" || fresh.tagName === "TEXTAREA")) {
+      try {
+        fresh.focus();
+        // Only restore selection if the new element has the same value;
+        // a different value means a state-driven change should keep its
+        // own caret behavior (e.g. type="password" reveal toggles).
+        if (fresh.value === preserved.value && typeof fresh.setSelectionRange === "function") {
+          fresh.setSelectionRange(preserved.start, preserved.end);
+        }
+      } catch (_) {}
+    }
+  }
+
+  // §SIGNATURE — set body.dv-mounted on first render to trigger the
+  // amber-bloom atmospheric entrance once. After this it stays on so
+  // the wash retains its post-bloom resting opacity.
+  if (!document.body.classList.contains("dv-mounted")) {
+    document.body.classList.add("dv-mounted");
+  }
+
+  // Keep the browser tab title in sync with the current view. Useful when
+  // the user has multiple DV tabs open + makes the back/forward history
+  // entries scannable instead of all reading "DeployView".
+  try {
+    var title = "DeployView";
+    if (S.view === "preview" && S.activeRepo) {
+      title = "DeployView · " + S.activeRepo.owner + "/" + S.activeRepo.repo + (S.activeBranch ? " · " + S.activeBranch : "");
+    } else if (S.view === "settings")  title = "DeployView · Settings";
+    else if (S.view === "analytics")   title = "DeployView · Analytics";
+    else if (S.view === "mcp")         title = "DeployView · MCP";
+    else if (S.view === "addRepo")     title = "DeployView · Add Repo";
+    else if (S.view === "setup")       title = "DeployView · Setup";
+    else if (S.view === "dashboard")   title = "DeployView · " + (S.repos ? S.repos.length : 0) + " repo" + ((S.repos && S.repos.length === 1) ? "" : "s");
+    if (document.title !== title) document.title = title;
+  } catch (_) {}
 }
 
 // Init
@@ -470,10 +556,45 @@ function emptyState(opts) {
   return wrap;
 }
 
+// copyToClipboard(text, opts?) — single source of truth for copy actions.
+// Tries the modern async API, then falls back to a hidden textarea +
+// document.execCommand("copy") for insecure-context (http://localhost in
+// some browsers, in particular Termux Firefox). Returns a Promise<boolean>.
+// opts: { successMessage, errorMessage } — both optional. Pass null/false to
+// suppress toasts; default shows them.
+function copyToClipboard(text, opts) {
+  opts = opts || {};
+  var successMsg = opts.successMessage === undefined ? "Copied" : opts.successMessage;
+  var errorMsg   = opts.errorMessage   === undefined ? "Couldn't copy — long-press the value and copy manually" : opts.errorMessage;
+  function ok() { if (successMsg) showToast(successMsg, "info"); return true; }
+  function fail() { if (errorMsg) showToast(errorMsg, "error"); return false; }
+  function fallback() {
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "absolute";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select(); ta.setSelectionRange(0, ta.value.length);
+      var done = document.execCommand && document.execCommand("copy");
+      document.body.removeChild(ta);
+      return done ? Promise.resolve(ok()) : Promise.resolve(fail());
+    } catch (e) { return Promise.resolve(fail()); }
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      return navigator.clipboard.writeText(text).then(ok, function() { return fallback(); });
+    } catch (_) { return fallback(); }
+  }
+  return fallback();
+}
+
 // Expose globals for view modules
 window.DV = {
   S: S, el: el, api: api, statusClass: statusClass, render: render,
   loadRepos: loadRepos,
+  copyToClipboard: copyToClipboard,
   fetchAvailableBranches: fetchAvailableBranches, addBranchToRepo: addBranchToRepo,
   fetchGhRepos: fetchGhRepos,
   // installPullToRefresh(rootEl, onRefresh) — wires touch handlers so the
@@ -538,6 +659,18 @@ window.DV = {
     };
     rootEl._dvPTR = cleanup;
     return cleanup;
+  },
+  // openAddRepo() — single entry point for navigating to the Add-Repo
+  // form. Resets the inputs to known defaults so a stale half-filled
+  // form from a previous session doesn't bleed in. Three callsites
+  // duplicated this verbatim before this helper.
+  openAddRepo: function() {
+    S.repoUrl = ""; S.repoError = ""; S.fetchedBranches = []; S.selectedBranches = [];
+    S.repoInfo = null; S.detectedFramework = null; S.detectError = "";
+    S.buildCommand = "npm run build"; S.outputDir = "dist"; S.baseDir = "";
+    S.mode = "static"; S.startCommand = "npm start"; S.envVars = "";
+    S.language = "auto";
+    S.view = "addRepo"; render();
   },
   // openShare(url, title?) — preferred entry point. Uses native share sheet
   // on supported devices (Android/iOS/macOS Safari), falls back to the QR

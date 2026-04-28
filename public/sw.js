@@ -13,7 +13,7 @@
 
 "use strict";
 
-const CACHE_VERSION = "dv-shell-v36";
+const CACHE_VERSION = "dv-shell-v37";
 const SHELL = [
   "/",
   "/index.html",
@@ -94,7 +94,10 @@ self.addEventListener("fetch", function(event) {
     return; // let the browser fetch normally
   }
 
-  // App shell: cache-first with background revalidation.
+  // App shell: cache-first with background revalidation. If both cache
+  // and network miss we synthesize a 503 instead of letting respondWith
+  // resolve to undefined (which throws "Failed to fetch" in the browser
+  // and shows the user a useless error page on the SPA shell).
   event.respondWith(
     caches.match(req).then(function(cached) {
       const network = fetch(req).then(function(resp) {
@@ -103,7 +106,13 @@ self.addEventListener("fetch", function(event) {
           caches.open(CACHE_VERSION).then(function(c) { c.put(req, copy).catch(function(){}); });
         }
         return resp;
-      }).catch(function() { return cached; });
+      }).catch(function() {
+        if (cached) return cached;
+        return new Response(
+          "DeployView is offline and this asset isn't cached yet. Reconnect and reload.",
+          { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" } }
+        );
+      });
       return cached || network;
     })
   );

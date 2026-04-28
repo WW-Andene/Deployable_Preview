@@ -159,10 +159,20 @@ DV._modal.edit = function render(app) {
           if (bt === "" || bt === "{}") payload.budgets = {};
           else { try { payload.budgets = JSON.parse(bt); } catch (e) { DV.showToast("Budgets JSON invalid: " + e.message, "error"); return; } }
         }
+        var saveBtn = this; var origLabel = saveBtn.textContent;
+        saveBtn.disabled = true; saveBtn.textContent = "Saving…";
         api("PUT", "/api/repos/" + m.owner + "/" + m.repo + "/branch", payload).then(function(r) {
-          if (r.error) { DV.showToast(r.error, "error"); return; }
+          if (r && r.error) {
+            DV.showToast("Save failed: " + r.error, "error");
+            saveBtn.disabled = false; saveBtn.textContent = origLabel;
+            return;
+          }
+          DV.showToast("Branch config saved", "success");
           S.editModal = null;
           DV.loadRepos();
+        }).catch(function(e) {
+          DV.showToast("Save failed: " + ((e && e.message) || "network error"), "error");
+          saveBtn.disabled = false; saveBtn.textContent = origLabel;
         });
       } } }, "Save")
     ]));

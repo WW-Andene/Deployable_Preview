@@ -41,7 +41,7 @@ DV.views.mcp = function(app) {
   var claudeJson = '{\n  "mcpServers": {\n    "deployview": {\n      "command": "node",\n      "args": ["server/mcp.js"],\n      "cwd": "/path/to/Deployable_Preview"\n    }\n  }\n}';
   var claudeConfigLabel = el("div", { c: "flex-row" }, [
     el("div", { c: "config-label" }, "Claude Desktop Configuration"),
-    el("button", { c: "btn-copy", on: { click: function() { navigator.clipboard.writeText(claudeJson).then(function() { DV.showToast("Config copied to clipboard", "info"); }).catch(function(){}); } } }, "Copy")
+    el("button", { c: "btn-copy", on: { click: function() { DV.copyToClipboard(claudeJson, { successMessage: "Config copied to clipboard" }); } } }, "Copy")
   ]);
   statusPanel.appendChild(el("div", { c: "config-panel" }, [
     claudeConfigLabel,
@@ -65,7 +65,7 @@ DV.views.mcp = function(app) {
       tunnelBody.appendChild(el("div", { c: "tunnel-url-row" }, [
         el("span", { c: "tunnel-url" }, mcpUrl),
         el("button", { c: "btn-copy", on: { click: function() {
-          navigator.clipboard.writeText(mcpUrl).then(function() { DV.showToast("MCP URL copied", "info"); }).catch(function(){});
+          DV.copyToClipboard(mcpUrl, { successMessage: "MCP URL copied" });
         } } }, "Copy")
       ]));
       tunnelBody.appendChild(el("div", { c: "config-hint" }, "\u2713 Tunnel active via " + (st.provider || "tunnel") + ". Paste the URL above into claude.ai \u2192 Settings \u2192 Integrations."));
@@ -86,10 +86,17 @@ DV.views.mcp = function(app) {
         fetch("/api/tunnel/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
           .then(function(r) { return r.json(); })
           .then(function(data) {
-            if (data.ok) { DV.showToast("Tunnel started: " + (data.url || ""), "success"); pollTunnelStatus(); }
-            else { startBtn.disabled = false; startBtn.textContent = "Start HTTPS Tunnel"; DV.showToast("Tunnel failed: " + (data.error || "Unknown"), "error"); tunnelBody.appendChild(el("div", { c: "config-hint color-err" }, data.error || "Failed")); }
+            if (data.ok) { DV.showToast("Tunnel started: " + (data.url || ""), "success"); pollTunnelStatus(); return; }
+            startBtn.disabled = false; startBtn.textContent = "Start HTTPS Tunnel";
+            // Toast + inline last-error pill in pollTunnelStatus is enough;
+            // don't double-append the same error string into tunnelBody
+            // (the previous render's error was already appended above).
+            DV.showToast("Tunnel failed: " + (data.error || "Unknown"), "error");
           })
-          .catch(function(e) { startBtn.disabled = false; startBtn.textContent = "Start HTTPS Tunnel"; });
+          .catch(function(e) {
+            startBtn.disabled = false; startBtn.textContent = "Start HTTPS Tunnel";
+            DV.showToast("Tunnel failed: " + ((e && e.message) || "network"), "error");
+          });
       } } }, "Start HTTPS Tunnel");
       tunnelBody.appendChild(startBtn);
     }
@@ -202,7 +209,12 @@ DV.views.mcp = function(app) {
 
   var fetchBtn = el("button", { c: "bg bs btn-fetch", on: { click: function() {
     var urlVal = fetchUrl.value.trim();
-    if (!urlVal) return;
+    if (!urlVal) {
+      DV.showToast("Enter a URL first", "info");
+      return;
+    }
+    if (fetchBtn.disabled) return;
+    fetchBtn.disabled = true; var origLabel = fetchBtn.textContent; fetchBtn.textContent = "Fetching…";
     fetchResultDiv.innerHTML = "";
     fetchResultDiv.appendChild(el("div", { c: "fetch-status-ok" }, "Fetching..."));
     var maxLen = parseInt(maxTextInput.value, 10);
@@ -281,6 +293,8 @@ DV.views.mcp = function(app) {
     }).catch(function(e) {
       fetchResultDiv.innerHTML = "";
       fetchResultDiv.appendChild(el("div", { c: "fetch-status-err" }, "Failed: " + e.message));
+    }).finally(function() {
+      fetchBtn.disabled = false; fetchBtn.textContent = origLabel;
     });
   } } }, "Fetch");
   fetchOpts.appendChild(fetchBtn);

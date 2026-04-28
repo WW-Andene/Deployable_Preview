@@ -8,17 +8,65 @@ const express = require("express");
 const router = express.Router();
 
 const { getConfig, saveConfig } = require("../../config");
-const { ghApi } = require("../../github");
+const { ghApi, ghApiRaw } = require("../../github");
 const audit = require("../../audit");
 
 // ── Token ────────────────────────────────────────────────────────────────────
-router.post("/token", (req, res) => {
+// Validates the PAT AND its scopes in one shot. We probe /user/repos because
+// (a) it requires the `repo` scope on classic PATs (the response 403s without
+// it), and (b) the response carries the X-OAuth-Scopes header which lets us
+// give a specific "missing scope" error instead of a generic 401. Fine-grained
+// tokens (github_pat_*) don't expose scopes via that header — we accept them
+// if /user/repos returns any 2xx, since GH has already enforced their
+// repo-permission ACL server-side.
+router.post("/token", async (req, res) => {
   const config = getConfig();
-  config.token = req.body.token || "";
+  const raw = (req.body && req.body.token) || "";
+  const token = String(raw).trim();
+  if (!token) {
+    config.token = "";
+    saveConfig();
+    return res.status(400).json({ error: "Token required", code: "empty" });
+  }
+  config.token = token;
   saveConfig();
-  ghApi("/user", config.token)
-    .then((user) => res.json({ ok: true, user: user.login }))
-    .catch((e) => { config.token = ""; saveConfig(); res.status(401).json({ error: e.message }); });
+  try {
+    const probe = await ghApiRaw("/user/repos?per_page=1", token);
+    if (probe.status === 401) {
+      config.token = ""; saveConfig();
+      return res.status(401).json({ error: "Invalid or expired token", code: "invalid" });
+    }
+    if (probe.status === 403) {
+      config.token = ""; saveConfig();
+      const msg = (probe.body && probe.body.message) || "Forbidden";
+      return res.status(401).json({ error: "Token rejected by GitHub: " + msg, code: "forbidden" });
+    }
+    if (probe.status >= 400) {
+      config.token = ""; saveConfig();
+      return res.status(401).json({ error: "GitHub " + probe.status + " " + ((probe.body && probe.body.message) || ""), code: "gh_error" });
+    }
+    // Classic PAT scope check (header is absent on fine-grained tokens).
+    const scopes = String(probe.headers["x-oauth-scopes"] || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const isFineGrained = /^github_pat_/i.test(token);
+    if (!isFineGrained && scopes.length > 0) {
+      const hasRepo = scopes.includes("repo") || scopes.includes("public_repo");
+      if (!hasRepo) {
+        config.token = ""; saveConfig();
+        return res.status(401).json({
+          error: "Token is missing the `repo` scope. Regenerate at github.com/settings/tokens with `repo` (and `workflow` if you'll trigger Actions).",
+          code: "missing_scope",
+          missing: ["repo"]
+        });
+      }
+    }
+    // Pull /user once to surface the login.
+    let login = "";
+    try { const u = await ghApi("/user", token); login = u && u.login || ""; } catch (_) { /* non-fatal */ }
+    res.json({ ok: true, user: login, scopes, fineGrained: isFineGrained });
+  } catch (e) {
+    config.token = ""; saveConfig();
+    res.status(401).json({ error: e.message, code: "network" });
+  }
 });
 
 router.get("/token", (req, res) => {
@@ -43,6 +91,15 @@ const SUGGESTED_KEYS = [
 ];
 const SAFE_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 const MAX_SECRETS = 200;
+
+// Common name confusions — older docs / .env.example used these spellings.
+// Normalize on save so users pasting from old sources don't silently fail.
+const KEY_ALIASES = {
+  BROWSERLESS_WS_ENDPOINT: "BROWSER_WS_ENDPOINT",
+  BROWSERLESS_TOKEN: "BROWSERLESS_API_KEY",
+  NGROK_TOKEN: "NGROK_AUTHTOKEN",
+  NGROK_AUTH_TOKEN: "NGROK_AUTHTOKEN"
+};
 
 // F-C015: don't leak the leading bytes — token-type prefixes (ghp_, sk-, …)
 // already shrink the search space; combined with the trailing 4 they hand
@@ -86,10 +143,12 @@ router.get("/secrets/suggestions", (req, res) => {
 router.post("/secrets", audit.logAction("secret.write", { target: ["body.key"] }), (req, res) => {
   const config = getConfig();
   if (!config.secrets) config.secrets = {};
-  const { key, value } = req.body;
-  if (!key || typeof key !== "string") return res.status(400).json({ error: "key required" });
-  if (!SAFE_KEY_RE.test(key)) return res.status(400).json({ error: "Invalid key name — use A-Z, 0-9, _ only" });
+  const { key: rawKey, value } = req.body;
+  if (!rawKey || typeof rawKey !== "string") return res.status(400).json({ error: "key required" });
+  if (!SAFE_KEY_RE.test(rawKey)) return res.status(400).json({ error: "Invalid key name — use A-Z, 0-9, _ only" });
   if (value === undefined || value === null) return res.status(400).json({ error: "value required" });
+  const key = KEY_ALIASES[rawKey] || rawKey;
+  const aliased = key !== rawKey;
   if (!Object.prototype.hasOwnProperty.call(config.secrets, key) && Object.keys(config.secrets).length >= MAX_SECRETS) {
     return res.status(429).json({ error: "Secret cap reached (" + MAX_SECRETS + ")" });
   }
@@ -104,7 +163,7 @@ router.post("/secrets", audit.logAction("secret.write", { target: ["body.key"] }
     delete process.env[key];
   }
   saveConfig();
-  res.json({ ok: true, key, hasValue: !!trimmed });
+  res.json({ ok: true, key, aliasedFrom: aliased ? rawKey : undefined, hasValue: !!trimmed });
 });
 
 router.delete("/secrets/:key", audit.logAction("secret.delete", { target: ["params.key"] }), (req, res) => {
