@@ -467,7 +467,7 @@ Binding rules — RELAXATIONS from §AUTO FULL:
      a. The Risk Acknowledgment heredocs in h5w-autoloop.sh
         (RISK_ACK, UNCHAINED_ACK, BRAINSTORM_ACK heredoc blocks)
      b. The Iron Laws section in SKILL.md (§LAW, lines covering
-        Laws 1-12 + "Law application by mode")
+        Laws 1-12 + \"Law application by mode\")
      c. The §AUTO-UNCHAINED and §BRAINSTORM activation requirements
         (the trigger phrases, confirmation phrases, gate sequence)
      d. The AUTO_RULES injection block in h5w-autoloop.sh itself
