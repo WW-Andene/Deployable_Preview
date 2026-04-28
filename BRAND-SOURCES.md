@@ -103,3 +103,94 @@ The 3 elements WITHOUT WHICH Linear is unrecognizable:
   site; the dashboard IS the product.
 - **Reactive opt-out**: Linear's dense feed-style activity log doesn't fit
   DV's per-branch model.
+
+---
+
+## Source 2 — Vercel (vercel.com dashboard)
+
+### Layer 1 — Surface
+
+- **Palette**: pure black bg, pure white text, single grayscale spectrum.
+  No accent color until you reach a CTA — the "Deploy" button is the
+  only chromatic element on most pages (Vercel cyan ~oklch 75% 0.13 220
+  or the gradient of the moment).
+- **Typography**: Geist Sans (proprietary, modern grotesque) + Geist Mono.
+  Tight tracking on display, large sizes for hero metrics.
+- **Icons**: Vercel's own icon set, minimal stroke, geometric.
+- **Spatial rhythm**: 4/8/16 base. Information rendered in dense card
+  grids; deployment cards stack with thin separators.
+- **Motion**: snappy, rare. The deployment-success animation (the
+  triangle filling) is the one signature motion they protect.
+
+### Layer 2 — Structure
+
+- **Pure achromatic discipline + one chromatic moment**: this is the
+  Vercel signature. Where Linear has a single-hue family, Vercel has
+  *no hue except where the action is*.
+- **The triangle (▲) is everywhere**: as logo, as cursor, as state
+  indicator. It's the visual anchor of every screen.
+- **Information density without crowding**: deployment cards reveal a
+  lot per row (status / branch / commit / duration / preview link)
+  but the rhythm is so tight the eye reads it as compact rather than
+  busy.
+- **What's deliberately excluded**: warmth, gradients except the
+  marketing hero, illustration, color-coded status (everything is
+  monochrome until you click into detail).
+
+### Layer 3 — Culture
+
+- Tradition: Bauhaus + Helvetica Neue + Apple's later (post-Forstall)
+  monochrome era.
+- Era: 2020+ Vercel's design refresh under Rauno Freiberg pulled it
+  toward cinematic-tech extreme minimalism — black canvas, white type,
+  single chromatic frame.
+- Genre: cloud-platform tooling. AWS / Cloudflare / Netlify all have
+  more color; Vercel chose the opposite.
+
+### Layer 4 — Philosophy
+
+- **The deployment is the protagonist**: every visual decision frames
+  the build/preview/deploy pipeline as cinema. Black canvas = stage.
+- **Minimalism as competitive moat**: by eliminating decoration, the
+  product looks expensive to build, expensive to maintain, and expensive
+  to abandon — increasing perceived quality and switching cost.
+- **What it says without words**: "we made the most thoughtful choice on
+  every pixel; trust us with your edge functions."
+
+### Layer 5 — Identity Thesis
+
+> Vercel's identity is defined by **achromatic discipline broken by one
+> chromatic moment**, expressed through **pure black/white type and the
+> ▲ triangle as universal anchor**, rooted in **Bauhaus minimalism +
+> cinematic-tech hyperreduction**, designed to make the user feel
+> **deployment is consequential, the platform is serious**.
+
+#### Minimum Authentic Set
+
+1. **Black canvas + white type + one accent moment**. The 1-color rule
+   is the discipline. *Why essential*: removes it and you have generic
+   dark SaaS.
+2. **The ▲ as recurring motif**. *Why essential*: it's the brand mnemonic.
+   Removing it removes recognizability.
+3. **Information density inside cards, generous gaps between sections**.
+   *Why essential*: the rhythm IS the design language.
+
+### Transferable to DeployView
+
+| Vercel element | DeployView application | Status |
+|---|---|---|
+| One chromatic moment per screen | Adopted in spirit — accent amber is reserved for primary CTAs, active states, and the brand mark. The rest of the UI works in chromatic-text + palette-tinted-bg. | ✓ done |
+| A recurring brand motif | Adopted — the chevron `>` from the logomark is repeated as a visual element (the prompt cursor in the badge, the chevron-pointer on hover affordances). | ✓ done |
+| Information density inside cards, gaps between sections | Already in spacing scale via `--sp-xs` … `--sp-2xl` (3.5/7/14/21/28/42px) — explicitly the Brief's spatial-contrast rule. | ✓ done |
+| Protect ONE signature motion | Adopted — `dv-bloom` is the protected signature. Stagger and modal-in are utility, not signature. | ✓ done |
+
+### What we deliberately *don't* take from Vercel
+
+- **Pure achromatic discipline**: DV's "carved from obsidian, lit by
+  amber" Brief explicitly wants warmth in the text family (--hue-text 75).
+  Vercel-style pure-monochrome would erase the void-terminal warmth.
+- **Triangle as global motif**: DV's chevron `>` performs the same role
+  but reads as terminal prompt — semantically richer for a developer tool.
+- **Marketing-cinema home page**: same reason as Linear; DV has no
+  marketing surface.
+
