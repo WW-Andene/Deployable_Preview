@@ -147,14 +147,17 @@ function statusClass(s) { return "status-dot status-" + (s || "idle"); }
 
 // Data loading — uses ETag/If-None-Match so the server can 304 unchanged polls.
 var _reposEtag = null;
+var _reposLoadFailures = 0;
 function loadRepos() {
   var headers = { "Content-Type": "application/json" };
   if (_reposEtag) headers["If-None-Match"] = _reposEtag;
   fetch("/api/repos", { method: "GET", headers: headers }).then(function(res) {
     if (res.status === 304) return null; // unchanged — keep current state
+    if (!res.ok) throw new Error("HTTP " + res.status);
     _reposEtag = res.headers.get("ETag") || _reposEtag;
     return res.json();
   }).then(function(repos) {
+    _reposLoadFailures = 0;
     if (!repos) return; // nothing changed
     S.repos = repos;
     if (S.activeRepo) {
@@ -162,6 +165,14 @@ function loadRepos() {
       if (updated) S.activeRepo = updated;
     }
     render();
+  }).catch(function(e) {
+    // Quiet on transient blips; complain after 3 in a row so the user
+    // knows the dashboard is stale instead of silently showing an
+    // outdated repo list.
+    _reposLoadFailures++;
+    if (_reposLoadFailures === 3) {
+      showToast("Could not refresh repos (" + ((e && e.message) || "network") + "). Reconnect and the next poll will recover.", "error");
+    }
   });
 }
 
@@ -170,8 +181,17 @@ function fetchAvailableBranches() {
   S.availableBranches = [];
   render();
   api("GET", "/api/github/" + S.activeRepo.owner + "/" + S.activeRepo.repo + "/branches").then(function(r) {
-    if (r.branches) { S.availableBranches = r.branches; render(); }
-  }).catch(function() {});
+    if (r && r.error) {
+      // Without surfacing this, the +Branch dropdown sits on its
+      // spinner forever and the user never finds out the GitHub
+      // token expired or the repo is gone.
+      showToast("Couldn't load branches: " + r.error, "error");
+      return;
+    }
+    if (r && r.branches) { S.availableBranches = r.branches; render(); }
+  }).catch(function(e) {
+    showToast("Couldn't load branches: " + ((e && e.message) || "network"), "error");
+  });
 }
 
 // Fetch the user's GitHub repositories. Cached server-side for 5 min;
