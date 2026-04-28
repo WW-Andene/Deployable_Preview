@@ -216,12 +216,37 @@ DV.views.dashboard = function(app) {
               if (r.error) { DV.showToast(r.error, "error"); return; }
               repo.autoPRPreviews = next;
               DV.showToast("Auto-PR previews " + (next ? "enabled" : "disabled"), "success");
+              // When turning ON, verify WEBHOOK_SECRET is set — without
+              // it the inbound /api/webhook handler 403s every event,
+              // so Auto-PR is silently inert. Telling the user at
+              // toggle time closes the gap between intent and effect.
+              if (next) {
+                fetch("/api/secrets").then(function(s){ return s.json(); }).then(function(secrets){
+                  var hasSecret = (secrets || []).some(function(k){ return k.key === "WEBHOOK_SECRET" && k.hasValue; });
+                  if (!hasSecret) {
+                    DV.showToast("Auto-PR enabled, but WEBHOOK_SECRET is not set — GitHub webhooks will be rejected. Add it in Settings → API Keys.", "error");
+                  }
+                }).catch(function(){});
+              }
               DV.render();
             }).catch(function(e) { DV.showToast("Toggle failed: " + ((e && e.message) || "network"), "error"); });
           } }
         }, repo.autoPRPreviews ? "✓ Auto-PR" : "Auto-PR off"));
         headerRight.appendChild(el("button", { c: "bd bs", attr: { title: "Delete " + repo.owner + "/" + repo.repo, "aria-label": "Delete " + repo.owner + "/" + repo.repo } , on: { click: function() {
-          if (!confirm("Delete " + repo.owner + "/" + repo.repo + "? All branches and workspace clones will be removed.")) return;
+          // Surface live-state in the confirm so a delete that's
+          // about to stop running processes / kill ports / orphan
+          // history isn't quietly destructive.
+          var bsAll = repo.branchStatuses || {};
+          var slugList = Object.keys(bsAll);
+          var running = slugList.filter(function(k){ var s = bsAll[k] && bsAll[k].status; return s === "running" || s === "building"; });
+          var prompt = "Delete " + repo.owner + "/" + repo.repo + "?";
+          prompt += "\n\n• " + slugList.length + " branch" + (slugList.length === 1 ? "" : "es") + " will be removed";
+          if (running.length) {
+            prompt += "\n• " + running.length + " running/building branch" + (running.length === 1 ? "" : "es") + " will be stopped: " + running.slice(0, 3).join(", ") + (running.length > 3 ? ", …" : "");
+          }
+          prompt += "\n• Workspace clones + build history will be deleted";
+          prompt += "\n\nThis cannot be undone.";
+          if (!confirm(prompt)) return;
           api("DELETE", "/api/repos/" + repo.owner + "/" + repo.repo).then(function(r) {
             if (r && r.error) { DV.showToast("Delete failed: " + r.error, "error"); return; }
             DV.showToast("Deleted " + repo.owner + "/" + repo.repo, "info");
