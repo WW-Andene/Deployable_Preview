@@ -1653,7 +1653,7 @@ button:disabled, button[disabled] {
 .diff-stage {
   position: relative;
   width: 100%;
-  background: #000;
+  background: var(--bg-deep);   /* palette-derived, never pure black */
   border-radius: var(--r-card);
   overflow: hidden;
   cursor: ew-resize;
@@ -1691,7 +1691,7 @@ button:disabled, button[disabled] {
   background: var(--accent);
   transform: translate(-50%, -50%);
   border: 3px solid var(--bg);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+  box-shadow: 0 4px 16px oklch(8% 0.020 var(--hue-base) / 0.6);
 }
 
 /* ─── Analytics view (analytics.js) ─── */
@@ -1804,6 +1804,37 @@ button:disabled, button[disabled] {
 .empty-state-cta {
   margin-top: 12px;
 }
+
+/* §ERRORS — palette-calibrated error component. Replaces ad-hoc red
+   text scattered across views. Use as:
+     <div class="error-message">
+       <strong>Build failed.</strong> Run with -v to see the trace.
+     </div>
+   The left-border is the accent stripe; bg uses the err color at 8%
+   for inset feel; recovery copy belongs inside the same block. */
+.error-message {
+  background: oklch(60% 0.165 var(--hue-err) / 0.08);
+  border-left: 3px solid var(--err);
+  border-radius: 0 var(--r-card) var(--r-card) 0;
+  color: var(--tx1);
+  padding: var(--sp-md) var(--sp-lg);
+  font-size: var(--text-md);
+  line-height: 1.5;
+}
+.error-message strong { color: var(--err); font-weight: 600; }
+.error-message + .error-message { margin-top: var(--sp-sm); }
+
+/* Inverse: success-message for completed-step affirmation. */
+.success-message {
+  background: oklch(64% 0.118 var(--hue-ok) / 0.08);
+  border-left: 3px solid var(--ok);
+  border-radius: 0 var(--r-card) var(--r-card) 0;
+  color: var(--tx1);
+  padding: var(--sp-md) var(--sp-lg);
+  font-size: var(--text-md);
+  line-height: 1.5;
+}
+.success-message strong { color: var(--ok); font-weight: 600; }
 
 /* ─── Skeleton loaders (D2) ─── */
 /* Use as: <div class="skeleton skeleton-text"></div> for a single line,
@@ -1959,7 +1990,7 @@ button:disabled, button[disabled] {
     font-size: 14px;
     font-weight: 700;
     cursor: pointer;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(212,160,48,0.4);
+    box-shadow: 0 8px 24px oklch(8% 0.020 var(--hue-base) / 0.5), 0 2px 6px var(--accent-mid);
     z-index: 50;
     transition: transform 120ms var(--ease-fast, ease);
   }
@@ -2599,6 +2630,31 @@ button:disabled, button[disabled] {
 @keyframes modalIn { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes dropIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
 
+/* §SIGNATURE — The one motion. The amber-wash bloom on initial app
+   mount is the product's defining moment: a quick warm-up of the
+   atmosphere itself, suggesting the terminal lighting up. Plays
+   once, applied to body via .dv-mounted (set by app.js after first
+   render) so it can't fight reduced-motion (see §9 below). */
+@keyframes dv-bloom {
+  0%   { opacity: 0;   transform: scale(0.92); }
+  60%  { opacity: 1;   transform: scale(1.02); }
+  100% { opacity: 0.85;transform: scale(1); }
+}
+body.dv-mounted::before {
+  animation: dv-bloom var(--dur-delight) var(--ease-spring) forwards;
+}
+
+/* §STAGGER — choreographed list entrances (per §STAGGER skill).
+   Apply via .stagger-in to children of a list. Total cap 150ms so
+   long lists don't drag. Used by branch-row / repo-card on render. */
+.stagger-in { opacity: 0; transform: translateY(8px); animation: dv-stagger 220ms var(--ease-physical) forwards; }
+.stagger-in:nth-child(1) { animation-delay:   0ms; }
+.stagger-in:nth-child(2) { animation-delay:  40ms; }
+.stagger-in:nth-child(3) { animation-delay:  80ms; }
+.stagger-in:nth-child(4) { animation-delay: 120ms; }
+.stagger-in:nth-child(n+5) { animation-delay: 150ms; }
+@keyframes dv-stagger { to { opacity: 1; transform: translateY(0); } }
+
 /* ══════════════════════════════════════════════════
    §9 — REDUCED MOTION + RESPONSIVE
    ══════════════════════════════════════════════════ */
@@ -2745,7 +2801,7 @@ button:disabled, button[disabled] {
   padding: 2px 6px;
   border-radius: 4px;
 }
-.toast-close:hover { color: var(--tx1); background: rgba(255,255,255,0.06); }
+.toast-close:hover { color: var(--tx1); background: oklch(91% 0.012 var(--hue-text) / 0.06); }
 .toast-success {
   background: var(--ok-bg-h);
   border-left-color: var(--ok);

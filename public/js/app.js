@@ -329,6 +329,13 @@ function render() {
     }
   }
 
+  // §SIGNATURE — set body.dv-mounted on first render to trigger the
+  // amber-bloom atmospheric entrance once. After this it stays on so
+  // the wash retains its post-bloom resting opacity.
+  if (!document.body.classList.contains("dv-mounted")) {
+    document.body.classList.add("dv-mounted");
+  }
+
   // Keep the browser tab title in sync with the current view. Useful when
   // the user has multiple DV tabs open + makes the back/forward history
   // entries scannable instead of all reading "DeployView".
