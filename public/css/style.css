@@ -2202,18 +2202,26 @@ button:disabled, button[disabled] {
   backdrop-filter: blur(8px);
 }
 .settings-tab {
+  /* Rest */
   background: transparent;
   color: var(--tx2);
   border: 0;
   padding: 7px 14px;
   font-family: var(--font-ui);
-  font-size: 13px;
+  font-size: var(--text-base);
   font-weight: 500;
+  letter-spacing: -0.005em;
   border-radius: var(--r-btn);
   cursor: pointer;
-  transition: background var(--dur-micro) var(--ease-fast), color var(--dur-micro) var(--ease-fast);
+  transition: background-color var(--dur-micro) var(--ease-fast),
+              color var(--dur-micro) var(--ease-fast);
 }
 .settings-tab:hover { background: var(--sf2); color: var(--tx1); }
+.settings-tab:focus-visible {
+  outline: none;
+  background: var(--sf2);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
 /* §NAVIGATION — active items always combine 3 cues: accent color +
    weight bump + positional indicator. The 2px underline is the
    positional cue here; chip glow handles it elsewhere. */
@@ -3221,7 +3229,15 @@ body.dv-mounted::before {
 /* ══════════════════════════════════════════════════
    §13 — TOPBAR ICONS & PILLS
    ══════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════
+   §13.1 — TOPBAR ICONS — every state explicit
+   ──────────────────────────────────────────────────
+   32×32 square icon buttons in the right-side nav. Active state
+   uses 3 cues per §NAVIGATION (color + bg + bottom indicator).
+   ══════════════════════════════════════════════════ */
 .topbar-icon {
+  /* Rest */
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3233,24 +3249,63 @@ body.dv-mounted::before {
   font-size: 15px;
   cursor: pointer;
   padding: 0;
-  transition: background-color var(--dur-micro) var(--ease-fast), border-color var(--dur-micro) var(--ease-fast), color var(--dur-micro) var(--ease-fast);
+  transition: background-color var(--dur-micro) var(--ease-fast),
+              border-color var(--dur-micro) var(--ease-fast),
+              color var(--dur-micro) var(--ease-fast),
+              transform var(--dur-micro) var(--ease-fast);
 }
-.topbar-icon:hover { background: var(--sf2); color: var(--tx1); border-color: var(--border-h); }
-.topbar-icon-active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+.topbar-icon:hover {
+  background: var(--sf2);
+  color: var(--tx1);
+  border-color: var(--border-h);
+}
+.topbar-icon:active {
+  background: var(--sf3);
+  transform: translateY(1px) scale(0.94);
+  transition-duration: 50ms;
+}
+.topbar-icon:focus-visible {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+.topbar-icon-active {
+  /* Active — 3-cue: accent color + accent-dim bg + bottom indicator */
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.topbar-icon-active::after {
+  content: '';
+  position: absolute;
+  left: 8px; right: 8px;
+  bottom: -5px;
+  height: 2px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-mid);
+}
+
+/* §13.2 — Topbar pill (HTTPS tunnel indicator). Slightly larger than
+   status pills — sits in the topbar where 9px reads as illegible. */
 .topbar-pill {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: var(--r-pill);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
 }
 .topbar-pill-ok {
   background: var(--ok-dim);
   color: var(--ok);
   border: 1px solid var(--ok-border);
+  /* Subtle pulse to suggest 'live link active' without becoming
+     attention-demanding. Plays once per page load via the body
+     dv-mounted gate. */
+  box-shadow: 0 0 8px oklch(64% 0.118 var(--hue-ok) / 0.3);
 }
 
 /* ══════════════════════════════════════════════════
