@@ -8,7 +8,7 @@
 const express = require("express");
 const router = express.Router();
 
-const { logStreams } = require("../../logs");
+const { logStreams, replayHistorySince } = require("../../logs");
 const audit = require("../../audit");
 const deployment = require("../../services/deployment");
 const STATUS = deployment.CODE_TO_STATUS;
@@ -20,13 +20,24 @@ router.post("/stop/:owner/:repo", (req, res) => {
   res.json({ ok: true });
 });
 
-// SSE log stream — Express transport, kept inline for the long-lived
-// connection registration.
+// SSE log stream. Honors the `Last-Event-ID` header (set automatically
+// by EventSource on auto-reconnect, or via ?lastEventId= query for clients
+// without that capability) to replay any in-memory backlog the client
+// missed during the disconnect — so a wifi flake mid-build doesn't strand
+// the user with a half-log.
 router.get("/logs/stream", (req, res) => {
   const key = req.query.key || "";
-  res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+  res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive", "X-Accel-Buffering": "no" });
   res.write("data: " + JSON.stringify({ connected: true, key }) + "\n\n");
+  // EventSource sends the header lowercased; query fallback covers
+  // hand-rolled clients (the MCP CLI, curl, etc.).
+  const headerId = req.headers["last-event-id"];
+  const queryId = req.query.lastEventId;
+  const sinceId = parseInt(headerId || queryId, 10);
   const stream = { res, key, closed: false };
+  if (Number.isFinite(sinceId) && sinceId > 0) {
+    try { replayHistorySince(stream, key, sinceId); } catch (_) {}
+  }
   logStreams.push(stream);
   req.on("close", () => { stream.closed = true; });
 });

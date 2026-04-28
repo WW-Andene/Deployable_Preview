@@ -7,6 +7,60 @@ if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 
 const logStreams = []; // SSE connections
 
+// Per-key recent-event ring buffer for SSE resume. EventSource browsers
+// auto-reconnect with `Last-Event-ID` set to the most recent id they saw;
+// on connect we replay everything past that id so a wifi blip doesn't
+// strand the user mid-build with a half-log. Capped per key so a long
+// build can't pin unlimited memory.
+const HISTORY_PER_KEY = parseInt(process.env.DV_LOG_HISTORY_LINES, 10) || 2000;
+const _logHistory = new Map(); // key → [{id, msg}, ...]
+const _logCounter = new Map(); // key → last id assigned
+
+function _nextId(key) {
+  const next = (_logCounter.get(key) || 0) + 1;
+  _logCounter.set(key, next);
+  return next;
+}
+
+function _pushHistory(key, entry) {
+  let arr = _logHistory.get(key);
+  if (!arr) { arr = []; _logHistory.set(key, arr); }
+  arr.push(entry);
+  if (arr.length > HISTORY_PER_KEY) arr.splice(0, arr.length - HISTORY_PER_KEY);
+}
+
+// Drop a key's in-memory history once the build is finished — the full
+// log is on disk by then and any reconnect can grab it via /api/log.
+function clearHistory(key) {
+  _logHistory.delete(key);
+  _logCounter.delete(key);
+}
+
+// replayHistorySince(stream, key, sinceId) — write every cached entry
+// past sinceId to a freshly-connected SSE stream. Returns the count
+// replayed. If the buffer was evicted (oldest cached id is greater than
+// sinceId+1) we emit a single "<--- gap --->" sentinel so the user knows.
+function replayHistorySince(stream, key, sinceId) {
+  const arr = _logHistory.get(key) || [];
+  if (!arr.length) return 0;
+  const oldest = arr[0].id;
+  const newest = arr[arr.length - 1].id;
+  if (sinceId >= newest) return 0;
+  if (oldest > sinceId + 1) {
+    try { stream.res.write("data: " + JSON.stringify({ key, msg: "<--- log buffer rotated; some lines lost on reconnect --->" }) + "\n\n"); } catch (_) {}
+  }
+  let n = 0;
+  for (const e of arr) {
+    if (e.id <= sinceId) continue;
+    try {
+      stream.res.write("id: " + e.id + "\n");
+      stream.res.write("data: " + JSON.stringify({ key, msg: e.msg }) + "\n\n");
+      n++;
+    } catch (_) { break; }
+  }
+  return n;
+}
+
 // F-M020: cap each per-key log file. When the existing file would exceed
 // the cap, rotate to .log.1 (overwriting any prior .log.1) before writing
 // the fresh contents. Single rotation depth keeps disk usage bounded
@@ -54,11 +108,16 @@ function loadLog(key) {
 }
 
 function broadcastLog(key, msg) {
+  const id = _nextId(key);
+  _pushHistory(key, { id, msg });
   for (let i = logStreams.length - 1; i >= 0; i--) {
     const s = logStreams[i];
     if (s.closed) { logStreams.splice(i, 1); continue; }
     if (s.key === key) {
-      try { s.res.write("data: " + JSON.stringify({ key, msg }) + "\n\n"); } catch (e) { logStreams.splice(i, 1); }
+      try {
+        s.res.write("id: " + id + "\n");
+        s.res.write("data: " + JSON.stringify({ key, msg }) + "\n\n");
+      } catch (e) { logStreams.splice(i, 1); }
     }
   }
 }
@@ -70,4 +129,4 @@ setInterval(function() {
   }
 }, 60000);
 
-module.exports = { saveLog, loadLog, broadcastLog, logStreams };
+module.exports = { saveLog, loadLog, broadcastLog, logStreams, replayHistorySince, clearHistory };

@@ -122,8 +122,19 @@ DV._modal.log = function render(app) {
     S._logSSE.onmessage = function(e) {
       try { var data = JSON.parse(e.data); if (data.msg) appendChunk(data.msg + "\n"); } catch (err) {}
     };
+    // EventSource auto-reconnects on transient failures, replaying with
+    // Last-Event-ID set to the last id we saw — so a wifi blip mid-build
+    // is recovered server-side via /api/logs/stream's replay path.
+    // Closing the connection on every onerror would defeat that, so we
+    // only force-close when the browser has marked the source as
+    // permanently dead (readyState === 2 / CLOSED). The modal's own
+    // teardown path explicitly closes when the user closes the modal.
     S._logSSE.onerror = function() {
-      if (S._logSSE) { S._logSSE.close(); S._logSSE = null; }
+      if (S._logSSE && S._logSSE.readyState === 2) {
+        S._logSSE = null;
+      }
+      // readyState === 0 (CONNECTING) means the browser is already
+      // attempting to reconnect — let it.
     };
   }
 
