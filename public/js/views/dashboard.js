@@ -428,6 +428,29 @@ DV.views.dashboard = function(app) {
             if (bs.lastBuild && bs.status !== "building") {
               statusParts.push(el("span", { c: "color-tx3 text-10 font-mono" }, timeAgo(bs.lastBuild)));
             }
+            // Schedule indicator — renders only when the branch has
+            // schedule != 0. Numeric schedule (seconds between
+            // rebuilds): show 'next: in 12m' relative to lastBuild.
+            // String schedule (cron expression): show '⏱ cron' badge
+            // without countdown (parsing cron client-side is overkill
+            // here; the title attr surfaces the raw expression).
+            if (bs.schedule) {
+              var sched = bs.schedule;
+              if (typeof sched === "number" && sched > 0) {
+                var nextAt = (bs.lastBuild || 0) + sched * 1000;
+                var msUntil = nextAt - Date.now();
+                var label;
+                if (!bs.lastBuild) label = "every " + (sched < 3600 ? Math.round(sched / 60) + "m" : sched < 86400 ? Math.round(sched / 3600) + "h" : Math.round(sched / 86400) + "d");
+                else if (msUntil <= 0) label = "next: due";
+                else if (msUntil < 60000) label = "next: " + Math.ceil(msUntil / 1000) + "s";
+                else if (msUntil < 3600000) label = "next: " + Math.round(msUntil / 60000) + "m";
+                else if (msUntil < 86400000) label = "next: " + Math.round(msUntil / 3600000) + "h";
+                else label = "next: " + Math.round(msUntil / 86400000) + "d";
+                statusParts.push(el("span", { c: "color-tx3 text-10 font-mono", attr: { title: "Auto-rebuild every " + sched + "s" } }, "⏱ " + label));
+              } else if (typeof sched === "string" && sched.trim()) {
+                statusParts.push(el("span", { c: "color-tx3 text-10 font-mono", attr: { title: "Cron schedule: " + sched } }, "⏱ cron"));
+              }
+            }
             if (bs.commitSha && bs.status !== "building" && bs.status !== "idle") {
               statusParts.push(el("span", { c: "sha-badge", attr: { title: "Commit: " + bs.commitSha }, on: { click: function() {
                 DV.copyToClipboard(bs.commitSha, { successMessage: "SHA copied: " + (bs.commitSha || "").slice(0, 7) });

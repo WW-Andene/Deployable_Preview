@@ -62,7 +62,14 @@ router.get("/repos", (req, res) => {
         envVars: bc.envVars || "",
         language: bc.language || "auto",
         serverPort: srv ? srv.port : null,
-        queuedAhead: lean.status === "queued" ? queueAhead(bk) : 0
+        queuedAhead: lean.status === "queued" ? queueAhead(bk) : 0,
+        // Surface the auto-rebuild schedule so the dashboard can show
+        // a "next run" indicator. Numeric → seconds between rebuilds;
+        // string → cron expression (no countdown rendered, just a
+        // 'scheduled' badge). Without this on the wire, the branch
+        // row had no way to distinguish manual-only branches from
+        // auto-rebuilt ones.
+        schedule: bc.schedule || 0
       };
     }
     return { ...r, branchStatuses };
