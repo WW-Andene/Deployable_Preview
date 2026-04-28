@@ -1904,9 +1904,25 @@ button:disabled, button[disabled] {
   transition: background var(--dur-micro) var(--ease-fast), color var(--dur-micro) var(--ease-fast);
 }
 .settings-tab:hover { background: var(--sf2); color: var(--tx1); }
+/* §NAVIGATION — active items always combine 3 cues: accent color +
+   weight bump + positional indicator. The 2px underline is the
+   positional cue here; chip glow handles it elsewhere. */
 .settings-tab-active {
   background: var(--accent-dim);
   color: var(--accent);
+  font-weight: 600;
+  position: relative;
+}
+.settings-tab-active::after {
+  content: '';
+  position: absolute;
+  left: var(--sp-md);
+  right: var(--sp-md);
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: var(--r-pill);
+  box-shadow: 0 0 8px var(--accent-mid);
 }
 .settings-tab-active:hover { background: var(--accent-mid); color: var(--accent); }
 
