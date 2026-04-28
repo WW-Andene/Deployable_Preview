@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      # Skip the Playwright postinstall browser download (UI job handles
+      # it) and the enrichment-library installer — neither is needed for
+      # unit tests, and the latter can take many minutes on a cold cache.
+      - run: npm ci --legacy-peer-deps
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+          DEPLOYVIEW_SKIP_ENRICHMENTS: "1"
+      - run: npm test
+
+  ui-smoke:
+    name: UI smoke (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci --legacy-peer-deps
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+          DEPLOYVIEW_SKIP_ENRICHMENTS: "1"
+      - run: npx playwright install --with-deps chromium
+      - run: node test/ui-smoke.js
+      - name: Upload settings screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: settings-screenshots
+          path: test/artifacts/
+          if-no-files-found: warn

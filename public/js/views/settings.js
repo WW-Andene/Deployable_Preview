@@ -13,6 +13,45 @@ function section(title, children, tabId) {
   return s;
 }
 
+// Tab-scoped data cache. Without this, every re-render of the settings
+// view (SSE status pushes, error-count sync, tab clicks) wipes each
+// section back to a spinner and re-fires 9 parallel API requests —
+// making the page feel permanently loading and the options effectively
+// unreachable on slower hardware. We cache the parsed response per
+// tab and reuse it synchronously on re-render; mutations invalidate
+// the relevant key, and leaving the view drops the whole cache so a
+// return visit gets fresh data. Errors are cached separately so a
+// failing endpoint doesn't retry on every render.
+S._settingsCache    = S._settingsCache    || {};
+S._settingsErrors   = S._settingsErrors   || {};
+S._settingsInflight = S._settingsInflight || {};
+function tabActive(id) { return S.settingsTab === id; }
+function loadCached(key, fetcher, populate) {
+  if (Object.prototype.hasOwnProperty.call(S._settingsErrors, key)) {
+    populate(null, S._settingsErrors[key]);
+    return;
+  }
+  if (Object.prototype.hasOwnProperty.call(S._settingsCache, key)) {
+    populate(S._settingsCache[key]);
+    return;
+  }
+  if (S._settingsInflight[key]) return;
+  S._settingsInflight[key] = true;
+  fetcher().then(function(data) {
+    delete S._settingsInflight[key];
+    S._settingsCache[key] = data;
+    // If a re-render swapped the body out from under the original
+    // populate callback (its closure captured a now-detached node),
+    // trigger another render so the live body reflects fresh data.
+    if (S.view === "settings") DV.render();
+  }).catch(function(e) {
+    delete S._settingsInflight[key];
+    S._settingsErrors[key] = e;
+    if (S.view === "settings") DV.render();
+  });
+}
+function invalidateCache(key) { delete S._settingsCache[key]; delete S._settingsErrors[key]; }
+
 // Tab bar — sticky at the top of the settings page. Clicks switch
 // S.settingsTab and re-render. Each tab corresponds to one section()
 // callsite below.
@@ -121,6 +160,14 @@ function keyRow(secret, onSave, onDelete) {
 
 /* ── Main view ── */
 DV.views.settings = function(app) {
+  // Drop the cache on first entry to the view so a return visit always
+  // pulls fresh data; re-renders within the same visit reuse it.
+  if (DV._prevRenderedView !== "settings") {
+    S._settingsCache = {};
+    S._settingsErrors = {};
+    S._settingsInflight = {};
+  }
+
   var page = el("div", { c: "settings-page" });
   page.appendChild(el("h2", { c: "page-title" }, "Settings"));
   page.appendChild(tabBar());
@@ -139,6 +186,7 @@ DV.views.settings = function(app) {
       if (r.ok) {
         DV.showToast(key + " saved", "success");
         if (key === "GITHUB_TOKEN") S.hasToken = true;
+        invalidateCache("secrets"); invalidateCache("browser");
         loadKeys();  // refresh keys section only, no full re-render
       } else {
         DV.showToast(r.error || "Failed", "error");
@@ -206,6 +254,7 @@ DV.views.settings = function(app) {
             msg += " \u2014 renamed: " + aliased.map(function(a) { return a[0] + "\u2192" + a[1]; }).join(", ");
           }
           DV.showToast(msg, failed.length ? "error" : "success");
+          invalidateCache("secrets"); invalidateCache("browser");
           loadKeys();
         }
       });
@@ -219,6 +268,7 @@ DV.views.settings = function(app) {
         if (r && r.ok) {
           DV.showToast(key + " removed", "info");
           if (key === "GITHUB_TOKEN") S.hasToken = false;
+          invalidateCache("secrets"); invalidateCache("browser");
           loadKeys();
         } else {
           // Surface server-side validation errors and similar — without
@@ -230,7 +280,14 @@ DV.views.settings = function(app) {
   }
 
   function loadKeys() {
-    fetch("/api/secrets").then(function(r) { return r.json(); }).then(function(secrets) {
+    loadCached("secrets",
+      function() { return fetch("/api/secrets").then(function(r) { return r.json(); }); },
+      function(secrets, err) {
+      if (err || !secrets) {
+        keysBody.innerHTML = "";
+        keysBody.appendChild(el("div", { c: "color-err" }, "Failed to load: " + ((err && err.message) || "unknown")));
+        return;
+      }
       keysBody.innerHTML = "";
 
       // Active keys first, then suggested empties
@@ -285,12 +342,9 @@ DV.views.settings = function(app) {
       } } }, "+"));
       keysBody.appendChild(addRow);
 
-    }).catch(function(e) {
-      keysBody.innerHTML = "";
-      keysBody.appendChild(el("div", { c: "color-err" }, "Failed to load: " + e.message));
     });
   }
-  loadKeys();
+  if (tabActive("keys")) loadKeys();
   appendIfExists(page, section("API Keys & Secrets", [
     el("div", { c: "settings-hint mb-8" }, "Saved to this server only. Env vars work as fallback. All keys are injected into build environments."),
     keysBody
@@ -310,10 +364,15 @@ DV.views.settings = function(app) {
   })();
 
   function refreshBrowser() {
-    Promise.all([
-      fetch("/api/browser/status").then(function(r) { return r.json(); }),
-      fetch("/api/secrets").then(function(r) { return r.json(); })
-    ]).then(function(results) {
+    loadCached("browser",
+      function() {
+        return Promise.all([
+          fetch("/api/browser/status").then(function(r) { return r.json(); }),
+          fetch("/api/secrets").then(function(r) { return r.json(); })
+        ]);
+      },
+      function(results, err) {
+      if (err || !results) { browserBody.textContent = "Could not load."; return; }
       var st = results[0];
       var secrets = results[1];
       var hasBrowserlessKey = secrets.some(function(s) { return s.key === "BROWSERLESS_API_KEY" && s.hasValue; });
@@ -342,7 +401,7 @@ DV.views.settings = function(app) {
         chips.appendChild(el("div", { c: "chip" + (isActive ? " on" : ""), on: { click: function() {
           if (opt.id === "off") {
             fetch("/api/browser/disable", { method: "POST" }).then(function() {
-              DV.showToast("Browser disabled", "info"); refreshBrowser();
+              DV.showToast("Browser disabled", "info"); invalidateCache("browser"); refreshBrowser();
             });
           } else if (opt.id === "remote") {
             if (!hasRemote) {
@@ -357,7 +416,7 @@ DV.views.settings = function(app) {
             fetch("/api/browser/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ engine: "puppeteer" }) })
               .then(function(r) { return r.json(); })
               .then(function(r) {
-                DV.showToast("Remote browser active", "success"); refreshBrowser();
+                DV.showToast("Remote browser active", "success"); invalidateCache("browser"); refreshBrowser();
               });
           } else {
             var chip = this; chip.textContent = "Setting up\u2026";
@@ -366,7 +425,7 @@ DV.views.settings = function(app) {
               .then(function(r) {
                 if (r.ok) DV.showToast(opt.label + " active", "success");
                 else DV.showToast("Setup failed: " + (r.error || ""), "error");
-                refreshBrowser();
+                invalidateCache("browser"); refreshBrowser();
               });
           }
         } } }, opt.label));
@@ -401,18 +460,23 @@ DV.views.settings = function(app) {
       } else if (st.preferred !== "off") {
         browserBody.appendChild(el("div", { c: "settings-hint mt-8 color-tx3" }, "Not ready \u2014 select a mode above"));
       }
-    }).catch(function() { browserBody.textContent = "Could not load."; });
+    });
   }
-  refreshBrowser();
+  if (tabActive("browser")) refreshBrowser();
   appendIfExists(page, section("Browser Engine", [browserBody], "browser"));
 
   /* ══════════ Section: HTTPS Tunnel ══════════ */
   var tunnelBody = el("div", {});
   function refreshTunnel() {
-    Promise.all([
-      fetch("/api/tunnel/status").then(function(r) { return r.json(); }),
-      fetch("/api/preferences").then(function(r) { return r.json(); })
-    ]).then(function(results) {
+    loadCached("tunnel",
+      function() {
+        return Promise.all([
+          fetch("/api/tunnel/status").then(function(r) { return r.json(); }),
+          fetch("/api/preferences").then(function(r) { return r.json(); })
+        ]);
+      },
+      function(results, err) {
+      if (err || !results) { tunnelBody.textContent = "Could not reach API."; return; }
       var st = results[0];
       var prefs = results[1];
       tunnelBody.innerHTML = "";
@@ -431,7 +495,7 @@ DV.views.settings = function(app) {
       providers.forEach(function(p) {
         chips.appendChild(el("div", { c: "chip" + (currentPref === p.id ? " on" : ""), on: { click: function() {
           fetch("/api/preferences", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tunnel: p.id }) })
-            .then(function() { DV.showToast("Preferred: " + p.label, "info"); refreshTunnel(); });
+            .then(function() { DV.showToast("Preferred: " + p.label, "info"); invalidateCache("tunnel"); refreshTunnel(); });
         } } }, p.label));
       });
       tunnelBody.appendChild(chips);
@@ -446,7 +510,7 @@ DV.views.settings = function(app) {
         ]));
         tunnelBody.appendChild(el("div", { c: "settings-hint mb-8" }, "Paste into claude.ai \u2192 Settings \u2192 Integrations. The URL must stay reachable from Anthropic\u2019s edge \u2014 keep this server and the tunnel running."));
         tunnelBody.appendChild(el("button", { c: "bd bs", on: { click: function() {
-          fetch("/api/tunnel/stop", { method: "POST" }).then(function() { refreshTunnel(); DV.showToast("Stopped", "info"); });
+          fetch("/api/tunnel/stop", { method: "POST" }).then(function() { invalidateCache("tunnel"); refreshTunnel(); DV.showToast("Stopped", "info"); });
         } } }, "Stop Tunnel"));
       } else {
         if (st.error) tunnelBody.appendChild(el("div", { c: "color-err text-11 mb-8" }, st.error));
@@ -455,20 +519,23 @@ DV.views.settings = function(app) {
           fetch("/api/tunnel/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
             .then(function(r) { return r.json(); })
             .then(function(r) {
-              if (r.ok) { DV.showToast("Tunnel: " + r.url, "success"); refreshTunnel(); }
+              if (r.ok) { DV.showToast("Tunnel: " + r.url, "success"); invalidateCache("tunnel"); refreshTunnel(); }
               else { DV.showToast(r.error || "Failed", "error"); btn.disabled = false; btn.textContent = "Start Tunnel"; }
             }).catch(function() { btn.disabled = false; btn.textContent = "Start Tunnel"; });
         } } }, "Start Tunnel"));
       }
-    }).catch(function() { tunnelBody.textContent = "Could not reach API."; });
+    });
   }
-  refreshTunnel();
+  if (tabActive("tunnel")) refreshTunnel();
   appendIfExists(page, section("HTTPS Tunnel", [tunnelBody], "tunnel"));
 
   /* ══════════ Section: Workspace ══════════ */
   var wsBody = el("div", {});
   function refreshWorkspaceStats() {
-    fetch("/api/workspace/stats").then(function(r) { return r.json(); }).then(function(stats) {
+    loadCached("workspace",
+      function() { return fetch("/api/workspace/stats").then(function(r) { return r.json(); }); },
+      function(stats, err) {
+    if (err || !stats) { wsBody.textContent = "Could not load."; return; }
     wsBody.innerHTML = "";
     function fmtBytes(n) {
       if (!n) return "0 B";
@@ -494,16 +561,16 @@ DV.views.settings = function(app) {
           var msg = "Cleaned " + (r.removed || 0) + " dir(s)";
           if (r.failed) msg += " — " + r.failed + " failed" + (r.errors && r.errors.length ? " (" + r.errors[0] + ")" : "");
           DV.showToast(msg, r.failed ? "error" : "success");
-          refreshWorkspaceStats();
+          invalidateCache("workspace"); refreshWorkspaceStats();
         }).catch(function() {
           b.disabled = false; b.textContent = orig;
           DV.showToast("Cleanup failed: network error", "error");
         });
       } } }, "Clean " + stats.orphaned + " orphaned"));
     }
-    }).catch(function() { wsBody.textContent = "Could not load."; });
+    });
   }
-  refreshWorkspaceStats();
+  if (tabActive("workspace")) refreshWorkspaceStats();
   appendIfExists(page, section("Workspace", [wsBody], "workspace"));
 
   /* ══════════ Section: Outgoing webhooks ══════════ */
@@ -523,7 +590,10 @@ DV.views.settings = function(app) {
   }
 
   function loadWebhooks() {
-    api("GET", "/api/webhooks").then(function(r) {
+    loadCached("webhooks",
+      function() { return api("GET", "/api/webhooks"); },
+      function(r, err) {
+      if (err) { whBody.textContent = "Could not load."; return; }
       whBody.innerHTML = "";
       var list = (r && r.webhooks) || [];
       var validEvents = (r && r.validEvents) || [];
@@ -574,11 +644,11 @@ DV.views.settings = function(app) {
                 });
               } } }, "Test"),
               el("button", { c: "bg bs", on: { click: function() {
-                api("PUT", "/api/webhooks/" + wh.id, { enabled: !wh.enabled }).then(loadWebhooks);
+                api("PUT", "/api/webhooks/" + wh.id, { enabled: !wh.enabled }).then(function() { invalidateCache("webhooks"); loadWebhooks(); });
               } } }, wh.enabled ? "Disable" : "Enable"),
               el("button", { c: "bd bs", on: { click: function() {
                 if (!confirm("Delete this webhook?")) return;
-                api("DELETE", "/api/webhooks/" + wh.id).then(loadWebhooks);
+                api("DELETE", "/api/webhooks/" + wh.id).then(function() { invalidateCache("webhooks"); loadWebhooks(); });
               } } }, "×")
             ]));
             whBody.appendChild(card);
@@ -641,13 +711,13 @@ DV.views.settings = function(app) {
           if (r.error) { DV.showToast(r.error, "error"); return; }
           DV.showToast("Webhook added", "success");
           urlInp.value = ""; labelInp.value = ""; secretInp.value = "";
-          loadWebhooks();
+          invalidateCache("webhooks"); loadWebhooks();
         });
       } } }, "Add"));
       whBody.appendChild(form);
-    }).catch(function() { whBody.textContent = "Could not load."; });
+    });
   }
-  loadWebhooks();
+  if (tabActive("webhooks")) loadWebhooks();
   appendIfExists(page, section("Outgoing Webhooks", [whBody], "webhooks"));
 
   /* ══════════ Section: Env-var groups ══════════ */
@@ -660,7 +730,10 @@ DV.views.settings = function(app) {
   function loadEnvGroups() {
     // Drop the modal-side cache so the next Edit modal pulls fresh.
     delete S._envGroupsCache;
-    api("GET", "/api/env-groups").then(function(r) {
+    loadCached("envgroups",
+      function() { return api("GET", "/api/env-groups"); },
+      function(r, err) {
+      if (err) { egBody.textContent = "Could not load."; return; }
       egBody.innerHTML = "";
       var groups = (r && r.groups) || [];
       if (groups.length === 0) {
@@ -686,7 +759,7 @@ DV.views.settings = function(app) {
               el("button", { c: "bg bs", on: { click: function() { editEnvGroup(g.id); } } }, "Edit values"),
               el("button", { c: "bd bs", on: { click: function() {
                 if (!confirm("Delete env group '" + g.name + "'?")) return;
-                api("DELETE", "/api/env-groups/" + g.id).then(loadEnvGroups);
+                api("DELETE", "/api/env-groups/" + g.id).then(function() { invalidateCache("envgroups"); loadEnvGroups(); });
               } } }, "×")
             ]));
             egBody.appendChild(card);
@@ -736,11 +809,11 @@ DV.views.settings = function(app) {
           if (r && r.error) { DV.showToast(r.error, "error"); return; }
           DV.showToast("Group created", "success");
           idInp.value = ""; nameInp.value = ""; varsInp.value = "";
-          loadEnvGroups();
+          invalidateCache("envgroups"); loadEnvGroups();
         }).catch(function(e){ DV.showToast("Failed: " + ((e && e.message) || "network"), "error"); });
       } } }, "Create"));
       egBody.appendChild(form);
-    }).catch(function() { egBody.textContent = "Could not load."; });
+    });
   }
 
   function editEnvGroup(id) {
@@ -770,11 +843,11 @@ DV.views.settings = function(app) {
       api("PUT", "/api/env-groups/" + id, { vars: vars }).then(function(r){
         if (r && r.error) { DV.showToast(r.error, "error"); return; }
         DV.showToast("Saved", "success");
-        loadEnvGroups();
+        invalidateCache("envgroups"); loadEnvGroups();
       }).catch(function(e){ DV.showToast("Save failed: " + ((e && e.message) || "network"), "error"); });
     }).catch(function(e){ DV.showToast("Load failed: " + ((e && e.message) || "network"), "error"); });
   }
-  loadEnvGroups();
+  if (tabActive("envgroups")) loadEnvGroups();
   appendIfExists(page, section("Env-Var Groups", [egBody], "envgroups"));
 
   /* ══════════ Section: Custom Domains (H4) ══════════ */
@@ -785,7 +858,10 @@ DV.views.settings = function(app) {
   domBody.appendChild(el("div", { c: "text-center pad-md" }, [el("span", { c: "spin" })]));
 
   function loadDomains() {
-    api("GET", "/api/domains").then(function(r) {
+    loadCached("domains",
+      function() { return api("GET", "/api/domains"); },
+      function(r, err) {
+      if (err) { domBody.textContent = "Could not load."; return; }
       domBody.innerHTML = "";
       var list = (r && r.domains) || [];
       if (list.length === 0) {
@@ -826,7 +902,7 @@ DV.views.settings = function(app) {
               el("a", { c: "bg bs", attr: { href: "https://" + d.host, target: "_blank", rel: "noopener" } }, "Visit ↗"),
               el("button", { c: "bd bs", attr: { title: "Remove mapping" }, on: { click: function() {
                 if (!confirm("Remove mapping for " + d.host + "?")) return;
-                api("DELETE", "/api/domains/" + encodeURIComponent(d.host)).then(loadDomains);
+                api("DELETE", "/api/domains/" + encodeURIComponent(d.host)).then(function() { invalidateCache("domains"); loadDomains(); });
               } } }, "×")
             ]));
             domBody.appendChild(card);
@@ -888,16 +964,16 @@ DV.views.settings = function(app) {
           var dnsOk = r.dns && r.dns.pointsHere;
           DV.showToast((dnsOk ? "Mapped — DNS ready. " : "Mapped — ") + (r.hint || ""), dnsOk ? "success" : "info");
           hostInp.value = ownerInp.value = repoInp.value = slugInp.value = "";
-          loadDomains();
+          invalidateCache("domains"); loadDomains();
         }).catch(function(e) {
           btn.disabled = false; btn.textContent = orig;
           DV.showToast("Failed: " + ((e && e.message) || "network"), "error");
         });
       } } }, "Map"));
       domBody.appendChild(form);
-    }).catch(function() { domBody.textContent = "Could not load."; });
+    });
   }
-  loadDomains();
+  if (tabActive("domains")) loadDomains();
   appendIfExists(page, section("Custom Domains", [domBody], "domains"));
 
   /* ══════════ Section: Actions ══════════ */
@@ -943,17 +1019,23 @@ DV.views.settings = function(app) {
 
   /* ══════════ Section: About ══════════ */
   var aboutBody = el("div", { c: "settings-about" });
-  fetch("/api/health").then(function(r) { return r.json(); }).then(function(h) {
-    aboutBody.innerHTML = "";
-    [["Version", "v" + h.version], ["Node.js", "v" + h.node], ["Uptime", Math.floor(h.uptime / 60) + "m"],
-     ["Memory", h.memory], ["Repos", h.repos], ["Previews", h.previews.ready + " ready, " + h.previews.building + " building"]
-    ].forEach(function(item) {
-      aboutBody.appendChild(el("div", { c: "settings-about-row" }, [
-        el("span", { c: "settings-about-label" }, item[0]),
-        el("span", { c: "settings-about-value" }, String(item[1]))
-      ]));
-    });
-  }).catch(function() {});
+  if (tabActive("about")) {
+    loadCached("health",
+      function() { return fetch("/api/health").then(function(r) { return r.json(); }); },
+      function(h, err) {
+        if (err || !h) return;
+        aboutBody.innerHTML = "";
+        [["Version", "v" + h.version], ["Node.js", "v" + h.node], ["Uptime", Math.floor(h.uptime / 60) + "m"],
+         ["Memory", h.memory], ["Repos", h.repos], ["Previews", h.previews.ready + " ready, " + h.previews.building + " building"]
+        ].forEach(function(item) {
+          aboutBody.appendChild(el("div", { c: "settings-about-row" }, [
+            el("span", { c: "settings-about-label" }, item[0]),
+            el("span", { c: "settings-about-value" }, String(item[1]))
+          ]));
+        });
+      }
+    );
+  }
   appendIfExists(page, section("About", [aboutBody], "about"));
 
   app.appendChild(page);
