@@ -13,7 +13,16 @@ DV.views.setup = function(app) {
     api("POST", "/api/token", { token: t }).then(function(r) {
       if (r && r.ok) {
         fetch("/api/secrets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "GITHUB_TOKEN", value: t }) }).catch(function(){});
-        S.hasToken = true; S.view = "dashboard"; DV.loadRepos();
+        S.hasToken = true;
+        S.view = "dashboard";
+        // Switch the view immediately. loadRepos used to be the
+        // only thing that triggered render() — if its first /api/repos
+        // call ever failed (timing race, transient 401, network blip),
+        // the user got stranded on the setup page with the spinner
+        // showing forever and no error to act on.
+        btn.textContent = "Connect";
+        DV.render();
+        DV.loadRepos();
         return;
       }
       // Map server error codes to actionable hints.
