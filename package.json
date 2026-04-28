@@ -71,7 +71,8 @@
     "source-map": "^0.7.4",
     "v8-to-istanbul": "^9.3.0",
     "canvas": "^2.11.2",
-    "robots-parser": "^3.0.1"
+    "robots-parser": "^3.0.1",
+    "jsdom": "^29.1.0"
   },
   "overrides": {
     "path-to-regexp": "0.1.13",
