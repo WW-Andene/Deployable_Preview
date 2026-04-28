@@ -881,14 +881,26 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
 .dd-item:hover, .dd-item:focus-visible { background: var(--accent-dim); color: var(--accent); outline: none; }
 .dd-item.already { opacity: 0.25; pointer-events: none; color: var(--tx3); }
 
-/* ── Modal — overlay with blur ── */
+/* ══════════════════════════════════════════════════
+   §4.5 — MODALS — overlay + frame + entrance choreography
+   ──────────────────────────────────────────────────
+   Per Foundation source — modals are 'functions that appear and
+   dissolve'. The bg blurs the world behind (focus blur from §DEPTH)
+   and brightens-down to push it into recession. The modal frame has
+   a top-edge highlight suggesting the top-center light source from
+   the Brief landing on it. Entrance uses --ease-physical for a
+   considered settle, not a snap.
+   ══════════════════════════════════════════════════ */
+
 .modal-bg {
   position: fixed;
   inset: 0;
   background: var(--overlay);
+  /* Focus-blur the content behind so the modal owns the user's
+     attention. brightness(0.7) recedes the dimmed world. */
   -webkit-backdrop-filter: blur(6px) brightness(0.7);
   backdrop-filter: blur(6px) brightness(0.7);
-  z-index: 200;
+  z-index: var(--z-modal);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -896,6 +908,7 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
   animation: fadeIn var(--dur-enter) var(--ease-fast);
 }
 .modal {
+  position: relative;
   background: var(--sf1);
   border: 1px solid var(--border-h);
   border-radius: var(--r-modal);
@@ -906,6 +919,22 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
   overflow-y: auto;
   box-shadow: var(--shadow-modal);
   animation: modalIn var(--dur-enter) var(--ease-physical);
+}
+/* Top-edge highlight — the single-source-light (top-center) catching
+   the upper edge of the modal. 1px gradient running across the top.
+   Builds material reality without becoming glass-y. */
+.modal::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 8%; right: 8%;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent,
+    oklch(91% 0.012 var(--hue-text) / 0.20) 30%,
+    oklch(91% 0.012 var(--hue-text) / 0.20) 70%,
+    transparent);
+  pointer-events: none;
+  border-radius: inherit;
 }
 
 /* B3 — Modal width variants. Add one of these to the .modal element
@@ -2787,16 +2816,24 @@ button:disabled, button[disabled] {
   flex: 1;
 }
 
-/* ─── modals.js ─── */
+/* ─── modals.js — title typography per §HIERARCHY ─── */
 .modal-title {
-  font-size: 16px;
+  font-family: var(--font-ui);
+  font-size: var(--text-lg);
   font-weight: 700;
+  letter-spacing: -0.015em;     /* tighten per §TRACKING */
+  color: var(--tx1);
   margin-bottom: 16px;
+  text-wrap: balance;            /* prevent ugly widows */
 }
 .modal-title-sm {
-  font-size: 16px;
+  font-family: var(--font-ui);
+  font-size: var(--text-md);
   font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--tx1);
   margin-bottom: 12px;
+  text-wrap: balance;
 }
 .form-field {
   margin-bottom: 12px;
