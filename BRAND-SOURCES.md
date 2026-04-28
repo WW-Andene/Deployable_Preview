@@ -194,3 +194,101 @@ The 3 elements WITHOUT WHICH Linear is unrecognizable:
 - **Marketing-cinema home page**: same reason as Linear; DV has no
   marketing surface.
 
+---
+
+## Source 3 — Blade Runner 2049 (Roger Deakins, dir. Villeneuve)
+
+The visual concept anchor for DeployView. The Brief's "carved from
+obsidian, lit by amber" is direct lineage from this film.
+
+### Layer 1 — Surface
+
+- **Palette by sequence**:
+  - LAPD interiors: cool void (~oklch 12% 0.018 240) with rare warm
+    accents.
+  - Las Vegas / orange-storm: amber-orange dominant (~oklch 60% 0.18 60),
+    lit from above through dust.
+  - Wallace Corp interiors: gold light through translucent screens
+    against deep void.
+  - Snow exterior: desaturated cool gray with cold blue cast.
+- **Typography in HUDs/screens**: monospace + technical-display fonts.
+  Numerals dominate. Glyph-style icons.
+- **Texture**: heavy atmospheric grain. Physical. Lens dust particles
+  in every shot — the air has materiality.
+- **Light**: directional and singular per scene. Massive spotlight from
+  above, or a single warm window in a vast cool space.
+- **Motion**: slow. The camera moves, never cuts. Long lens, shallow
+  focus.
+
+### Layer 2 — Structure
+
+- **Single light source per scene, not per frame** — the same lamp lights
+  every angle. Builds spatial coherence.
+- **Color-coded zones**: cool = institutional (police, corporate). Warm =
+  intimate, dangerous, organic. The temperature shift IS the storytelling.
+- **Negative space is always 80% of the frame**. The subject occupies
+  20%, often off-center, often small relative to environment.
+- **Atmospheric particulates** make every void feel populated by air,
+  not empty.
+- **What's deliberately excluded**: gradient color grading, anything
+  pastel, illustration, decorative typography.
+
+### Layer 3 — Culture
+
+- Tradition: 1980s noir cinema (original Blade Runner) + 2010s
+  prestige-TV color grading (Mr. Robot's amber LAPD scenes are visibly
+  influenced).
+- Era: 2017 high-watermark of digital-cinematography color grading
+  before HDR-by-default flattened the curves.
+- Adjacent: Dune (2021, same DP), Sicario (2015), Dunkirk (2017).
+- Concept-art roots: Syd Mead (original BR designer), updated to
+  modern-rendered futurism.
+
+### Layer 4 — Philosophy
+
+- **The world is enormous and the human is small.** Every visual choice
+  reinforces scale and isolation.
+- **Light is information** — where it falls and from where reveals more
+  about a scene than dialogue.
+- **Atmospheric texture conveys time** — dust, fog, snow are never just
+  weather; they're a clock.
+- **What it says without words**: "this place existed before you and
+  will outlast you."
+
+### Layer 5 — Identity Thesis
+
+> Blade Runner 2049's identity is defined by **single-source light against
+> vast atmospheric void**, expressed through **temperature-coded zones
+> and 80% negative space**, rooted in **noir + Syd Mead futurism +
+> prestige cinematography**, designed to make the viewer feel **small,
+> contemplative, and inside time**.
+
+#### Minimum Authentic Set
+
+1. **Single light source against deep void**. *Why essential*: this is
+   the entire visual signature.
+2. **Atmospheric particulates in every empty space**. *Why essential*:
+   the void must feel like air, not absence.
+3. **Temperature-coded zones (cool = institutional, warm = intimate)**.
+   *Why essential*: it's how the color tells the story.
+
+### Transferable to DeployView
+
+| BR2049 element | DeployView application | Status |
+|---|---|---|
+| Single light source against deep void | Adopted — the top-center amber radial wash in `body::before` IS the single source. Surfaces cooler at the bottom (the second radial gradient) builds the void below. | ✓ done |
+| Atmospheric particulates | Adopted as the CRT scanlines in `body::after` (mix-blend multiply, opacity 0.6). Not literal dust — translated to the medium (a software UI suggests a CRT, not a desert). | ✓ done |
+| Temperature-coded zones | Partially adopted — primary surfaces are cool (--hue-base 250), text family is warm (--hue-text 75), accent is warm amber. The "cool institutional / warm intimate" axis maps to "structure cool / signal warm". | ✓ done |
+| 80% negative space framing | Adopted in spacing scale's spatial-contrast rule (gaps BETWEEN sections 3-5× gaps WITHIN). Cards have generous padding. | ✓ done |
+| Slow considered motion | Partially rejected — DV's Brief calls for "snappy + physical" because operator-class tools need speed. We borrow the *atmospheric stillness* (dv-bloom is the only intro motion) but not the slow camera. | partial |
+
+### What we deliberately *don't* take from BR2049
+
+- **Cinematic blur / shallow focus on UI**: would destroy legibility.
+  We borrow the temperature, not the lensing.
+- **Dust particles as a literal element**: clichéd in software. Scanlines
+  are the medium-appropriate translation.
+- **Slow motion as the dominant motion language**: operator tools need
+  speed. We only cite stillness in the resting atmosphere, not in
+  interaction.
+
