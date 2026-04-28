@@ -16,6 +16,26 @@ const { getConfig, saveConfig } = require("../../config");
 
 const SAFE_NAME_RE = /^[a-zA-Z0-9._-]+$/;
 
+// Recursive directory size — synchronous for simplicity; the workspace
+// usually has a few dozen dirs, each containing a clone (10-200 MB
+// typical). Single-shot stats call so the cost is per-pageview not
+// per-poll. Skips broken symlinks and inaccessible files instead of
+// throwing.
+function _dirSize(p) {
+  let total = 0;
+  let entries;
+  try { entries = fs.readdirSync(p, { withFileTypes: true }); }
+  catch (_) { return 0; }
+  for (const e of entries) {
+    const full = path.join(p, e.name);
+    try {
+      if (e.isDirectory()) total += _dirSize(full);
+      else if (e.isFile()) total += fs.statSync(full).size;
+    } catch (_) { /* skip unreadable / broken symlinks */ }
+  }
+  return total;
+}
+
 router.get("/workspace/stats", (req, res) => {
   const { WORKSPACE, branchSlug } = require("../../build");
   try {
@@ -27,11 +47,24 @@ router.get("/workspace/stats", (req, res) => {
         activeKeys.add(repo.owner + "__" + repo.repo + "__" + branchSlug(bc));
       }
     }
-    const stats = dirs.map((d) => ({ name: d, active: activeKeys.has(d) }));
+    // Disk usage per dir: lets users on Termux / small VPS see which
+    // workspace clone is the offender when storage is filling up.
+    // Sized once per stats request; if this becomes too slow on a big
+    // workspace we can move it behind a ?bytes=true opt-in.
+    const stats = dirs.map((d) => {
+      const fullPath = path.join(WORKSPACE, d);
+      let bytes = 0;
+      try { bytes = _dirSize(fullPath); } catch (_) {}
+      return { name: d, active: activeKeys.has(d), bytes };
+    });
+    const totalBytes = stats.reduce((s, x) => s + x.bytes, 0);
+    const orphanedBytes = stats.filter((s) => !s.active).reduce((s, x) => s + x.bytes, 0);
     res.json({
       total: dirs.length,
       active: stats.filter((s) => s.active).length,
       orphaned: stats.filter((s) => !s.active).length,
+      totalBytes,
+      orphanedBytes,
       dirs: stats
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -93,16 +126,20 @@ router.post("/config/import", (req, res) => {
     return res.status(400).json({ error: "Invalid config: repos array required" });
   }
   let added = 0;
+  let skippedDup = 0;
   for (const repo of imported.repos) {
     if (!repo.owner || !repo.repo) continue;
     if (!SAFE_NAME_RE.test(repo.owner) || !SAFE_NAME_RE.test(repo.repo)) continue;
     const id = repo.owner + "/" + repo.repo;
-    if (config.repos.some((r) => r.id === id)) continue;
+    // Case-insensitive duplicate detection — same reasoning as POST /repos:
+    // GitHub treats Owner/Repo and owner/repo as the same source.
+    const idLower = id.toLowerCase();
+    if (config.repos.some((r) => r.id.toLowerCase() === idLower)) { skippedDup++; continue; }
     config.repos.push({ ...repo, id });
     added++;
   }
   if (added > 0) saveConfig();
-  res.json({ ok: true, added, total: config.repos.length });
+  res.json({ ok: true, added, skippedDup, total: config.repos.length });
 });
 
 module.exports = router;

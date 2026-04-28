@@ -59,7 +59,11 @@ function branchSlug(bc) {
   // Routing, history files, snapshots, build keys all key off this, so
   // the custom alias becomes the canonical identifier — preview URLs,
   // file paths, MCP results all use it consistently.
-  if (bc.customSlug && /^[a-zA-Z0-9_-]{1,64}$/.test(bc.customSlug)) {
+  // Mirror routes/api/repos.js CUSTOM_SLUG_RE so a slug accepted on
+  // save is also accepted at slug-resolution time. Dots after the
+  // first char allow semver-style ids (v1.0); leading-dot rejected
+  // to keep .htaccess-style hidden paths + .. traversal out.
+  if (bc.customSlug && /^[a-zA-Z0-9_-][a-zA-Z0-9._-]{0,63}$/.test(bc.customSlug)) {
     return bc.customSlug;
   }
   let slug = bc.branch.replace(/\//g, "__");
@@ -71,8 +75,25 @@ function getBranchDir(owner, repo, bc) {
   return path.join(WORKSPACE, owner + "__" + repo + "__" + branchSlug(bc));
 }
 
+// Canonical key for buildStatus / buildLocks / SSE log streams /
+// snapshots / thumbnails. Owner+repo are lowercased so a request
+// hitting /api/.../Owner/Repo… still resolves to state stored when
+// the same repo was added as owner/repo (or vice versa). GitHub
+// itself treats owner/repo case-insensitively; this just makes
+// the runtime layer agree. Slug stays in its original case
+// because it's user-controlled (custom slug) or already
+// transformed (auto-slug uses __ for slashes — predictable).
 function buildKey(owner, repo, bc) {
-  return owner + "/" + repo + ":" + branchSlug(bc);
+  return String(owner).toLowerCase() + "/" + String(repo).toLowerCase() + ":" + branchSlug(bc);
+}
+
+// Same canonicalization as buildKey but takes the slug directly —
+// for callers that already know the slug (route handlers, API
+// endpoints) and don't have the branchConfig at hand. Export both
+// so every key construction in the codebase routes through one of
+// them rather than reinventing string concat per file.
+function keyFromSlug(owner, repo, slug) {
+  return String(owner).toLowerCase() + "/" + String(repo).toLowerCase() + ":" + String(slug);
 }
 
 // ── Logger factory ──────────────────────────────────────────────────────────
@@ -127,5 +148,6 @@ module.exports = {
   branchSlug,
   getBranchDir,
   buildKey,
+  keyFromSlug,
   createLogger
 };

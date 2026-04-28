@@ -20,19 +20,24 @@
 
 const fs = require("fs");
 const { getConfig } = require("../config");
-const { buildStatus, branchSlug, deployBranch, cancelBuild, getHistory, appendHistory, setHistoryNote } = require("../build");
+const { buildStatus, branchSlug, deployBranch, cancelBuild, getHistory, appendHistory, setHistoryNote, keyFromSlug } = require("../build");
 const { runningServers, killServer } = require("../process");
 const { loadLog } = require("../logs");
 
 /**
- * Look up a repo + branchConfig by owner/repo/slug. Returned shape lets
- * the caller branch on the failure code or destructure {repo, bc} on
- * success.
+ * Look up a repo + branchConfig by owner/repo/slug. Case-insensitive on
+ * owner+repo to match the rest of the routing layer (GitHub treats
+ * owner/repo case-insensitively, so a deep link or stale URL with
+ * different casing has to still resolve). Slug match is case-sensitive
+ * because slug is a deliberate user identifier (custom slug or already
+ * canonicalized via __ for slashes).
  */
 function resolveBranch(owner, repo, slug) {
   if (!owner || !repo || !slug) return { ok: false, code: "BAD_ARGS", error: "owner, repo, and slug required" };
   const config = getConfig();
-  const repoConfig = (config.repos || []).find((r) => r.owner === owner && r.repo === repo);
+  const ol = String(owner).toLowerCase();
+  const rl = String(repo).toLowerCase();
+  const repoConfig = (config.repos || []).find((r) => r.owner.toLowerCase() === ol && r.repo.toLowerCase() === rl);
   if (!repoConfig) return { ok: false, code: "REPO_NOT_FOUND", error: "Repo not found: " + owner + "/" + repo };
   const bc = (repoConfig.activeBranches || []).find((b) => branchSlug(b) === slug);
   if (!bc) return { ok: false, code: "SLUG_NOT_FOUND", error: "Branch config not found for slug: " + slug, availableSlugs: (repoConfig.activeBranches || []).map(branchSlug) };
@@ -58,7 +63,7 @@ function triggerBuild(owner, repo, slug) {
  */
 function cancel(owner, repo, slug) {
   if (!owner || !repo || !slug) return { ok: false, code: "BAD_ARGS", error: "owner, repo, and slug required" };
-  const key = owner + "/" + repo + ":" + slug;
+  const key = keyFromSlug(owner, repo, slug);
   const cancelled = cancelBuild(key);
   return cancelled
     ? { ok: true, message: "Build cancelled" }
@@ -71,7 +76,7 @@ function cancel(owner, repo, slug) {
  */
 function stopServer(owner, repo, slug) {
   if (!owner || !repo || !slug) return { ok: false, code: "BAD_ARGS", error: "owner, repo, and slug required" };
-  const key = owner + "/" + repo + ":" + slug;
+  const key = keyFromSlug(owner, repo, slug);
   if (runningServers[key]) {
     runningServers[key].manualStop = true;
     killServer(key);
@@ -86,7 +91,7 @@ function stopServer(owner, repo, slug) {
  */
 function getStatus(owner, repo, slug) {
   if (!owner || !repo || !slug) return { ok: false, code: "BAD_ARGS", error: "owner, repo, and slug required" };
-  const key = owner + "/" + repo + ":" + slug;
+  const key = keyFromSlug(owner, repo, slug);
   return { ok: true, status: buildStatus[key] || { status: "idle" } };
 }
 
@@ -96,7 +101,7 @@ function getStatus(owner, repo, slug) {
  */
 function getLog(owner, repo, slug) {
   if (!owner || !repo || !slug) return { ok: false, code: "BAD_ARGS", error: "owner, repo, and slug required" };
-  const key = owner + "/" + repo + ":" + slug;
+  const key = keyFromSlug(owner, repo, slug);
   const s = buildStatus[key];
   const log = (s && s.log) ? s.log : loadLog(key);
   return { ok: true, log: log || "" };
@@ -108,7 +113,7 @@ function getLog(owner, repo, slug) {
  */
 function getThumb(owner, repo, slug) {
   if (!owner || !repo || !slug) return { ok: false, code: "BAD_ARGS", error: "owner, repo, and slug required" };
-  const key = owner + "/" + repo + ":" + slug;
+  const key = keyFromSlug(owner, repo, slug);
   const s = buildStatus[key];
   if (!s || !s.thumb) return { ok: false, code: "NO_THUMB" };
   return { ok: true, buffer: Buffer.from(s.thumb, "base64"), thumbAt: s.thumbAt || 0 };
@@ -120,7 +125,7 @@ function getThumb(owner, repo, slug) {
  */
 function listHistory(owner, repo, slug) {
   if (!owner || !repo || !slug) return { ok: false, code: "BAD_ARGS", error: "owner, repo, and slug required" };
-  const key = owner + "/" + repo + ":" + slug;
+  const key = keyFromSlug(owner, repo, slug);
   const history = getHistory(key);
   return { ok: true, history, current: buildStatus[key] && buildStatus[key].outputPath };
 }
@@ -138,7 +143,7 @@ function rollback(owner, repo, slug, historyId) {
   if (!owner || !repo || !slug || !historyId) {
     return { ok: false, code: "BAD_ARGS", error: "owner, repo, slug, and historyId required" };
   }
-  const key = owner + "/" + repo + ":" + slug;
+  const key = keyFromSlug(owner, repo, slug);
   const history = getHistory(key);
   const target = history.find((h) => h.id === historyId);
   if (!target) return { ok: false, code: "HISTORY_NOT_FOUND", error: "No history entry with id: " + historyId };
@@ -181,7 +186,7 @@ function annotateHistory(owner, repo, slug, historyId, note) {
   if (!owner || !repo || !slug || !historyId) {
     return { ok: false, code: "BAD_ARGS", error: "owner, repo, slug, historyId required" };
   }
-  const key = owner + "/" + repo + ":" + slug;
+  const key = keyFromSlug(owner, repo, slug);
   const entry = setHistoryNote(key, historyId, note);
   if (!entry) return { ok: false, code: "HISTORY_NOT_FOUND", error: "No history entry with id: " + historyId };
   return { ok: true, entry };
@@ -189,7 +194,7 @@ function annotateHistory(owner, repo, slug, historyId, note) {
 
 function getDiffThumb(owner, repo, slug) {
   if (!owner || !repo || !slug) return { ok: false, code: "BAD_ARGS", error: "owner, repo, and slug required" };
-  const key = owner + "/" + repo + ":" + slug;
+  const key = keyFromSlug(owner, repo, slug);
   const s = buildStatus[key];
   if (!s || !s.diffThumb) return { ok: false, code: "NO_THUMB" };
   return { ok: true, buffer: Buffer.from(s.diffThumb, "base64"), thumbAt: s.thumbAt || 0 };

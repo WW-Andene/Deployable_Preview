@@ -113,14 +113,30 @@ DV.views.dashboard = function(app) {
 
     // Stats bar — Repos / Branches / Ready always show. Building +
     // Failed only show when non-zero (transient state, not worth a
-    // permanent slot). Previously "Ready" showed even at 0 while
-    // "Failed" hid at 0, which was inconsistent.
+    // permanent slot). Stats are also filter chips: clicking a status
+    // tile (Ready / Building / Failed) toggles a status filter so
+    // users with many branches can triage by state instead of scanning.
     var statsBar = el("div", { c: "stats-bar" });
-    statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num" }, S.repos.length), el("span", { c: "stat-label" }, "Repos")]));
-    statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num" }, totalBranches), el("span", { c: "stat-label" }, "Branches")]));
-    if (readyCount)    statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num color-ok" },     readyCount),    el("span", { c: "stat-label" }, "Ready")]));
-    if (buildingCount) statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num color-accent" }, buildingCount), el("span", { c: "stat-label" }, "Building")]));
-    if (errorCount)    statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num color-err" },    errorCount),    el("span", { c: "stat-label" }, "Failed")]));
+    function statTile(num, label, statusFilter, colorClass) {
+      var active = statusFilter && S.dashboardStatusFilter === statusFilter;
+      var attrs = statusFilter
+        ? { role: "button", tabindex: "0", "aria-pressed": active ? "true" : "false", title: active ? "Click to clear status filter" : "Filter to " + label.toLowerCase() }
+        : {};
+      var on = statusFilter
+        ? { click: function() { S.dashboardStatusFilter = active ? null : statusFilter; DV.render(); }, keydown: function(e) { if (e.key === " " || e.key === "Enter") { e.preventDefault(); S.dashboardStatusFilter = active ? null : statusFilter; DV.render(); } } }
+        : null;
+      var props = { c: "stat-item" + (statusFilter ? " stat-item-clickable" : "") + (active ? " stat-item-active" : ""), attr: attrs };
+      if (on) props.on = on;
+      return el("div", props, [
+        el("span", { c: "stat-num" + (colorClass ? " " + colorClass : "") }, num),
+        el("span", { c: "stat-label" }, label)
+      ]);
+    }
+    statsBar.appendChild(statTile(S.repos.length, "Repos", null, null));
+    statsBar.appendChild(statTile(totalBranches, "Branches", null, null));
+    if (readyCount)    statsBar.appendChild(statTile(readyCount,    "Ready",    "ready",    "color-ok"));
+    if (buildingCount) statsBar.appendChild(statTile(buildingCount, "Building", "building", "color-accent"));
+    if (errorCount)    statsBar.appendChild(statTile(errorCount,    "Failed",   "error",    "color-err"));
     ct.appendChild(statsBar);
 
     // Bulk action bar — appears when 1+ branches selected
@@ -137,11 +153,27 @@ DV.views.dashboard = function(app) {
     }
 
     var filteredRepos = S.repos;
-    if (S.dashboardFilter) {
-      var q = S.dashboardFilter.toLowerCase();
+    // Status-filter is a list of equivalent statuses to match (so the
+    // 'Ready' tile catches both 'ready' and 'running' since both
+    // represent live previews).
+    var statusFilter = S.dashboardStatusFilter;
+    var statusGroup = statusFilter === "ready" ? ["ready", "running"]
+                    : statusFilter === "building" ? ["building", "queued"]
+                    : statusFilter === "error" ? ["error"]
+                    : null;
+    if (S.dashboardFilter || statusGroup) {
+      var q = (S.dashboardFilter || "").toLowerCase();
       filteredRepos = S.repos.filter(function(r) {
-        if ((r.owner + "/" + r.repo).toLowerCase().indexOf(q) !== -1) return true;
         var bs = r.branchStatuses || {};
+        var slugs = Object.keys(bs);
+        // Status filter: keep the repo only if at least one branch
+        // matches one of the requested statuses.
+        if (statusGroup) {
+          var anyMatch = slugs.some(function(k) { return statusGroup.indexOf(bs[k].status) !== -1; });
+          if (!anyMatch) return false;
+        }
+        if (!q) return true;
+        if ((r.owner + "/" + r.repo).toLowerCase().indexOf(q) !== -1) return true;
         for (var k in bs) { if ((bs[k].branch || k).toLowerCase().indexOf(q) !== -1) return true; }
         return false;
       });
@@ -184,12 +216,37 @@ DV.views.dashboard = function(app) {
               if (r.error) { DV.showToast(r.error, "error"); return; }
               repo.autoPRPreviews = next;
               DV.showToast("Auto-PR previews " + (next ? "enabled" : "disabled"), "success");
+              // When turning ON, verify WEBHOOK_SECRET is set — without
+              // it the inbound /api/webhook handler 403s every event,
+              // so Auto-PR is silently inert. Telling the user at
+              // toggle time closes the gap between intent and effect.
+              if (next) {
+                fetch("/api/secrets").then(function(s){ return s.json(); }).then(function(secrets){
+                  var hasSecret = (secrets || []).some(function(k){ return k.key === "WEBHOOK_SECRET" && k.hasValue; });
+                  if (!hasSecret) {
+                    DV.showToast("Auto-PR enabled, but WEBHOOK_SECRET is not set — GitHub webhooks will be rejected. Add it in Settings → API Keys.", "error");
+                  }
+                }).catch(function(){});
+              }
               DV.render();
             }).catch(function(e) { DV.showToast("Toggle failed: " + ((e && e.message) || "network"), "error"); });
           } }
         }, repo.autoPRPreviews ? "✓ Auto-PR" : "Auto-PR off"));
         headerRight.appendChild(el("button", { c: "bd bs", attr: { title: "Delete " + repo.owner + "/" + repo.repo, "aria-label": "Delete " + repo.owner + "/" + repo.repo } , on: { click: function() {
-          if (!confirm("Delete " + repo.owner + "/" + repo.repo + "? All branches and workspace clones will be removed.")) return;
+          // Surface live-state in the confirm so a delete that's
+          // about to stop running processes / kill ports / orphan
+          // history isn't quietly destructive.
+          var bsAll = repo.branchStatuses || {};
+          var slugList = Object.keys(bsAll);
+          var running = slugList.filter(function(k){ var s = bsAll[k] && bsAll[k].status; return s === "running" || s === "building"; });
+          var prompt = "Delete " + repo.owner + "/" + repo.repo + "?";
+          prompt += "\n\n• " + slugList.length + " branch" + (slugList.length === 1 ? "" : "es") + " will be removed";
+          if (running.length) {
+            prompt += "\n• " + running.length + " running/building branch" + (running.length === 1 ? "" : "es") + " will be stopped: " + running.slice(0, 3).join(", ") + (running.length > 3 ? ", …" : "");
+          }
+          prompt += "\n• Workspace clones + build history will be deleted";
+          prompt += "\n\nThis cannot be undone.";
+          if (!confirm(prompt)) return;
           api("DELETE", "/api/repos/" + repo.owner + "/" + repo.repo).then(function(r) {
             if (r && r.error) { DV.showToast("Delete failed: " + r.error, "error"); return; }
             DV.showToast("Deleted " + repo.owner + "/" + repo.repo, "info");
@@ -370,6 +427,29 @@ DV.views.dashboard = function(app) {
             }
             if (bs.lastBuild && bs.status !== "building") {
               statusParts.push(el("span", { c: "color-tx3 text-10 font-mono" }, timeAgo(bs.lastBuild)));
+            }
+            // Schedule indicator — renders only when the branch has
+            // schedule != 0. Numeric schedule (seconds between
+            // rebuilds): show 'next: in 12m' relative to lastBuild.
+            // String schedule (cron expression): show '⏱ cron' badge
+            // without countdown (parsing cron client-side is overkill
+            // here; the title attr surfaces the raw expression).
+            if (bs.schedule) {
+              var sched = bs.schedule;
+              if (typeof sched === "number" && sched > 0) {
+                var nextAt = (bs.lastBuild || 0) + sched * 1000;
+                var msUntil = nextAt - Date.now();
+                var label;
+                if (!bs.lastBuild) label = "every " + (sched < 3600 ? Math.round(sched / 60) + "m" : sched < 86400 ? Math.round(sched / 3600) + "h" : Math.round(sched / 86400) + "d");
+                else if (msUntil <= 0) label = "next: due";
+                else if (msUntil < 60000) label = "next: " + Math.ceil(msUntil / 1000) + "s";
+                else if (msUntil < 3600000) label = "next: " + Math.round(msUntil / 60000) + "m";
+                else if (msUntil < 86400000) label = "next: " + Math.round(msUntil / 3600000) + "h";
+                else label = "next: " + Math.round(msUntil / 86400000) + "d";
+                statusParts.push(el("span", { c: "color-tx3 text-10 font-mono", attr: { title: "Auto-rebuild every " + sched + "s" } }, "⏱ " + label));
+              } else if (typeof sched === "string" && sched.trim()) {
+                statusParts.push(el("span", { c: "color-tx3 text-10 font-mono", attr: { title: "Cron schedule: " + sched } }, "⏱ cron"));
+              }
             }
             if (bs.commitSha && bs.status !== "building" && bs.status !== "idle") {
               statusParts.push(el("span", { c: "sha-badge", attr: { title: "Commit: " + bs.commitSha }, on: { click: function() {

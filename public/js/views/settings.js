@@ -54,6 +54,28 @@ function keyRow(secret, onSave, onDelete) {
     top.appendChild(el("span", { c: "pill pill-ok" }, "\u2714"));
     top.appendChild(el("span", { c: "settings-masked" }, secret.masked));
     if (secret.source === "env") top.appendChild(el("span", { c: "pill pill-info" }, "env"));
+    // Age indicator \u2014 surfaces 'set 47d ago' so users can see which
+    // secrets are stale and need rotation. Only shown when the
+    // server has a setAt timestamp (older configs without metadata
+    // show nothing, no false 'fresh' claim).
+    if (secret.setAt) {
+      var ageMs = Date.now() - secret.setAt;
+      var ageDays = Math.floor(ageMs / 86400000);
+      var label;
+      if (ageMs < 60000) label = "set just now";
+      else if (ageMs < 3600000) label = "set " + Math.floor(ageMs / 60000) + "m ago";
+      else if (ageMs < 86400000) label = "set " + Math.floor(ageMs / 3600000) + "h ago";
+      else label = "set " + ageDays + "d ago";
+      // Stale-warning bg when > 90 days for tokens that benefit from
+      // rotation (GitHub PATs, OpenAI/Anthropic keys, Stripe, etc.).
+      var rotateRecommended = ageDays > 90;
+      top.appendChild(el("span", {
+        c: "settings-age" + (rotateRecommended ? " settings-age-stale" : ""),
+        attr: { title: rotateRecommended
+          ? "Set " + new Date(secret.setAt).toLocaleString() + " \u2014 consider rotating"
+          : "Set " + new Date(secret.setAt).toLocaleString() }
+      }, label + (rotateRecommended ? " \u00b7 rotate?" : "")));
+    }
   } else {
     top.appendChild(el("span", { c: "pill pill-warn" }, "\u2014"));
   }
@@ -448,10 +470,25 @@ DV.views.settings = function(app) {
   function refreshWorkspaceStats() {
     fetch("/api/workspace/stats").then(function(r) { return r.json(); }).then(function(stats) {
     wsBody.innerHTML = "";
-    wsBody.appendChild(el("div", { c: "settings-hint mb-8" }, stats.total + " workspace dir(s) \u2014 " + stats.active + " active, " + stats.orphaned + " orphaned"));
+    function fmtBytes(n) {
+      if (!n) return "0 B";
+      if (n < 1024) return n + " B";
+      if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+      if (n < 1073741824) return (n / 1048576).toFixed(1) + " MB";
+      return (n / 1073741824).toFixed(2) + " GB";
+    }
+    var hintLine = stats.total + " workspace dir(s) \u2014 " + stats.active + " active, " + stats.orphaned + " orphaned";
+    if (typeof stats.totalBytes === "number") {
+      hintLine += " \u00b7 " + fmtBytes(stats.totalBytes) + " total";
+      if (stats.orphanedBytes) hintLine += " (" + fmtBytes(stats.orphanedBytes) + " in orphaned)";
+    }
+    wsBody.appendChild(el("div", { c: "settings-hint mb-8" }, hintLine));
     if (stats.orphaned > 0) {
       wsBody.appendChild(el("button", { c: "bd bs", on: { click: function() {
-        if (!confirm("Remove " + stats.orphaned + " orphaned dir(s)?")) return;
+        var confirmMsg = "Remove " + stats.orphaned + " orphaned dir(s)";
+        if (stats.orphanedBytes) confirmMsg += " (frees ~" + fmtBytes(stats.orphanedBytes) + ")";
+        confirmMsg += "?";
+        if (!confirm(confirmMsg)) return;
         var b = this; var orig = b.textContent; b.disabled = true; b.textContent = "Cleaning…";
         fetch("/api/workspace/cleanup", { method: "POST" }).then(function(r) { return r.json(); }).then(function(r) {
           var msg = "Cleaned " + (r.removed || 0) + " dir(s)";
@@ -676,19 +713,31 @@ DV.views.settings = function(app) {
       form.appendChild(el("button", { c: "bp bs", on: { click: function() {
         if (!idInp.value.trim()) { DV.showToast("id required", "error"); return; }
         var vars = {};
+        var interpolated = []; // keys whose values still have $VAR / ${VAR}
         varsInp.value.split("\n").forEach(function(line){
           var t = line.trim(); if (!t || t.startsWith("#")) return;
+          // Tolerate `export KEY=value` style pastes the same way the
+          // bulk-secrets import does — parity matters because users
+          // copy-paste the same .env between the two textareas.
+          t = t.replace(/^export\s+/i, "");
           var eq = t.indexOf("="); if (eq < 1) return;
-          vars[t.slice(0, eq).trim()] = t.slice(eq + 1).trim();
+          var k = t.slice(0, eq).trim();
+          // Strip a single matched layer of leading/trailing quotes.
+          var v = t.slice(eq + 1).trim().replace(/^"(.*)"$|^'(.*)'$/, "$1$2");
+          if (/\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*/.test(v)) interpolated.push(k);
+          vars[k] = v;
         });
+        if (interpolated.length) {
+          DV.showToast("Heads up: " + interpolated.join(", ") + " contain $VAR / ${VAR} — saved literally (no shell interpolation).", "info");
+        }
         api("POST", "/api/env-groups", {
           id: idInp.value.trim(), name: nameInp.value.trim() || idInp.value.trim(), vars: vars
         }).then(function(r){
-          if (r.error) { DV.showToast(r.error, "error"); return; }
+          if (r && r.error) { DV.showToast(r.error, "error"); return; }
           DV.showToast("Group created", "success");
           idInp.value = ""; nameInp.value = ""; varsInp.value = "";
           loadEnvGroups();
-        });
+        }).catch(function(e){ DV.showToast("Failed: " + ((e && e.message) || "network"), "error"); });
       } } }, "Create"));
       egBody.appendChild(form);
     }).catch(function() { egBody.textContent = "Could not load."; });
@@ -696,24 +745,34 @@ DV.views.settings = function(app) {
 
   function editEnvGroup(id) {
     api("GET", "/api/env-groups/" + id).then(function(g) {
-      if (g.error) { DV.showToast(g.error, "error"); return; }
+      if (g && g.error) { DV.showToast(g.error, "error"); return; }
       var current = "";
       Object.keys(g.vars || {}).forEach(function(k){ current += k + "=\n"; });
       var newVars = prompt("Replace ALL values for '" + g.name + "'.\n\nFormat: KEY=value, one per line.\nMasked existing keys:\n" + Object.keys(g.vars || {}).join(", "), current);
       if (newVars === null) return;
       var vars = {};
+      var interpolated = [];
       newVars.split("\n").forEach(function(line){
         var t = line.trim(); if (!t || t.startsWith("#")) return;
+        // Same parser as the create form: tolerate `export KEY=…`,
+        // strip matching wrap quotes, warn on $VAR / ${VAR}.
+        t = t.replace(/^export\s+/i, "");
         var eq = t.indexOf("="); if (eq < 1) return;
-        var v = t.slice(eq + 1).trim();
-        if (v) vars[t.slice(0, eq).trim()] = v;
+        var k = t.slice(0, eq).trim();
+        var v = t.slice(eq + 1).trim().replace(/^"(.*)"$|^'(.*)'$/, "$1$2");
+        if (!v) return;
+        if (/\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*/.test(v)) interpolated.push(k);
+        vars[k] = v;
       });
+      if (interpolated.length) {
+        DV.showToast("Heads up: " + interpolated.join(", ") + " contain $VAR / ${VAR} — saved literally.", "info");
+      }
       api("PUT", "/api/env-groups/" + id, { vars: vars }).then(function(r){
-        if (r.error) { DV.showToast(r.error, "error"); return; }
+        if (r && r.error) { DV.showToast(r.error, "error"); return; }
         DV.showToast("Saved", "success");
         loadEnvGroups();
-      });
-    });
+      }).catch(function(e){ DV.showToast("Save failed: " + ((e && e.message) || "network"), "error"); });
+    }).catch(function(e){ DV.showToast("Load failed: " + ((e && e.message) || "network"), "error"); });
   }
   loadEnvGroups();
   appendIfExists(page, section("Env-Var Groups", [egBody], "envgroups"));

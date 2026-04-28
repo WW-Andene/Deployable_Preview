@@ -19,10 +19,24 @@ const audit = require("../../audit");
 // anyway, and which an earlier revision of this code parsed too strictly,
 // rejecting valid tokens whose scope strings didn't include the literal
 // "repo" — e.g. orgs that grant access via SAML rather than scopes).
+// Strip surrounding whitespace AND a single layer of matching quotes
+// — common copy-from-docs mistakes (pasting "ghp_…" verbatim from a
+// JSON snippet or 'ghp_…' from a YAML config). Without this, the
+// token reaches GitHub with literal quote characters and 401s
+// despite being perfectly valid.
+function _cleanToken(raw) {
+  let t = String(raw || "").trim();
+  if ((t.startsWith('"') && t.endsWith('"')) ||
+      (t.startsWith("'") && t.endsWith("'"))) {
+    if (t.length >= 2) t = t.slice(1, -1).trim();
+  }
+  return t;
+}
+
 router.post("/token", async (req, res) => {
   const config = getConfig();
   const raw = (req.body && req.body.token) || "";
-  const token = String(raw).trim();
+  const token = _cleanToken(raw);
   if (!token) {
     config.token = "";
     saveConfig();
@@ -105,24 +119,40 @@ function maskValue(val) {
 router.get("/secrets", (req, res) => {
   const config = getConfig();
   const secrets = config.secrets || {};
+  const secretsMeta = config.secretsMeta || {};
+  // Build a case-folded view of stored secrets so any pre-existing
+  // mixed-case keys (saved by an older revision before the POST
+  // normalized to uppercase) still surface under their canonical
+  // uppercase name. A literal-key match still wins over the folded
+  // match — protects against two intentionally-different-cased
+  // entries that happen to share an uppercase form.
+  const folded = {};
+  const foldedMeta = {};
+  for (const k of Object.keys(secrets)) {
+    const u = k.toUpperCase();
+    if (!Object.prototype.hasOwnProperty.call(folded, u)) folded[u] = secrets[k];
+    if (secretsMeta[k] && !foldedMeta[u]) foldedMeta[u] = secretsMeta[k];
+  }
   const allKeys = new Map();
   for (const sk of SUGGESTED_KEYS) allKeys.set(sk.key, { ...sk });
-  for (const k of Object.keys(secrets)) {
+  for (const k of Object.keys(folded)) {
     if (!allKeys.has(k)) allKeys.set(k, { key: k, label: k, hint: "Custom key" });
   }
   const result = [];
   for (const [key, meta] of allKeys) {
-    let val = secrets[key] || process.env[key] || "";
+    let val = secrets[key] || folded[key] || process.env[key] || "";
     if (key === "GITHUB_TOKEN" && !val) val = config.token || "";
+    const meta2 = secretsMeta[key] || foldedMeta[key] || null;
     result.push({
       key,
       label: meta.label || key,
+      setAt: meta2 && meta2.setAt ? meta2.setAt : null,
       hint: meta.hint || "",
       link: meta.link || null,
       suggested: SUGGESTED_KEYS.some((sk) => sk.key === key),
       hasValue: !!val,
       masked: maskValue(val),
-      source: secrets[key] ? "config" : (process.env[key] ? "env" : (key === "GITHUB_TOKEN" && config.token ? "config" : "none"))
+      source: (secrets[key] || folded[key]) ? "config" : (process.env[key] ? "env" : (key === "GITHUB_TOKEN" && config.token ? "config" : "none"))
     });
   }
   res.json(result);
@@ -139,23 +169,49 @@ router.post("/secrets", audit.logAction("secret.write", { target: ["body.key"] }
   if (!rawKey || typeof rawKey !== "string") return res.status(400).json({ error: "key required" });
   if (!SAFE_KEY_RE.test(rawKey)) return res.status(400).json({ error: "Invalid key name — use A-Z, 0-9, _ only" });
   if (value === undefined || value === null) return res.status(400).json({ error: "value required" });
-  const key = KEY_ALIASES[rawKey] || rawKey;
-  const aliased = key !== rawKey;
+  // Normalize to uppercase. Env-var convention is uppercase by POSIX
+  // definition; process.env is case-sensitive on Linux/macOS; every
+  // getSecret() call site in this codebase uses the uppercase form.
+  // Without this, a bulk paste of `github_token=ghp_…` stored under
+  // the literal lowercase key and the rest of the app went on looking
+  // for GITHUB_TOKEN — the secret was 'set' but invisible to anyone
+  // reading it.
+  const upperRaw = rawKey.toUpperCase();
+  const key = KEY_ALIASES[upperRaw] || upperRaw;
+  const cased = key !== rawKey;     // we changed the case OR aliased
   if (!Object.prototype.hasOwnProperty.call(config.secrets, key) && Object.keys(config.secrets).length >= MAX_SECRETS) {
     return res.status(429).json({ error: "Secret cap reached (" + MAX_SECRETS + ")" });
   }
-  const trimmed = String(value).trim();
+  // Same quote-stripping the token endpoint applies — covers pastes
+  // of `KEY="value"` style lines from .env.example snippets that the
+  // bulk parser already strips, but a direct POST to a single key
+  // (or an over-eager paste handler in a browser) bypasses.
+  const trimmed = _cleanToken(value);
+  if (!config.secretsMeta) config.secretsMeta = {};
   if (trimmed) {
     config.secrets[key] = trimmed;
     if (key === "GITHUB_TOKEN") config.token = trimmed;
     process.env[key] = trimmed;
+    // Record set-time in a side table (config.secretsMeta) so we don't
+    // change the shape of config.secrets and break older configs that
+    // assume flat string values. Lets the UI render 'set 12d ago' so
+    // users can see which secrets are stale and need rotation.
+    config.secretsMeta[key] = { setAt: Date.now() };
+    // Also clear any stale lowercase/mixed-case version that may have
+    // been written by the buggy older revision so reads are unambiguous.
+    if (rawKey !== key && Object.prototype.hasOwnProperty.call(config.secrets, rawKey)) {
+      delete config.secrets[rawKey];
+      delete config.secretsMeta[rawKey];
+      try { delete process.env[rawKey]; } catch (_) {}
+    }
   } else {
     delete config.secrets[key];
+    delete config.secretsMeta[key];
     if (key === "GITHUB_TOKEN") config.token = "";
     delete process.env[key];
   }
   saveConfig();
-  res.json({ ok: true, key, aliasedFrom: aliased ? rawKey : undefined, hasValue: !!trimmed });
+  res.json({ ok: true, key, aliasedFrom: cased ? rawKey : undefined, hasValue: !!trimmed });
 });
 
 router.delete("/secrets/:key", audit.logAction("secret.delete", { target: ["params.key"] }), (req, res) => {
@@ -168,6 +224,7 @@ router.delete("/secrets/:key", audit.logAction("secret.delete", { target: ["para
   // (PATH, HOME, …) that DV never set, breaking the running process.
   const wasOurs = Object.prototype.hasOwnProperty.call(config.secrets, key);
   delete config.secrets[key];
+  if (config.secretsMeta) delete config.secretsMeta[key];
   if (key === "GITHUB_TOKEN") config.token = "";
   if (wasOurs) delete process.env[key];
   saveConfig();
