@@ -140,8 +140,21 @@ DV.views.analytics = function(app) {
   if (S._metricsTimer) clearInterval(S._metricsTimer);
   S._metricsTimer = setInterval(function() {
     if (S.view !== "analytics") { clearInterval(S._metricsTimer); S._metricsTimer = null; return; }
+    // Skip the poll while the tab is hidden — saves bandwidth and
+    // keeps battery from draining when the user has the dashboard
+    // backgrounded. The next foreground render kicks off a fresh
+    // fetch immediately.
+    if (typeof document !== "undefined" && document.hidden) return;
     refresh();
   }, 3000);
+  // Refresh once when the tab regains focus so the user sees a fresh
+  // snapshot the moment they tab back in.
+  if (!S._metricsVisListenerBound) {
+    S._metricsVisListenerBound = true;
+    document.addEventListener("visibilitychange", function() {
+      if (!document.hidden && S.view === "analytics") refresh();
+    });
+  }
 
   app.appendChild(page);
 };
