@@ -93,16 +93,20 @@ router.post("/config/import", (req, res) => {
     return res.status(400).json({ error: "Invalid config: repos array required" });
   }
   let added = 0;
+  let skippedDup = 0;
   for (const repo of imported.repos) {
     if (!repo.owner || !repo.repo) continue;
     if (!SAFE_NAME_RE.test(repo.owner) || !SAFE_NAME_RE.test(repo.repo)) continue;
     const id = repo.owner + "/" + repo.repo;
-    if (config.repos.some((r) => r.id === id)) continue;
+    // Case-insensitive duplicate detection — same reasoning as POST /repos:
+    // GitHub treats Owner/Repo and owner/repo as the same source.
+    const idLower = id.toLowerCase();
+    if (config.repos.some((r) => r.id.toLowerCase() === idLower)) { skippedDup++; continue; }
     config.repos.push({ ...repo, id });
     added++;
   }
   if (added > 0) saveConfig();
-  res.json({ ok: true, added, total: config.repos.length });
+  res.json({ ok: true, added, skippedDup, total: config.repos.length });
 });
 
 module.exports = router;

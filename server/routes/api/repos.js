@@ -73,7 +73,14 @@ router.post("/repos", (req, res) => {
     return res.status(400).json({ error: "Invalid repo name" });
   }
   const id = owner + "/" + repo;
-  if (config.repos.some((r) => r.id === id)) return res.status(400).json({ error: "Already exists" });
+  // GitHub treats owner/repo as case-insensitive (Foo/Bar == foo/bar);
+  // duplicate detection has to too, otherwise the same repo gets added
+  // twice with different cases and the second clone fails over the
+  // first's workspace dir + every key collision turns into a silent
+  // race. Surface the existing canonical id so the user knows.
+  const idLower = id.toLowerCase();
+  const dup = config.repos.find((r) => r.id.toLowerCase() === idLower);
+  if (dup) return res.status(400).json({ error: "Already exists as " + dup.id });
   const branchConfigs = (activeBranches || []).map((b) => {
     if (typeof b === "object") return b;
     return { branch: b, baseDir: baseDir || "", buildCommand: "", outputDir: "", mode: mode || "static", startCommand: startCommand || "", envVars: envVars || "", language: language || "auto" };
