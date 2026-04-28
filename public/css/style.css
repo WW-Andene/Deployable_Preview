@@ -219,6 +219,15 @@ body {
   line-height: 1.5;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Auto-adjusts detail when fonts have an optical-size axis. Harmless
+     no-op when they don't (Space Grotesk doesn't, JetBrains Mono
+     doesn't) but the rule is forward-compatible. */
+  font-optical-sizing: auto;
+  /* Common ligatures + tabular numerics across the entire UI — slashed
+     zero distinguishes 0/O in monospace areas. */
+  font-variant-ligatures: common-ligatures;
+  text-rendering: optimizeLegibility;
 }
 /* §ATMOSPHERE — Layered ambient environment.
    ::before = top-center amber radial wash (the Brief's light source).
