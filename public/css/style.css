@@ -817,32 +817,45 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
 button { min-height: 32px; }
 .bs, .btn-sm { min-height: 28px; }
 
-/* ── DV Badge — product identity ── */
+/* §LOGO — DeployView brand lockup
+   Mark + wordmark. Mark renders via DV.iconEl("dvmark") in
+   currentColor, wordmark is split into "Deploy" (accent) + "View"
+   (text-2) so the brand reads as a two-tone signature. Pill shape
+   anchors it to the topbar; subtle accent glow ties it to the
+   atmosphere. Acts as a button (clickable home). */
 .dv-badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 10px 3px 7px;
+  gap: 7px;                              /* one --sp unit between mark and word */
+  padding: 4px 12px 4px 8px;
   border-radius: var(--r-pill);
-  background: var(--accent-dim);
-  border: 1px solid var(--accent);
-  font-family: var(--font-mono);
-  font-size: 10px;
+  background: transparent;
+  border: 1px solid var(--border-h);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
   font-weight: 600;
-  color: var(--accent);
-  letter-spacing: 0.02em;
-  box-shadow: 0 0 10px var(--accent-glow);
+  color: var(--tx2);
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: border-color var(--dur-micro) var(--ease-fast),
+              background-color var(--dur-micro) var(--ease-fast),
+              box-shadow var(--dur-micro) var(--ease-fast);
 }
-.dv-badge::before {
-  content: 'DV';
-  font-size: 9px;
-  font-weight: 700;
-  background: var(--accent);
-  color: var(--bg);
-  padding: 1px 4px;
-  border-radius: 3px;
-  letter-spacing: 0.03em;
+.dv-badge:hover {
+  border-color: var(--border-accent);
+  background: var(--accent-bg-faint);
+  box-shadow: 0 0 0 1px var(--accent-dim), 0 0 12px var(--accent-glow);
 }
+.dv-badge:hover .dv-badge-word-view { color: var(--tx1); }
+.dv-badge-mark {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent);                 /* mark always amber, never tones down */
+  filter: drop-shadow(0 0 4px var(--accent-glow));
+}
+.dv-badge-word { display: inline-flex; align-items: baseline; letter-spacing: -0.005em; }
+.dv-badge-word-deploy { color: var(--accent); font-weight: 700; }
+.dv-badge-word-view   { color: var(--tx2);    font-weight: 500; transition: color var(--dur-micro) var(--ease-fast); }
 
 /* ── Focus — keyboard accessibility ── */
 :focus-visible {

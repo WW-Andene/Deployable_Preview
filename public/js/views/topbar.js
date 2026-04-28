@@ -81,9 +81,23 @@ DV.views.topbar = function(app) {
   if (S.view !== "setup" && S.view !== "dashboard" && S.view !== "loading") {
     left.appendChild(el("button", { c: "bg bs", on: { click: function() { S.view = "dashboard"; S.showBranchDropdown = false; DV.render(); } } }, "\u2190"));
   }
-  // Make this a real button so keyboard and screen-reader users can
-  // activate it. The dv-badge styles work on either tag.
-  left.appendChild(el("button", { c: "dv-badge", attr: { type: "button", "aria-label": "Go to dashboard" }, on: { click: function() { if (S.hasToken) { S.view = "dashboard"; DV.render(); } } } }, "DeployView"));
+  // Brand lockup: mark + wordmark. The mark renders via DV.iconEl
+  // (currentColor, scales with text), wordmark is two spans so we can
+  // tone the second word down per §LOGO. Real button for keyboard +
+  // screen-reader access.
+  var brand = el("button", {
+    c: "dv-badge",
+    attr: { type: "button", "aria-label": "Go to DeployView dashboard" },
+    on: { click: function() { if (S.hasToken) { S.view = "dashboard"; DV.render(); } } }
+  });
+  var markWrap = el("span", { c: "dv-badge-mark", attr: { "aria-hidden": "true" } });
+  markWrap.appendChild(DV.iconEl("dvmark", 18));
+  brand.appendChild(markWrap);
+  brand.appendChild(el("span", { c: "dv-badge-word" }, [
+    el("span", { c: "dv-badge-word-deploy" }, "Deploy"),
+    el("span", { c: "dv-badge-word-view"   }, "View")
+  ]));
+  left.appendChild(brand);
 
   // Tunnel indicator
   if (S._tunnelStatus && S._tunnelStatus.url) {
