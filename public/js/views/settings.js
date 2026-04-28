@@ -448,10 +448,25 @@ DV.views.settings = function(app) {
   function refreshWorkspaceStats() {
     fetch("/api/workspace/stats").then(function(r) { return r.json(); }).then(function(stats) {
     wsBody.innerHTML = "";
-    wsBody.appendChild(el("div", { c: "settings-hint mb-8" }, stats.total + " workspace dir(s) \u2014 " + stats.active + " active, " + stats.orphaned + " orphaned"));
+    function fmtBytes(n) {
+      if (!n) return "0 B";
+      if (n < 1024) return n + " B";
+      if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+      if (n < 1073741824) return (n / 1048576).toFixed(1) + " MB";
+      return (n / 1073741824).toFixed(2) + " GB";
+    }
+    var hintLine = stats.total + " workspace dir(s) \u2014 " + stats.active + " active, " + stats.orphaned + " orphaned";
+    if (typeof stats.totalBytes === "number") {
+      hintLine += " \u00b7 " + fmtBytes(stats.totalBytes) + " total";
+      if (stats.orphanedBytes) hintLine += " (" + fmtBytes(stats.orphanedBytes) + " in orphaned)";
+    }
+    wsBody.appendChild(el("div", { c: "settings-hint mb-8" }, hintLine));
     if (stats.orphaned > 0) {
       wsBody.appendChild(el("button", { c: "bd bs", on: { click: function() {
-        if (!confirm("Remove " + stats.orphaned + " orphaned dir(s)?")) return;
+        var confirmMsg = "Remove " + stats.orphaned + " orphaned dir(s)";
+        if (stats.orphanedBytes) confirmMsg += " (frees ~" + fmtBytes(stats.orphanedBytes) + ")";
+        confirmMsg += "?";
+        if (!confirm(confirmMsg)) return;
         var b = this; var orig = b.textContent; b.disabled = true; b.textContent = "Cleaning…";
         fetch("/api/workspace/cleanup", { method: "POST" }).then(function(r) { return r.json(); }).then(function(r) {
           var msg = "Cleaned " + (r.removed || 0) + " dir(s)";
