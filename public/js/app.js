@@ -470,10 +470,45 @@ function emptyState(opts) {
   return wrap;
 }
 
+// copyToClipboard(text, opts?) — single source of truth for copy actions.
+// Tries the modern async API, then falls back to a hidden textarea +
+// document.execCommand("copy") for insecure-context (http://localhost in
+// some browsers, in particular Termux Firefox). Returns a Promise<boolean>.
+// opts: { successMessage, errorMessage } — both optional. Pass null/false to
+// suppress toasts; default shows them.
+function copyToClipboard(text, opts) {
+  opts = opts || {};
+  var successMsg = opts.successMessage === undefined ? "Copied" : opts.successMessage;
+  var errorMsg   = opts.errorMessage   === undefined ? "Couldn't copy — long-press the value and copy manually" : opts.errorMessage;
+  function ok() { if (successMsg) showToast(successMsg, "info"); return true; }
+  function fail() { if (errorMsg) showToast(errorMsg, "error"); return false; }
+  function fallback() {
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "absolute";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select(); ta.setSelectionRange(0, ta.value.length);
+      var done = document.execCommand && document.execCommand("copy");
+      document.body.removeChild(ta);
+      return done ? Promise.resolve(ok()) : Promise.resolve(fail());
+    } catch (e) { return Promise.resolve(fail()); }
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      return navigator.clipboard.writeText(text).then(ok, function() { return fallback(); });
+    } catch (_) { return fallback(); }
+  }
+  return fallback();
+}
+
 // Expose globals for view modules
 window.DV = {
   S: S, el: el, api: api, statusClass: statusClass, render: render,
   loadRepos: loadRepos,
+  copyToClipboard: copyToClipboard,
   fetchAvailableBranches: fetchAvailableBranches, addBranchToRepo: addBranchToRepo,
   fetchGhRepos: fetchGhRepos,
   // installPullToRefresh(rootEl, onRefresh) — wires touch handlers so the

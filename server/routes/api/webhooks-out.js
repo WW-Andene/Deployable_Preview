@@ -38,23 +38,30 @@ router.delete("/webhooks/:id", (req, res) => {
   res.json({ ok: true });
 });
 
-// Test endpoint: fire a synthetic build.ready to a single subscriber.
-// Temporarily forces enabled + events:["*"] so the recipient sees the
-// ping regardless of the subscriber's configured filter.
-router.post("/webhooks/:id/test", (req, res) => {
+// Test endpoint: synchronously POST a synthetic build.ready to the
+// subscriber and report what the receiver said. This is a *real*
+// round-trip — if the URL is dead the user finds out here, not when
+// the next real build silently fails to deliver.
+router.post("/webhooks/:id/test", async (req, res) => {
   const wh = webhooks.listWebhooks().find(w => w.id === req.params.id);
   if (!wh) return res.status(404).json({ error: "webhook not found" });
+  const fake = {
+    repo: "owner/repo", branch: "main", slug: "main",
+    commitSha: "0000000abcdef", duration: 12.3,
+    previewUrl: "/preview/owner/repo/main/"
+  };
   try {
-    const fake = {
-      repo: "owner/repo", branch: "main", slug: "main",
-      commitSha: "0000000abcdef", duration: 12.3,
-      previewUrl: "/preview/owner/repo/main/"
-    };
-    const saved = { events: wh.events, enabled: wh.enabled };
-    wh.events = ["*"]; wh.enabled = true;
-    webhooks.emit("build.ready", fake);
-    wh.events = saved.events; wh.enabled = saved.enabled;
-    res.json({ ok: true, message: "Test event dispatched (check receiver)" });
+    const body = webhooks._shapePayload(wh.format, "build.ready", fake);
+    const r = await webhooks._post(wh.url, body, wh.secret, wh.format);
+    if (r.ok) {
+      res.json({ ok: true, statusCode: r.statusCode, message: "Receiver returned " + r.statusCode });
+    } else {
+      res.status(502).json({
+        ok: false,
+        statusCode: r.statusCode || null,
+        error: r.error || ("Receiver returned " + r.statusCode)
+      });
+    }
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

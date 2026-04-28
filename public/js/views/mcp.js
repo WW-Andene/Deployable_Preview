@@ -41,7 +41,7 @@ DV.views.mcp = function(app) {
   var claudeJson = '{\n  "mcpServers": {\n    "deployview": {\n      "command": "node",\n      "args": ["server/mcp.js"],\n      "cwd": "/path/to/Deployable_Preview"\n    }\n  }\n}';
   var claudeConfigLabel = el("div", { c: "flex-row" }, [
     el("div", { c: "config-label" }, "Claude Desktop Configuration"),
-    el("button", { c: "btn-copy", on: { click: function() { navigator.clipboard.writeText(claudeJson).then(function() { DV.showToast("Config copied to clipboard", "info"); }).catch(function(){}); } } }, "Copy")
+    el("button", { c: "btn-copy", on: { click: function() { DV.copyToClipboard(claudeJson, { successMessage: "Config copied to clipboard" }); } } }, "Copy")
   ]);
   statusPanel.appendChild(el("div", { c: "config-panel" }, [
     claudeConfigLabel,
@@ -65,7 +65,7 @@ DV.views.mcp = function(app) {
       tunnelBody.appendChild(el("div", { c: "tunnel-url-row" }, [
         el("span", { c: "tunnel-url" }, mcpUrl),
         el("button", { c: "btn-copy", on: { click: function() {
-          navigator.clipboard.writeText(mcpUrl).then(function() { DV.showToast("MCP URL copied", "info"); }).catch(function(){});
+          DV.copyToClipboard(mcpUrl, { successMessage: "MCP URL copied" });
         } } }, "Copy")
       ]));
       tunnelBody.appendChild(el("div", { c: "config-hint" }, "\u2713 Tunnel active via " + (st.provider || "tunnel") + ". Paste the URL above into claude.ai \u2192 Settings \u2192 Integrations."));

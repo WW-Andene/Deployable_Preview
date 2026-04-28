@@ -8,17 +8,65 @@ const express = require("express");
 const router = express.Router();
 
 const { getConfig, saveConfig } = require("../../config");
-const { ghApi } = require("../../github");
+const { ghApi, ghApiRaw } = require("../../github");
 const audit = require("../../audit");
 
 // ── Token ────────────────────────────────────────────────────────────────────
-router.post("/token", (req, res) => {
+// Validates the PAT AND its scopes in one shot. We probe /user/repos because
+// (a) it requires the `repo` scope on classic PATs (the response 403s without
+// it), and (b) the response carries the X-OAuth-Scopes header which lets us
+// give a specific "missing scope" error instead of a generic 401. Fine-grained
+// tokens (github_pat_*) don't expose scopes via that header — we accept them
+// if /user/repos returns any 2xx, since GH has already enforced their
+// repo-permission ACL server-side.
+router.post("/token", async (req, res) => {
   const config = getConfig();
-  config.token = req.body.token || "";
+  const raw = (req.body && req.body.token) || "";
+  const token = String(raw).trim();
+  if (!token) {
+    config.token = "";
+    saveConfig();
+    return res.status(400).json({ error: "Token required", code: "empty" });
+  }
+  config.token = token;
   saveConfig();
-  ghApi("/user", config.token)
-    .then((user) => res.json({ ok: true, user: user.login }))
-    .catch((e) => { config.token = ""; saveConfig(); res.status(401).json({ error: e.message }); });
+  try {
+    const probe = await ghApiRaw("/user/repos?per_page=1", token);
+    if (probe.status === 401) {
+      config.token = ""; saveConfig();
+      return res.status(401).json({ error: "Invalid or expired token", code: "invalid" });
+    }
+    if (probe.status === 403) {
+      config.token = ""; saveConfig();
+      const msg = (probe.body && probe.body.message) || "Forbidden";
+      return res.status(401).json({ error: "Token rejected by GitHub: " + msg, code: "forbidden" });
+    }
+    if (probe.status >= 400) {
+      config.token = ""; saveConfig();
+      return res.status(401).json({ error: "GitHub " + probe.status + " " + ((probe.body && probe.body.message) || ""), code: "gh_error" });
+    }
+    // Classic PAT scope check (header is absent on fine-grained tokens).
+    const scopes = String(probe.headers["x-oauth-scopes"] || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const isFineGrained = /^github_pat_/i.test(token);
+    if (!isFineGrained && scopes.length > 0) {
+      const hasRepo = scopes.includes("repo") || scopes.includes("public_repo");
+      if (!hasRepo) {
+        config.token = ""; saveConfig();
+        return res.status(401).json({
+          error: "Token is missing the `repo` scope. Regenerate at github.com/settings/tokens with `repo` (and `workflow` if you'll trigger Actions).",
+          code: "missing_scope",
+          missing: ["repo"]
+        });
+      }
+    }
+    // Pull /user once to surface the login.
+    let login = "";
+    try { const u = await ghApi("/user", token); login = u && u.login || ""; } catch (_) { /* non-fatal */ }
+    res.json({ ok: true, user: login, scopes, fineGrained: isFineGrained });
+  } catch (e) {
+    config.token = ""; saveConfig();
+    res.status(401).json({ error: e.message, code: "network" });
+  }
 });
 
 router.get("/token", (req, res) => {

@@ -25,11 +25,34 @@ function timeAgo(iso) {
 
 // Fire the same fetch-branches + detect-framework chain that the URL
 // "Fetch" button triggers, but starting from a known (owner, repo, defaultBranch).
+// humanizeGhError(msg) — turn GitHub's API messages into something a user
+// can act on. The server's ghApi rejects with the parsed `message` field;
+// we recognize the common shapes (404 on private repo, SSO/SAML, rate
+// limit) and rewrite them. Anything we don't recognize passes through.
+function humanizeGhError(msg) {
+  var s = String(msg || "");
+  if (/Not Found/i.test(s)) {
+    return "Repo not found, or your token lacks access. Private repos need the `repo` scope; for org repos with SSO, authorize the token at github.com/settings/tokens then retry.";
+  }
+  if (/SAML enforcement|sso|single sign-on/i.test(s)) {
+    return "GitHub SSO required. Open github.com/settings/tokens, find your token, click \"Configure SSO\", and authorize it for the org.";
+  }
+  if (/rate limit|abuse/i.test(s)) {
+    return "GitHub rate limit hit. Wait a minute and retry, or use a token with higher quota.";
+  }
+  if (/Bad credentials|401/i.test(s)) {
+    return "Token rejected by GitHub. Re-issue it at github.com/settings/tokens.";
+  }
+  return s;
+}
+
 function installFromGh(repoEntry, onProgress, onError) {
   S.repoUrl = repoEntry.fullName;
+  S.detectedFramework = null;
+  S.detectError = "";
   if (typeof onProgress === "function") onProgress("loading");
   api("GET", "/api/github/" + repoEntry.owner + "/" + repoEntry.repo + "/branches").then(function(r) {
-    if (r.error) { if (typeof onError === "function") onError(r.error); return; }
+    if (r && r.error) { if (typeof onError === "function") onError(humanizeGhError(r.error)); return; }
     S.repoInfo = {
       owner: repoEntry.owner, repo: repoEntry.repo,
       description: r.description || repoEntry.description,
@@ -37,12 +60,17 @@ function installFromGh(repoEntry, onProgress, onError) {
     };
     S.fetchedBranches = r.branches;
     S.selectedBranches = [S.repoInfo.defaultBranch];
-    S.detectedFramework = null;
     DV.render();
     var branch = S.repoInfo.defaultBranch;
     api("GET", "/api/github/" + repoEntry.owner + "/" + repoEntry.repo + "/detect?branch=" + encodeURIComponent(branch))
       .then(function(d) {
-        if (!d || d.error || !d.framework || d.framework === "unknown" || d.framework === "none") return;
+        if (!d) return;
+        if (d.error) { S.detectError = "Framework auto-detect failed: " + humanizeGhError(d.error) + ". Fill build commands manually below."; DV.render(); return; }
+        if (!d.framework || d.framework === "unknown" || d.framework === "none") {
+          S.detectError = "Couldn't auto-detect the framework (" + (d.reason || "no package.json") + "). Fill build commands manually below.";
+          DV.render();
+          return;
+        }
         S.detectedFramework = d;
         if (!S.buildCommand) S.buildCommand = d.buildCommand || S.buildCommand;
         if (!S.outputDir)    S.outputDir    = d.outputDir    || S.outputDir;
@@ -50,8 +78,11 @@ function installFromGh(repoEntry, onProgress, onError) {
         if (d.mode && S.mode === "static") S.mode = d.mode;
         if (!S.envVars && d.envTemplate) S.envVars = d.envTemplate;
         DV.render();
-      }).catch(function(){ /* silent */ });
-  }).catch(function(e) { if (typeof onError === "function") onError(e.message); });
+      }).catch(function(e) {
+        S.detectError = "Framework auto-detect failed: " + ((e && e.message) || "network error") + ". Fill build commands manually below.";
+        DV.render();
+      });
+  }).catch(function(e) { if (typeof onError === "function") onError(humanizeGhError(e && e.message)); });
 }
 
 DV.views.addRepo = function(app) {
@@ -141,12 +172,15 @@ DV.views.addRepo = function(app) {
               c: "bp bs",
               attr: { title: "Install " + r.fullName, "aria-label": "Install " + r.fullName },
               on: { click: function() {
+                if (actionBtn.disabled) return;
+                actionBtn.disabled = true;
                 actionBtn.innerHTML = "<span class='spin'></span>";
                 installFromGh(r,
                   function() {/* progress */},
                   function(err) {
+                    actionBtn.disabled = false;
                     actionBtn.textContent = "Install";
-                    DV.showToast("Failed: " + err, "error");
+                    DV.showToast(err, "error");
                   });
               } }
             }, loadingThisRow ? "Installing…" : "Install");
@@ -214,6 +248,8 @@ DV.views.addRepo = function(app) {
         el("strong", {}, d.framework),
         el("span", { c: "detect-badge-meta" }, " · " + d.confidence + " confidence · defaults pre-filled")
       ]);
+    } else if (S.detectError) {
+      detectedBadge = el("div", { c: "label-hint color-tx3 mt-8" }, S.detectError);
     }
     w.appendChild(el("div", { c: "card form-section-lg" }, [
       el("div", { c: "card-section-title" }, S.repoInfo.owner + "/" + S.repoInfo.repo),
@@ -285,16 +321,31 @@ DV.views.addRepo = function(app) {
     ]));
 
     var hasBranches = S.selectedBranches.length > 0;
-    var submitAttrs = hasBranches ? {} : { disabled: "" };
+    var submitAttrs = hasBranches ? {} : { disabled: "", title: "Pick at least one branch in step 2 to enable this", "aria-disabled": "true" };
     w.appendChild(el("div", { c: "btn-row" }, [
       el("button", { c: "bg", on: { click: function() { S.view = "dashboard"; DV.render(); } } }, "Cancel"),
       el("button", { c: "bp flex-1", attr: submitAttrs, on: { click: function() {
         if (!S.selectedBranches.length) return;
+        var btn = this;
+        if (btn.disabled) return;
+        btn.disabled = true;
+        var origLabel = btn.textContent;
+        btn.textContent = "Saving…";
         api("POST", "/api/repos", {
           owner: S.repoInfo.owner, repo: S.repoInfo.repo, activeBranches: S.selectedBranches,
           buildCommand: S.buildCommand, outputDir: S.outputDir, baseDir: S.baseDir,
           description: S.repoInfo.description, mode: S.mode, startCommand: S.startCommand, envVars: S.envVars, language: S.language
-        }).then(function() { S.view = "dashboard"; DV.loadRepos(); });
+        }).then(function(r) {
+          if (r && r.error) {
+            DV.showToast("Failed: " + r.error, "error");
+            btn.disabled = false; btn.textContent = origLabel;
+            return;
+          }
+          S.view = "dashboard"; DV.loadRepos();
+        }).catch(function(e) {
+          DV.showToast("Failed: " + ((e && e.message) || "network error"), "error");
+          btn.disabled = false; btn.textContent = origLabel;
+        });
       } } }, S.mode === "server" ? "Add & Start" : "Add & Build")
     ]));
   }

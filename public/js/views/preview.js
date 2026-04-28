@@ -220,14 +220,7 @@ DV.views.preview = function(app) {
   var urlBar = el("div", { c: "preview-url-bar flex-row gap-6 items-center" });
   urlBar.appendChild(el("span", { c: "flex-1 truncate" }, url));
   urlBar.appendChild(el("button", { c: "bg bs", attr: { title: "Copy URL" }, on: { click: function() {
-    var fullUrl = window.location.origin + url;
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(fullUrl)
-        .then(function() { DV.showToast("URL copied", "info"); })
-        .catch(function() { DV.showToast("Copy failed", "error"); });
-    } else {
-      DV.showToast("Clipboard unavailable", "error");
-    }
+    DV.copyToClipboard(window.location.origin + url, { successMessage: "URL copied" });
   } } }, "Copy"));
   urlBar.appendChild(el("button", { c: "bg bs", attr: { title: "Open in new tab" }, on: { click: function() {
     window.open(url, "_blank", "noopener");

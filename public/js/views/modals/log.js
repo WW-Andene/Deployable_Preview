@@ -79,14 +79,7 @@ DV._modal.log = function render(app) {
     box2.appendChild(el("div", { c: "btn-row-sm" }, [
       el("button", { c: "bg", on: { click: function() { S.logModal = null; if (S._logSSE) { S._logSSE.close(); S._logSSE = null; } DV.render(); } } }, "Close"),
       el("button", { c: "bg", on: { click: function() {
-        var text = logDiv.textContent;
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(text)
-            .then(function() { DV.showToast && DV.showToast("Log copied", "info"); })
-            .catch(function() { DV.showToast && DV.showToast("Copy failed", "error"); });
-        } else {
-          DV.showToast && DV.showToast("Clipboard unavailable", "error");
-        }
+        DV.copyToClipboard(logDiv.textContent, { successMessage: "Log copied" });
       } } }, "Copy")
     ]));
     bg2.appendChild(box2);

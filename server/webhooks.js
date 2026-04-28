@@ -206,6 +206,8 @@ function emit(event, payload) {
 
 module.exports = {
   VALID_EVENTS,
+  _shapePayload,
+  _post,
   listWebhooks,
   addWebhook,
   removeWebhook,

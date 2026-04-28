@@ -355,7 +355,7 @@ DV.views.dashboard = function(app) {
             }
             if (bs.commitSha && bs.status !== "building" && bs.status !== "idle") {
               statusParts.push(el("span", { c: "sha-badge", attr: { title: "Commit: " + bs.commitSha }, on: { click: function() {
-                if (navigator.clipboard) { navigator.clipboard.writeText(bs.commitSha); DV.showToast("SHA copied: " + (bs.commitSha || "").slice(0, 7), "info"); }
+                DV.copyToClipboard(bs.commitSha, { successMessage: "SHA copied: " + (bs.commitSha || "").slice(0, 7) });
               } } }, bs.commitSha.slice(0, 7)));
             }
             row.appendChild(el("div", { c: "branch-status-text flex-row gap-6 items-center flex-wrap" }, statusParts));
