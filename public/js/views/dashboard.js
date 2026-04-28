@@ -87,11 +87,13 @@ DV.views.dashboard = function(app) {
         else if (bs[k].status === "error") errorCount++;
       }
     }
-    // Search/filter bar
+    // Search/filter bar + a manual Refresh button. Pull-to-refresh
+    // covers mobile; desktop users had no way to force a reload.
+    var searchRow = el("div", { c: "flex-row gap-8 mb-12" });
     if (S.repos.length > 2) {
-      var searchRow = el("div", { c: "flex-row gap-8 mb-12" });
       var searchInput = document.createElement("input");
       searchInput.className = "flex-1";
+      searchInput.id = "dashboard-search";  // for focus restoration across renders
       searchInput.placeholder = "Filter repos & branches...";
       searchInput.value = S.dashboardFilter || "";
       searchInput.addEventListener("input", function(e) {
@@ -99,15 +101,31 @@ DV.views.dashboard = function(app) {
         DV.render();
       });
       searchRow.appendChild(searchInput);
-      ct.appendChild(searchRow);
+    } else {
+      searchRow.appendChild(el("div", { c: "flex-1" }));
     }
+    var refreshBtn = el("button", {
+      c: "bg bs",
+      attr: { title: "Reload repos & build statuses", "aria-label": "Refresh dashboard" },
+      on: { click: function() {
+        var b = this; b.disabled = true; var orig = b.textContent; b.textContent = "…";
+        DV.loadRepos();
+        setTimeout(function(){ b.disabled = false; b.textContent = orig; }, 600);
+      } }
+    }, "↻");
+    searchRow.appendChild(refreshBtn);
+    ct.appendChild(searchRow);
 
+    // Stats bar — Repos / Branches / Ready always show. Building +
+    // Failed only show when non-zero (transient state, not worth a
+    // permanent slot). Previously "Ready" showed even at 0 while
+    // "Failed" hid at 0, which was inconsistent.
     var statsBar = el("div", { c: "stats-bar" });
     statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num" }, S.repos.length), el("span", { c: "stat-label" }, "Repos")]));
     statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num" }, totalBranches), el("span", { c: "stat-label" }, "Branches")]));
-    statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num color-ok" }, readyCount), el("span", { c: "stat-label" }, "Ready")]));
+    if (readyCount)    statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num color-ok" },     readyCount),    el("span", { c: "stat-label" }, "Ready")]));
     if (buildingCount) statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num color-accent" }, buildingCount), el("span", { c: "stat-label" }, "Building")]));
-    if (errorCount) statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num color-err" }, errorCount), el("span", { c: "stat-label" }, "Failed")]));
+    if (errorCount)    statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num color-err" },    errorCount),    el("span", { c: "stat-label" }, "Failed")]));
     ct.appendChild(statsBar);
 
     // Bulk action bar — appears when 1+ branches selected
@@ -166,17 +184,22 @@ DV.views.dashboard = function(app) {
             "aria-pressed": repo.autoPRPreviews ? "true" : "false"
           },
           on: { click: function() {
-            api("PATCH", "/api/repos/" + repo.owner + "/" + repo.repo, { autoPRPreviews: !repo.autoPRPreviews }).then(function(r) {
+            var next = !repo.autoPRPreviews;
+            api("PATCH", "/api/repos/" + repo.owner + "/" + repo.repo, { autoPRPreviews: next }).then(function(r) {
               if (r.error) { DV.showToast(r.error, "error"); return; }
-              repo.autoPRPreviews = !!repo.autoPRPreviews ? false : true;
-              DV.showToast("Auto-PR previews " + (repo.autoPRPreviews ? "enabled" : "disabled"), "success");
+              repo.autoPRPreviews = next;
+              DV.showToast("Auto-PR previews " + (next ? "enabled" : "disabled"), "success");
               DV.render();
-            });
+            }).catch(function(e) { DV.showToast("Toggle failed: " + ((e && e.message) || "network"), "error"); });
           } }
         }, repo.autoPRPreviews ? "✓ Auto-PR" : "Auto-PR off"));
-        headerRight.appendChild(el("button", { c: "bd bs", attr: { title: "Delete repository" }, on: { click: function() {
-          if (!confirm("Delete this repository?")) return;
-          api("DELETE", "/api/repos/" + repo.owner + "/" + repo.repo).then(DV.loadRepos);
+        headerRight.appendChild(el("button", { c: "bd bs", attr: { title: "Delete " + repo.owner + "/" + repo.repo, "aria-label": "Delete " + repo.owner + "/" + repo.repo } , on: { click: function() {
+          if (!confirm("Delete " + repo.owner + "/" + repo.repo + "? All branches and workspace clones will be removed.")) return;
+          api("DELETE", "/api/repos/" + repo.owner + "/" + repo.repo).then(function(r) {
+            if (r && r.error) { DV.showToast("Delete failed: " + r.error, "error"); return; }
+            DV.showToast("Deleted " + repo.owner + "/" + repo.repo, "info");
+            DV.loadRepos();
+          }).catch(function(e) { DV.showToast("Delete failed: " + ((e && e.message) || "network"), "error"); });
         } } }, "x"));
         header.appendChild(headerRight);
         card.appendChild(header);
@@ -303,7 +326,7 @@ DV.views.dashboard = function(app) {
             else if (bs.status === "running")  statusParts.push(el("span", {}, "Running — port " + (bs.serverPort || "?")));
             else if (bs.status === "ready")    statusParts.push(el("span", {}, "Ready"));
             else if (bs.status === "error")    statusParts.push(el("span", {}, branchMode === "server" ? "Server failed" : "Build failed"));
-            else statusParts.push(el("span", {}, "Idle"));
+            else statusParts.push(el("span", {}, bs.lastBuild ? "Idle" : "Never built"));
 
             // 2) Single canonical pill — only for warn/error severities.
             //    Healthy "ready"/"running" stay quiet. Click routes to
@@ -368,18 +391,27 @@ DV.views.dashboard = function(app) {
             // (Cancel-while-building / Preview-when-ready) and Rebuild.
             // Everything else moves to the overflow menu below.
             if (bs.status === "building" || bs.status === "queued") {
-              actions.appendChild(el("button", { c: "bd bs", attr: { title: "Cancel" }, on: { click: function() {
+              actions.appendChild(el("button", { c: "bd bs", attr: { title: "Cancel " + label, "aria-label": "Cancel " + label }, on: { click: function() {
                 api("POST", "/api/cancel/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(function(r) {
-                  if (r.ok) DV.showToast("Cancelled", "info"); DV.loadRepos();
-                });
+                  if (r && r.ok) {
+                    DV.showToast("Cancelled", "info");
+                    DV.loadRepos();
+                  } else {
+                    DV.showToast("Cancel failed: " + ((r && r.error) || "unknown"), "error");
+                  }
+                }).catch(function(e) { DV.showToast("Cancel failed: " + ((e && e.message) || "network"), "error"); });
               } } }, DV.iconEl("close")));
             } else if (isLive) {
-              actions.appendChild(el("button", { c: "bp bs", attr: { title: "Preview" }, on: { click: function() {
+              actions.appendChild(el("button", { c: "bp bs", attr: { title: "Preview " + label, "aria-label": "Preview " + label }, on: { click: function() {
                 S.activeRepo = repo; S.activeBranch = slug; S.compareMode = false; S.compareBranch = ""; S.view = "preview"; DV.render();
               } } }, DV.iconEl("preview")));
             }
-            actions.appendChild(el("button", { c: "bg bs", attr: { title: "Rebuild" }, on: { click: function() {
-              api("POST", "/api/build/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)); DV.loadRepos();
+            actions.appendChild(el("button", { c: "bg bs", attr: { title: "Rebuild " + label, "aria-label": "Rebuild " + label }, on: { click: function() {
+              api("POST", "/api/build/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(function(r) {
+                if (r && r.error) DV.showToast("Rebuild failed: " + r.error, "error");
+                else DV.showToast("Rebuild queued: " + label, "info");
+                DV.loadRepos();
+              }).catch(function(e) { DV.showToast("Rebuild failed: " + ((e && e.message) || "network"), "error"); });
             } } }, DV.iconEl("rebuild")));
 
             // ── Overflow menu (C2) ────────────────────────────────────
@@ -443,7 +475,13 @@ DV.views.dashboard = function(app) {
               if (branchMode === "server" && bs.status === "running") {
                 menu.appendChild(_item({
                   glyph: "■", label: "Stop server",
-                  run: function() { api("POST", "/api/stop/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(DV.loadRepos); }
+                  run: function() {
+                    api("POST", "/api/stop/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(function(r) {
+                      if (r && r.error) { DV.showToast("Stop failed: " + r.error, "error"); return; }
+                      DV.showToast("Server stopped", "info");
+                      DV.loadRepos();
+                    }).catch(function(e) { DV.showToast("Stop failed: " + ((e && e.message) || "network"), "error"); });
+                  }
                 }));
               }
               menu.appendChild(_item({

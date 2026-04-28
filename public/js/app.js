@@ -218,6 +218,15 @@ function render() {
     _dropdownCloseHandler = null;
   }
   closeStaleStreams();
+  // Preserve focus + selection on inputs across the full innerHTML wipe.
+  // Any <input>/<textarea> with a stable id gets refocused after render.
+  // Without this, every keystroke that triggers DV.render() (filters,
+  // search bars) drops the cursor and the user has to click back in.
+  var ae = document.activeElement;
+  var preserved = null;
+  if (ae && ae.id && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) {
+    preserved = { id: ae.id, start: ae.selectionStart, end: ae.selectionEnd, value: ae.value };
+  }
   var app = document.getElementById("app"); app.innerHTML = "";
 
   // Topbar
@@ -264,6 +273,21 @@ function render() {
       el("span", { c: "dv-fab-label" }, "Actions")
     ]);
     app.appendChild(fab);
+  }
+
+  if (preserved) {
+    var fresh = document.getElementById(preserved.id);
+    if (fresh && (fresh.tagName === "INPUT" || fresh.tagName === "TEXTAREA")) {
+      try {
+        fresh.focus();
+        // Only restore selection if the new element has the same value;
+        // a different value means a state-driven change should keep its
+        // own caret behavior (e.g. type="password" reveal toggles).
+        if (fresh.value === preserved.value && typeof fresh.setSelectionRange === "function") {
+          fresh.setSelectionRange(preserved.start, preserved.end);
+        }
+      } catch (_) {}
+    }
   }
 }
 
