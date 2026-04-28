@@ -19,10 +19,24 @@ const audit = require("../../audit");
 // anyway, and which an earlier revision of this code parsed too strictly,
 // rejecting valid tokens whose scope strings didn't include the literal
 // "repo" — e.g. orgs that grant access via SAML rather than scopes).
+// Strip surrounding whitespace AND a single layer of matching quotes
+// — common copy-from-docs mistakes (pasting "ghp_…" verbatim from a
+// JSON snippet or 'ghp_…' from a YAML config). Without this, the
+// token reaches GitHub with literal quote characters and 401s
+// despite being perfectly valid.
+function _cleanToken(raw) {
+  let t = String(raw || "").trim();
+  if ((t.startsWith('"') && t.endsWith('"')) ||
+      (t.startsWith("'") && t.endsWith("'"))) {
+    if (t.length >= 2) t = t.slice(1, -1).trim();
+  }
+  return t;
+}
+
 router.post("/token", async (req, res) => {
   const config = getConfig();
   const raw = (req.body && req.body.token) || "";
-  const token = String(raw).trim();
+  const token = _cleanToken(raw);
   if (!token) {
     config.token = "";
     saveConfig();
@@ -163,7 +177,11 @@ router.post("/secrets", audit.logAction("secret.write", { target: ["body.key"] }
   if (!Object.prototype.hasOwnProperty.call(config.secrets, key) && Object.keys(config.secrets).length >= MAX_SECRETS) {
     return res.status(429).json({ error: "Secret cap reached (" + MAX_SECRETS + ")" });
   }
-  const trimmed = String(value).trim();
+  // Same quote-stripping the token endpoint applies — covers pastes
+  // of `KEY="value"` style lines from .env.example snippets that the
+  // bulk parser already strips, but a direct POST to a single key
+  // (or an over-eager paste handler in a browser) bypasses.
+  const trimmed = _cleanToken(value);
   if (trimmed) {
     config.secrets[key] = trimmed;
     if (key === "GITHUB_TOKEN") config.token = trimmed;
