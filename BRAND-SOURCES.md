@@ -392,3 +392,145 @@ information without crowding, and how monospace becomes identity.
 - **Bitmap monospace**: outdated rendering aesthetic. JetBrains Mono is
   the modern equivalent.
 
+---
+
+## Source 5 — Foundation (Apple TV+, prod. design Rory Cheyne)
+
+The reference for **sterile precision-instrument calm**: how a vast
+piece of technology can feel less like a computer and more like a
+museum artefact. Selected for its in-show UI design — the Prime
+Radiant, the imperial palace screens, Trantor's terminal language.
+
+### Layer 1 — Surface
+
+- **Palette by world**:
+  - Trantor imperial: warm gold + cream + deep purple-blue. Royal,
+    decorated, unsubtle.
+  - Foundation outpost / Terminus: cool slate + amber accent + soft
+    ivory. Restrained.
+  - Prime Radiant interface: floating white-orange glyphs against
+    deep void; refractive, holographic.
+- **Typography in HUDs**: custom geometric display + monospace for
+  technical readouts. Generous tracking. ALL CAPS for system-level
+  labels.
+- **Icons**: glyph-style, often abstract — circles, lines, dots.
+  No skeuomorphism, no familiar OS metaphors.
+- **Texture**: refractive holography for the Prime Radiant. Brushed
+  metal and stone for physical surfaces. Light passes THROUGH things,
+  not just onto them.
+- **Light**: specular, like jewelry. The Prime Radiant catches light
+  the way a diamond does.
+- **Motion**: ceremonious. Glyphs unfold slowly into place. Holograms
+  rotate at quarter-speed of natural rotation.
+
+### Layer 2 — Structure
+
+- **Information is presented as artefact, not interface.** The Prime
+  Radiant doesn't have a UI; it IS the UI — you turn it, light shifts.
+- **Hierarchy via reverence**: the most important glyph is the largest,
+  the most centered, the most lit. Spatial primacy = importance.
+- **Zero chrome**: there are no windows, no toolbars, no menus.
+  Functions appear when needed and dissolve when not.
+- **Contrast via material**, not color: a holographic glyph against
+  brushed steel against polished wood — you read the hierarchy by
+  surface quality, not by hue.
+- **What's deliberately excluded**: anything that resembles 2020s
+  software. The future is ALWAYS more handcrafted than the present.
+
+### Layer 3 — Culture
+
+- Tradition: 2001: A Space Odyssey (Kubrick's monolith stillness),
+  Tarkovsky's Solaris (slow contemplative SF), Asimov's original
+  text (the Foundation series' aesthetic of "history seen from
+  above").
+- Era: 2021-present prestige-SF, post-Westworld, post-Expanse.
+- Adjacent: Severance (Apple TV+, same year, same studio language —
+  sterile interiors, precision typography), Mr Robot's HQ scenes,
+  Westworld's labs.
+
+### Layer 4 — Philosophy
+
+- **The future is older than the present.** The aesthetic refuses
+  contemporary tech tropes (no glass slabs, no flat dark UI, no
+  notification badges). Instead it borrows from museum, cathedral,
+  and laboratory.
+- **Calm is a feature**: nothing pulses, nothing notifies, nothing
+  demands. The user moves at their own pace.
+- **Precision == reverence**: every alignment is exact, every glyph
+  has consequence, every motion is deliberate.
+- **What it says without words**: "this technology will outlive you;
+  approach with appropriate care."
+
+### Layer 5 — Identity Thesis
+
+> Foundation's identity is defined by **information presented as artefact,
+> not interface**, expressed through **specular materiality + ceremonious
+> motion + zero chrome**, rooted in **2001/Tarkovsky/Asimov-museum
+> contemplative-SF**, designed to make the user feel **deliberate,
+> small, in the presence of something that matters**.
+
+#### Minimum Authentic Set
+
+1. **Calm is the dominant register**. *Why essential*: every other
+   property (precision, reverence, contemplation) flows from it.
+2. **Material conveys hierarchy** (not color or size alone). *Why
+   essential*: gives the world a physical reality.
+3. **Zero chrome — functions appear and dissolve**. *Why essential*:
+   the world is the interface.
+
+### Transferable to DeployView
+
+| Foundation element | DeployView application | Status |
+|---|---|---|
+| Calm as dominant register | Adopted — the Brief's emotional target ("focused calm of a precision instrument panel") is direct lineage. No pulsing, no marquee, no demanding notifications. Toasts auto-dismiss. | ✓ done |
+| Material hierarchy (not just color) | Adopted in surface elevation system — sf1/sf2/sf3 each shifts both lightness and hue 5°, creating *material* difference between elevation levels rather than just luminance steps. | ✓ done |
+| Zero chrome — functions appear when needed | Adopted in the action-overflow menu (`•••` opens a popover; functions don't crowd the row). Same pattern in the command palette (functions emerge on Cmd+K). | ✓ done |
+| Specular materiality | Partially adopted — the dv-bloom signature has a specular quality (the wash brightens then settles, like light catching glass). Cards do not have backdrop-filter glass; that would push DV toward "Apple software" territory. | partial |
+| Ceremonious motion for important moments | Adopted as `--dur-delight 400ms` reserved for the dv-bloom and similar one-off moments. Rest of motion stays at 100-180ms snappy per the Brief. | ✓ done |
+
+### What we deliberately *don't* take from Foundation
+
+- **Holographic refraction / glass everywhere**: would push DV into the
+  generic "Apple-design-language clone" zone. We borrow the calm but
+  not the medium.
+- **All-caps as primary heading style**: too ceremonious for daily-driver
+  software; we restrict ALL CAPS to `.type-label` only (small-caps with
+  tracking, mono).
+- **Slow ceremonious motion as default**: same reason as BR2049 —
+  operator tools need speed.
+
+---
+
+## Cross-Source Synthesis
+
+Five sources, one product. The transferable elements that **all five
+sources reinforce** are the strongest claims for DeployView's identity:
+
+| Cross-cutting principle | Sources reinforcing | DV implementation |
+|---|---|---|
+| **Restraint over decoration** | Linear, Vercel, Bloomberg, Foundation (4/5) | No gradients in chrome, no illustrations, scanline texture sparse |
+| **One chromatic moment / accent discipline** | Linear (purple), Vercel (cyan), Bloomberg (amber), BR2049 (warm zones) — 4/5 | Amber accent restricted to primary action + active state |
+| **Information density inside, gaps between** | Linear, Vercel, Bloomberg (3/5) | --sp-xs/sm/md/lg/xl/2xl with 7px base; spatial-contrast rule |
+| **Keyboard-first navigation** | Linear, Bloomberg (2/5; the developer-tool sources) | Cmd+K palette + single-key shortcuts |
+| **Calm / no-pulse / no-demanding-notifications** | Foundation, BR2049 (2/5; the cinema sources) | Auto-dismissing toasts, no marquee, signature dv-bloom plays once |
+| **Monospace as identity** | Bloomberg, Linear (partial) (2/5) | JetBrains Mono for labels, .sha-badge, .type-code, .type-metric |
+| **Atmospheric texture / single light source** | BR2049, Foundation (2/5; the cinema sources) | Body::before top-amber + bottom-void; body::after CRT scanlines |
+
+### Whitespace opportunities (per §COMPETITIVE)
+
+What none of the 5 sources do — territory available to DeployView:
+
+1. **Mobile-first operator tooling**: Bloomberg is desk-only, Linear is
+   desktop-first, Vercel mobile-OK-but-meant-for-desktop, Foundation
+   isn't software, BR2049 isn't software. DV's pull-to-refresh, FAB,
+   and Termux-friendly token-paste flow occupy unowned space.
+2. **MCP-toolbox identity**: no source above ships an LLM-tool surface.
+   DV's `/mcp` URL + tool-list page is genuinely novel.
+3. **Self-hosted phone deployment**: the entire premise has no precedent
+   in the visual sources studied. The Brief's `running on Termux` is
+   the differentiator.
+
+These claim-to-territory items are what make DV *not* a Linear clone +
+not a Vercel clone + not a Bloomberg clone. The sources contributed
+**principles**; the audience and use-case define the **uniqueness**.
+
