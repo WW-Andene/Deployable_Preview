@@ -693,28 +693,65 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ── Chips — pill selection ── */
+/* ══════════════════════════════════════════════════
+   §3.6 — CHIPS — toggle pills, every state explicit
+   ──────────────────────────────────────────────────
+   Mono pill with rest, hover, active, focus, on, disabled.
+   The .on state combines 3 cues: accent border + accent fg/bg +
+   accent glow (per §NAVIGATION's "active items always combine 3
+   cues" rule). The double glow (outer + inset) is the chip
+   signature.
+   ══════════════════════════════════════════════════ */
+
 .chip {
+  /* Rest */
   display: inline-flex;
   align-items: center;
   padding: calc(var(--sp) * 0.7) calc(var(--sp) * 2);
   border-radius: var(--r-pill);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   cursor: pointer;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--tx2);
   user-select: none;
-  transition: background-color var(--dur-micro) var(--ease-fast), border-color var(--dur-micro) var(--ease-fast), color var(--dur-micro) var(--ease-fast), box-shadow var(--dur-micro) var(--ease-fast);
+  letter-spacing: 0.02em;
+  transition: background-color var(--dur-micro) var(--ease-fast),
+              border-color var(--dur-micro) var(--ease-fast),
+              color var(--dur-micro) var(--ease-fast),
+              box-shadow var(--dur-micro) var(--ease-fast);
 }
-.chip:hover { border-color: var(--border-h); color: var(--tx1); background: var(--sf1); }
-.chip:focus-visible { box-shadow: 0 0 0 2px var(--border-focus), 0 0 12px var(--accent-glow); outline: none; }
+.chip:hover {
+  border-color: var(--border-h);
+  color: var(--tx1);
+  background: var(--sf1);
+}
+.chip:active {
+  background: var(--sf2);
+  transform: scale(0.97);
+  transition-duration: 50ms;
+}
+.chip:focus-visible {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--border-focus), 0 0 12px var(--accent-glow);
+}
 .chip.on {
+  /* Active — 3-cue combo: accent border + accent color + double glow */
   border-color: var(--accent);
   background: var(--accent-dim);
   color: var(--accent);
   box-shadow: 0 0 12px var(--accent-glow), inset 0 0 8px var(--accent-glow);
+}
+.chip.on:hover {
+  background: var(--accent-mid);
+  box-shadow: 0 0 16px var(--accent-mid), inset 0 0 8px var(--accent-glow);
+}
+.chip[aria-disabled="true"], .chip.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 /* ── Topbar — frosted glass ── */
@@ -1890,7 +1927,7 @@ button:disabled, button[disabled] {
   max-height: 200px;
   overflow: auto;
 }
-.pill-clickable { cursor: pointer; border: 0; }
+/* (.pill-clickable consolidated into §3.7 below — single source of truth.) */
 
 /* ─── Visual diff slider (modals.js diffModal) ─── */
 .modal-diff { max-width: var(--modal-w-lg); }
@@ -3297,19 +3334,50 @@ body.dv-mounted::before {
   font-size: 11px;
 }
 
-/* ── Generic pills ── */
+/* ══════════════════════════════════════════════════
+   §3.7 — STATUS PILLS — semantic indicators
+   ──────────────────────────────────────────────────
+   Tiny mono pill for status/state labels next to repos, branches,
+   webhooks, DNS, etc. Six semantic variants, each tied to a palette
+   color. Smaller than chips (no interactivity assumed). When clickable,
+   add .pill-clickable.
+   ══════════════════════════════════════════════════ */
 .pill {
   display: inline-flex;
   align-items: center;
-  padding: 1px 6px;
+  gap: 3px;
+  padding: 2px 7px;
   border-radius: var(--r-pill);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;            /* +1 from previous 9px — was sub-legible */
   font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  border: 1px solid transparent; /* reserved space so variants can border without jumping */
+  white-space: nowrap;
 }
-.pill-ok   { background: var(--ok-dim); color: var(--ok); }
-.pill-warn { background: var(--sf2); color: var(--tx3); }
-.pill-info { background: var(--run-dim); color: var(--run); }
+
+/* Semantic variants — each carries the same hue family as its
+   corresponding semantic color token, so .pill-err is unmistakably
+   in the err family at thumbnail size. */
+.pill-ok   { background: var(--ok-dim);     color: var(--ok);     border-color: var(--ok-border); }
+.pill-err  { background: var(--err-dim);    color: var(--err);    border-color: var(--err-border); }
+.pill-warn { background: var(--accent-dim); color: var(--accent); border-color: var(--border-accent); }
+.pill-info { background: var(--run-dim);    color: var(--run);    border-color: oklch(63% 0.115 var(--hue-run) / 0.20); }
+.pill-muted{ background: var(--sf2);        color: var(--tx3);    border-color: var(--border); }
+.pill-acc  { background: var(--accent);     color: var(--bg);     border-color: var(--accent); }
+
+/* Clickable pill (used by branch-row signal pill — opens log/errors). */
+.pill-clickable {
+  cursor: pointer;
+  border: 1px solid transparent; /* override the variant border so click affordance reads cleanly */
+  transition: filter var(--dur-micro) var(--ease-fast), box-shadow var(--dur-micro) var(--ease-fast);
+}
+.pill-clickable:hover { filter: brightness(1.15); box-shadow: 0 0 12px currentColor; }
+.pill-clickable:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px currentColor, 0 0 14px currentColor;
+}
 
 @media (max-width: 640px) {
   .container { padding: 12px 10px; }
