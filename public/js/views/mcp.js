@@ -86,10 +86,17 @@ DV.views.mcp = function(app) {
         fetch("/api/tunnel/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
           .then(function(r) { return r.json(); })
           .then(function(data) {
-            if (data.ok) { DV.showToast("Tunnel started: " + (data.url || ""), "success"); pollTunnelStatus(); }
-            else { startBtn.disabled = false; startBtn.textContent = "Start HTTPS Tunnel"; DV.showToast("Tunnel failed: " + (data.error || "Unknown"), "error"); tunnelBody.appendChild(el("div", { c: "config-hint color-err" }, data.error || "Failed")); }
+            if (data.ok) { DV.showToast("Tunnel started: " + (data.url || ""), "success"); pollTunnelStatus(); return; }
+            startBtn.disabled = false; startBtn.textContent = "Start HTTPS Tunnel";
+            // Toast + inline last-error pill in pollTunnelStatus is enough;
+            // don't double-append the same error string into tunnelBody
+            // (the previous render's error was already appended above).
+            DV.showToast("Tunnel failed: " + (data.error || "Unknown"), "error");
           })
-          .catch(function(e) { startBtn.disabled = false; startBtn.textContent = "Start HTTPS Tunnel"; });
+          .catch(function(e) {
+            startBtn.disabled = false; startBtn.textContent = "Start HTTPS Tunnel";
+            DV.showToast("Tunnel failed: " + ((e && e.message) || "network"), "error");
+          });
       } } }, "Start HTTPS Tunnel");
       tunnelBody.appendChild(startBtn);
     }
@@ -202,7 +209,12 @@ DV.views.mcp = function(app) {
 
   var fetchBtn = el("button", { c: "bg bs btn-fetch", on: { click: function() {
     var urlVal = fetchUrl.value.trim();
-    if (!urlVal) return;
+    if (!urlVal) {
+      DV.showToast("Enter a URL first", "info");
+      return;
+    }
+    if (fetchBtn.disabled) return;
+    fetchBtn.disabled = true; var origLabel = fetchBtn.textContent; fetchBtn.textContent = "Fetching…";
     fetchResultDiv.innerHTML = "";
     fetchResultDiv.appendChild(el("div", { c: "fetch-status-ok" }, "Fetching..."));
     var maxLen = parseInt(maxTextInput.value, 10);
@@ -281,6 +293,8 @@ DV.views.mcp = function(app) {
     }).catch(function(e) {
       fetchResultDiv.innerHTML = "";
       fetchResultDiv.appendChild(el("div", { c: "fetch-status-err" }, "Failed: " + e.message));
+    }).finally(function() {
+      fetchBtn.disabled = false; fetchBtn.textContent = origLabel;
     });
   } } }, "Fetch");
   fetchOpts.appendChild(fetchBtn);
