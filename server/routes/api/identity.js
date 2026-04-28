@@ -44,6 +44,15 @@ const SUGGESTED_KEYS = [
 const SAFE_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 const MAX_SECRETS = 200;
 
+// Common name confusions — older docs / .env.example used these spellings.
+// Normalize on save so users pasting from old sources don't silently fail.
+const KEY_ALIASES = {
+  BROWSERLESS_WS_ENDPOINT: "BROWSER_WS_ENDPOINT",
+  BROWSERLESS_TOKEN: "BROWSERLESS_API_KEY",
+  NGROK_TOKEN: "NGROK_AUTHTOKEN",
+  NGROK_AUTH_TOKEN: "NGROK_AUTHTOKEN"
+};
+
 // F-C015: don't leak the leading bytes — token-type prefixes (ghp_, sk-, …)
 // already shrink the search space; combined with the trailing 4 they hand
 // an attacker a useful brute-force prefix. Show only the trailing 4.
@@ -86,10 +95,12 @@ router.get("/secrets/suggestions", (req, res) => {
 router.post("/secrets", audit.logAction("secret.write", { target: ["body.key"] }), (req, res) => {
   const config = getConfig();
   if (!config.secrets) config.secrets = {};
-  const { key, value } = req.body;
-  if (!key || typeof key !== "string") return res.status(400).json({ error: "key required" });
-  if (!SAFE_KEY_RE.test(key)) return res.status(400).json({ error: "Invalid key name — use A-Z, 0-9, _ only" });
+  const { key: rawKey, value } = req.body;
+  if (!rawKey || typeof rawKey !== "string") return res.status(400).json({ error: "key required" });
+  if (!SAFE_KEY_RE.test(rawKey)) return res.status(400).json({ error: "Invalid key name — use A-Z, 0-9, _ only" });
   if (value === undefined || value === null) return res.status(400).json({ error: "value required" });
+  const key = KEY_ALIASES[rawKey] || rawKey;
+  const aliased = key !== rawKey;
   if (!Object.prototype.hasOwnProperty.call(config.secrets, key) && Object.keys(config.secrets).length >= MAX_SECRETS) {
     return res.status(429).json({ error: "Secret cap reached (" + MAX_SECRETS + ")" });
   }
@@ -104,7 +115,7 @@ router.post("/secrets", audit.logAction("secret.write", { target: ["body.key"] }
     delete process.env[key];
   }
   saveConfig();
-  res.json({ ok: true, key, hasValue: !!trimmed });
+  res.json({ ok: true, key, aliasedFrom: aliased ? rawKey : undefined, hasValue: !!trimmed });
 });
 
 router.delete("/secrets/:key", audit.logAction("secret.delete", { target: ["params.key"] }), (req, res) => {

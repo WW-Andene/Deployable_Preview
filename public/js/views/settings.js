@@ -128,37 +128,54 @@ DV.views.settings = function(app) {
   function saveBulk(text, btn) {
     var lines = text.split("\n");
     var pairs = [];
+    var skipped = [];  // line numbers (1-based) that looked like content but didn't parse
     for (var i = 0; i < lines.length; i++) {
-      var line = lines[i].trim();
+      var raw = lines[i];
+      var line = raw.trim();
       if (!line || line.charAt(0) === "#") continue;
       // Support: KEY=value, KEY = value, export KEY=value, KEY="value"
       var clean = line.replace(/^export\s+/i, "");
       var eq = clean.indexOf("=");
-      if (eq <= 0) continue;
+      if (eq <= 0) { skipped.push(i + 1); continue; }
       var k = clean.slice(0, eq).trim();
       var v = clean.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
       if (k && v) pairs.push({ key: k, value: v });
+      else skipped.push(i + 1);
     }
     if (pairs.length === 0) {
-      DV.showToast("No valid KEY=value pairs found", "error");
+      var why = skipped.length
+        ? "No KEY=value pairs found. " + skipped.length + " line(s) didn't parse \u2014 each line must look like KEY=value (no spaces in KEY)."
+        : "No valid KEY=value pairs found";
+      DV.showToast(why, "error");
       return;
     }
     btn.disabled = true; btn.textContent = "Saving " + pairs.length + "\u2026";
-    var done = 0, errors = 0;
+    var done = 0;
+    var failed = [];   // key names that the server rejected
+    var aliased = [];  // [from, to] pairs the server normalized
     pairs.forEach(function(p) {
       fetch("/api/secrets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key: p.key, value: p.value })
-      }).then(function(r) { return r.json(); }).then(function(r) {
-        if (!r.ok) errors++;
-        if (r.ok && p.key === "GITHUB_TOKEN") S.hasToken = true;
-      }).catch(function() { errors++; }).finally(function() {
+      }).then(function(r) { return r.json().then(function(j) { return { status: r.status, body: j }; }); }).then(function(r) {
+        if (r.body && r.body.ok) {
+          if (p.key === "GITHUB_TOKEN" || r.body.key === "GITHUB_TOKEN") S.hasToken = true;
+          if (r.body.aliasedFrom) aliased.push([r.body.aliasedFrom, r.body.key]);
+        } else {
+          failed.push(p.key + (r.body && r.body.error ? " (" + r.body.error + ")" : ""));
+        }
+      }).catch(function() { failed.push(p.key + " (network error)"); }).finally(function() {
         done++;
         if (done === pairs.length) {
-          var msg = (pairs.length - errors) + " key(s) saved";
-          if (errors) msg += ", " + errors + " failed";
-          DV.showToast(msg, errors ? "error" : "success");
+          var saved = pairs.length - failed.length;
+          var msg = saved + " key(s) saved";
+          if (failed.length) msg += " \u2014 failed: " + failed.join(", ");
+          if (skipped.length) msg += " \u2014 skipped " + skipped.length + " unparseable line(s)";
+          if (aliased.length) {
+            msg += " \u2014 renamed: " + aliased.map(function(a) { return a[0] + "\u2192" + a[1]; }).join(", ");
+          }
+          DV.showToast(msg, failed.length ? "error" : "success");
           loadKeys();
         }
       });
