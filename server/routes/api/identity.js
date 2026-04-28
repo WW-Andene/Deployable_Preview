@@ -12,13 +12,13 @@ const { ghApi, ghApiRaw } = require("../../github");
 const audit = require("../../audit");
 
 // ── Token ────────────────────────────────────────────────────────────────────
-// Validates the PAT AND its scopes in one shot. We probe /user/repos because
-// (a) it requires the `repo` scope on classic PATs (the response 403s without
-// it), and (b) the response carries the X-OAuth-Scopes header which lets us
-// give a specific "missing scope" error instead of a generic 401. Fine-grained
-// tokens (github_pat_*) don't expose scopes via that header — we accept them
-// if /user/repos returns any 2xx, since GH has already enforced their
-// repo-permission ACL server-side.
+// Validates the PAT against /user/repos. That endpoint requires the `repo`
+// scope on classic PATs (or the equivalent fine-grained permission), so a
+// 2xx response is sufficient proof the token works for our use case — no
+// need to parse the X-OAuth-Scopes header (which fine-grained tokens omit
+// anyway, and which an earlier revision of this code parsed too strictly,
+// rejecting valid tokens whose scope strings didn't include the literal
+// "repo" — e.g. orgs that grant access via SAML rather than scopes).
 router.post("/token", async (req, res) => {
   const config = getConfig();
   const raw = (req.body && req.body.token) || "";
@@ -39,27 +39,19 @@ router.post("/token", async (req, res) => {
     if (probe.status === 403) {
       config.token = ""; saveConfig();
       const msg = (probe.body && probe.body.message) || "Forbidden";
+      // 403 on /user/repos most often means missing `repo` scope (or
+      // SAML SSO not authorized). Surface GitHub's own message verbatim.
       return res.status(401).json({ error: "Token rejected by GitHub: " + msg, code: "forbidden" });
     }
     if (probe.status >= 400) {
       config.token = ""; saveConfig();
       return res.status(401).json({ error: "GitHub " + probe.status + " " + ((probe.body && probe.body.message) || ""), code: "gh_error" });
     }
-    // Classic PAT scope check (header is absent on fine-grained tokens).
-    const scopes = String(probe.headers["x-oauth-scopes"] || "").split(",").map((s) => s.trim()).filter(Boolean);
+    // 2xx — token works. Pull /user once for the login + record observed
+    // scopes for diagnostics, but don't gate acceptance on them.
+    const scopes = String((probe.headers && probe.headers["x-oauth-scopes"]) || "")
+      .split(",").map((s) => s.trim()).filter(Boolean);
     const isFineGrained = /^github_pat_/i.test(token);
-    if (!isFineGrained && scopes.length > 0) {
-      const hasRepo = scopes.includes("repo") || scopes.includes("public_repo");
-      if (!hasRepo) {
-        config.token = ""; saveConfig();
-        return res.status(401).json({
-          error: "Token is missing the `repo` scope. Regenerate at github.com/settings/tokens with `repo` (and `workflow` if you'll trigger Actions).",
-          code: "missing_scope",
-          missing: ["repo"]
-        });
-      }
-    }
-    // Pull /user once to surface the login.
     let login = "";
     try { const u = await ghApi("/user", token); login = u && u.login || ""; } catch (_) { /* non-fatal */ }
     res.json({ ok: true, user: login, scopes, fineGrained: isFineGrained });
