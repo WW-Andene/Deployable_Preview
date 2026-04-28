@@ -200,8 +200,12 @@ router.delete("/repos/:owner/:repo/branch", (req, res) => {
   res.json({ ok: true, activeBranches: repoConfig.activeBranches });
 });
 
-// D3: customSlug — letters/numbers/_/- only, ≤ 64 chars.
-const CUSTOM_SLUG_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+// D3: customSlug — letters/numbers/_/-/. ≤ 64 chars. Dots allowed
+// (after the first char) so semver-style identifiers like v1.0 work
+// as preview slugs the same way they work as snapshot tags. First
+// char must be alphanumeric/underscore/hyphen — keeps '.htaccess'-
+// style hidden paths and '..' traversal out.
+const CUSTOM_SLUG_RE = /^[a-zA-Z0-9_-][a-zA-Z0-9._-]{0,63}$/;
 
 router.put("/repos/:owner/:repo/branch", (req, res) => {
   const config = getConfig();

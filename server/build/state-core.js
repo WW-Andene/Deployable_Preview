@@ -59,7 +59,11 @@ function branchSlug(bc) {
   // Routing, history files, snapshots, build keys all key off this, so
   // the custom alias becomes the canonical identifier — preview URLs,
   // file paths, MCP results all use it consistently.
-  if (bc.customSlug && /^[a-zA-Z0-9_-]{1,64}$/.test(bc.customSlug)) {
+  // Mirror routes/api/repos.js CUSTOM_SLUG_RE so a slug accepted on
+  // save is also accepted at slug-resolution time. Dots after the
+  // first char allow semver-style ids (v1.0); leading-dot rejected
+  // to keep .htaccess-style hidden paths + .. traversal out.
+  if (bc.customSlug && /^[a-zA-Z0-9_-][a-zA-Z0-9._-]{0,63}$/.test(bc.customSlug)) {
     return bc.customSlug;
   }
   let slug = bc.branch.replace(/\//g, "__");

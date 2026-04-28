@@ -113,6 +113,12 @@ function deleteHistoryComment(key, historyId, commentId) {
 
 // K4: tag a snapshot with a memorable name. Tags are repo-unique —
 // re-tagging transfers ownership off any prior holder.
+//
+// Tag regex mirrors customSlug (routes/api/repos.js). Tags are used
+// as URL path components in /__snapshot/<tag>/ so they have to be
+// URL-safe. Previously setHistoryTag accepted any 64-char string,
+// which let a tag like 'foo/bar' or '..' break the routing layer.
+const TAG_RE = /^[a-zA-Z0-9_-][a-zA-Z0-9._-]{0,63}$/;
 function setHistoryTag(key, historyId, tag) {
   const arr = getHistory(key);
   const entry = arr.find((h) => h.id === historyId);
@@ -121,6 +127,11 @@ function setHistoryTag(key, historyId, tag) {
     delete entry.tag;
   } else {
     const t = String(tag).trim().slice(0, 64);
+    if (!TAG_RE.test(t)) {
+      const err = new Error("Invalid tag — letters/numbers/._- only, must not start with .");
+      err.code = "INVALID_TAG";
+      throw err;
+    }
     for (const other of arr) if (other !== entry && other.tag === t) delete other.tag;
     entry.tag = t;
   }

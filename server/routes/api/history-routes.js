@@ -42,8 +42,16 @@ router.post("/history/:owner/:repo/note", (req, res) => {
 router.post("/history/:owner/:repo/tag", (req, res) => {
   const { slug, historyId, tag } = req.body || {};
   if (!slug || !historyId) return res.status(400).json({ error: "slug + historyId required" });
-  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
-  const entry = setHistoryTag(key, historyId, tag);
+  // Lowercased owner/repo for case-insensitive routing parity (the rest
+  // of the codebase routes via the canonical lower-case key now — this
+  // endpoint was still using raw URL casing).
+  const key = String(req.params.owner).toLowerCase() + "/" + String(req.params.repo).toLowerCase() + ":" + slug;
+  let entry;
+  try { entry = setHistoryTag(key, historyId, tag); }
+  catch (e) {
+    if (e && e.code === "INVALID_TAG") return res.status(400).json({ error: e.message });
+    throw e;
+  }
   if (!entry) return res.status(404).json({ error: "history entry not found" });
   res.json({ ok: true, entry });
 });
