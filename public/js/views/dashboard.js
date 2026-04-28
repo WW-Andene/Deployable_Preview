@@ -66,7 +66,7 @@ DV.views.dashboard = function(app) {
 
   if (!S.repos.length) {
     ct.appendChild(el("div", { c: "loading-view" }, [
-      el("div", { c: "setup-logo" }, "DV"),
+      el("div", { c: "brand-monogram" }, "DV"),
       el("h2", { c: "page-title" }, "Deploy your first app"),
       el("p", { c: "preview-empty-text mb-32" }, "Pick a repo, choose branches, and DeployView handles the rest \u2014 clone, build, serve, auto-rebuild on push."),
       el("button", { c: "bp p-10-28 text-14", on: { click: function() { DV.openAddRepo(); } } }, "+ Add Repository")

@@ -57,6 +57,7 @@
   --hue-text: 75;      /* warm amber-leaning text family */
   --hue-accent: 75;    /* signature amber */
   --hue-err: 28;       /* warm error */
+  --hue-warn: 55;      /* orange warning — hotter than accent (75), cooler than err (28) */
   --hue-ok: 165;       /* cool-warm split for success */
   --hue-run: 245;      /* monochromatic blue for "running" semantic */
 
@@ -95,6 +96,10 @@
   --accent-glow-strong: oklch(73% 0.135 var(--hue-accent) / 0.10);
   --accent-bg-faint:    rgba(212,160,48,.03);
   --accent-bg-faint:    oklch(73% 0.135 var(--hue-accent) / 0.03);
+  --warn:       #d07820;
+  --warn:       oklch(65% 0.155 var(--hue-warn)); /* orange — distinct from amber accent */
+  --warn-dim:   rgba(208,120,32,.10);
+  --warn-dim:   oklch(65% 0.155 var(--hue-warn) / 0.10);
   --err:        #c45040;
   --err:        oklch(60% 0.165 var(--hue-err));
   --err-dim:    rgba(196,80,64,.10);
@@ -1513,7 +1518,7 @@ button:disabled, button[disabled] {
   padding: 100px 20px;
   text-align: center;
 }
-.setup-logo {
+.brand-monogram {
   font-size: var(--text-3xl);
   font-family: var(--font-mono);
   font-weight: 700;
@@ -1554,43 +1559,6 @@ button:disabled, button[disabled] {
   min-width: 100px;
 }
 
-/* ─── dashboard.js ─── */
-.dashboard-page {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: calc(var(--sp) * 3) calc(var(--sp) * 2.5);
-}
-.empty-state {
-  text-align: center;
-  padding: 100px 20px;
-}
-.empty-logo {
-  font-size: var(--text-3xl);
-  font-family: var(--font-mono);
-  font-weight: 700;
-  color: var(--accent);
-  margin-bottom: 24px;
-  text-shadow: 0 0 24px var(--accent-glow);
-}
-.empty-title {
-  font-size: var(--text-2xl);
-  font-weight: 700;
-  margin-bottom: 8px;
-  letter-spacing: -0.04em;
-}
-.empty-subtitle {
-  color: var(--tx2);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  max-width: 400px;
-  margin: 0 auto 32px;
-  line-height: 1.8;
-  letter-spacing: 0.01em;
-}
-.empty-cta {
-  padding: 10px 28px;
-  font-size: 14px;
-}
 
 /* Branch row status left-border colors */
 .branch-row-ready    { border-left-color: var(--ok); }
@@ -1640,10 +1608,6 @@ button:disabled, button[disabled] {
   right: 0;
 }
 
-/* Stat color accents (used in dashboard.js for stat-num) */
-.color-stat-ok      { color: var(--ok); }
-.color-stat-accent  { color: var(--accent); }
-.color-stat-err     { color: var(--err); }
 
 /* Disabled-look for preview/action buttons on non-ready branches */
 .opacity-dim {
@@ -3083,7 +3047,9 @@ body.dv-mounted::before {
 }
 .color-err { color: var(--err); }
 .color-ok  { color: var(--ok);  }
-.color-warn { color: var(--accent); }
+/* --warn is hue 55 orange, visually distinct from --accent (hue 75 amber).
+   Use for non-critical caution states (e.g. bundle-size growth, deprecation). */
+.color-warn { color: var(--warn); }
 
 /* ══════════════════════════════════════════════════
    §APK-WD — APK working-directory input row
