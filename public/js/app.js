@@ -111,17 +111,36 @@ function el(tag, props, kids) {
 // toast(r.error) call sites keep working when the server returns a
 // non-JSON response (HTML proxy error page, empty body, etc.).
 // Network-level failures still propagate as rejections.
+// Default timeout for API calls. SSE / artifact / log endpoints aren't
+// routed through here; this is for plain JSON round-trips. A 30s ceiling
+// is generous enough for a slow GitHub round-trip but keeps a hung
+// server from turning the dashboard into a permanent spinner.
+var _API_TIMEOUT_MS = 30000;
+
 function api(method, path, body) {
   var opts = { method: method, headers: { "Content-Type": "application/json" } };
   if (body) opts.body = JSON.stringify(body);
-  return fetch(path, opts).then(function(r) {
-    return r.text().then(function(text) {
-      try { return text ? JSON.parse(text) : {}; }
-      catch (_) {
-        return { error: r.status >= 400 ? ("HTTP " + r.status) : "Unexpected response" };
+  // AbortController is widely supported (everything since 2019). Fall
+  // back to a plain fetch if the runtime somehow doesn't have it.
+  var ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+  if (ctrl) opts.signal = ctrl.signal;
+  var timer = ctrl ? setTimeout(function() { ctrl.abort(); }, _API_TIMEOUT_MS) : null;
+  return fetch(path, opts)
+    .then(function(r) {
+      return r.text().then(function(text) {
+        try { return text ? JSON.parse(text) : {}; }
+        catch (_) {
+          return { error: r.status >= 400 ? ("HTTP " + r.status) : "Unexpected response" };
+        }
+      });
+    })
+    .catch(function(e) {
+      if (e && e.name === "AbortError") {
+        return { error: "Request timed out after " + Math.round(_API_TIMEOUT_MS / 1000) + "s" };
       }
-    });
-  });
+      throw e;
+    })
+    .finally(function() { if (timer) clearTimeout(timer); });
 }
 
 function statusClass(s) { return "status-dot status-" + (s || "idle"); }
