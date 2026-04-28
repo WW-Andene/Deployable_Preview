@@ -42,7 +42,9 @@
    PROPORTIONS: 7px spacing base (instant non-default).
    ═══════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
+/* Both Space Grotesk and JetBrains Mono are already loaded via <link> in
+   index.html (preconnect + display=swap). The @import here only covered
+   Space Grotesk and was a redundant render-blocking request. Removed. */
 
 /* ══════════════════════════════════════════════════
    §1 — DESIGN TOKENS (Variables)
@@ -258,9 +260,6 @@ body::after {
   z-index: 0;
   mix-blend-mode: multiply;
   opacity: 0.6;
-}
-@media (prefers-reduced-motion: no-preference) {
-  /* Respect users who don't want any extra visual texture. */
 }
 #app { position: relative; z-index: 1; }
 
@@ -1686,7 +1685,7 @@ button:disabled, button[disabled] {
 .error-text {
   color: var(--err);
   font-size: 12px;
-  font-family: monospace;
+  font-family: var(--font-mono);
   display: none;
 }
 .form-section {
@@ -1715,7 +1714,7 @@ button:disabled, button[disabled] {
 .label-hint-12 {
   color: var(--tx3);
   font-size: 12px;
-  font-family: monospace;
+  font-family: var(--font-mono);
   margin-top: 4px;
 }
 .chip-row {
@@ -2396,7 +2395,7 @@ button:disabled, button[disabled] {
 }
 .preview-empty-text {
   color: var(--tx3);
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 .select-inline {
@@ -2404,7 +2403,7 @@ button:disabled, button[disabled] {
   min-width: 150px;
   padding: 8px;
   font-size: 13px;
-  font-family: monospace;
+  font-family: var(--font-mono);
   background: var(--bg);
   border: 1.5px solid var(--border);
   color: var(--tx1);
@@ -2503,7 +2502,7 @@ button:disabled, button[disabled] {
   gap: 6px;
 }
 .frame-branch-status {
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 .frame-branch-status-ok { color: var(--ok); }
