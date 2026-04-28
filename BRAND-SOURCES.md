@@ -292,3 +292,103 @@ obsidian, lit by amber" is direct lineage from this film.
   speed. We only cite stillness in the resting atmosphere, not in
   interaction.
 
+---
+
+## Source 4 — Bloomberg Terminal
+
+The reference for **operator-class density**: how to display a lot of
+information without crowding, and how monospace becomes identity.
+
+### Layer 1 — Surface
+
+- **Palette**: pure black bg (yes — Bloomberg gets to do this because the
+  function is data-vision, not aesthetic), with semantic-coded colors:
+  amber/yellow for headings (~oklch 78% 0.16 90), green for positive,
+  red for negative, white for primary text, blue/cyan for links.
+- **Typography**: bitmap-rooted monospace (Bloomberg uses several custom
+  monospaced typefaces; the keyboard's BLOOMBERG keys are part of the
+  brand). 100% mono, every column. Tabular numerals everywhere.
+- **Icons**: minimal. The interface is text-driven; icons are vestigial.
+- **Spatial rhythm**: extreme density. Every cell of the grid carries
+  data. Border-less tables; whitespace is a luxury.
+- **Motion**: zero. Updates flash a cell yellow for one frame on change,
+  then settle. That's the entire motion vocabulary.
+
+### Layer 2 — Structure
+
+- **Yellow + amber as the heading/header signal**. Functions ("PX <GO>")
+  and headers are amber on black. This single rule organizes the entire
+  screen.
+- **Information is the design**. Every visual decision is subordinate
+  to the data.
+- **Cell-flash for change** is the only motion permitted; it lets a
+  trader see N markets simultaneously without watching any single one.
+- **Keyboard-only navigation**. The mouse is optional. Function
+  shortcuts are the canonical interface.
+- **What's deliberately excluded**: hierarchy via size (everything is
+  one size), gradients, photography, illustrations, soft anything,
+  rounded corners, decoration of any kind.
+
+### Layer 3 — Culture
+
+- Tradition: 1980s green-on-black VT100 + Quotron heritage, modernized
+  but never abandoned.
+- Era: 1981-present continuous evolution. The visual language was set
+  before color CRTs were standard; the constraints are now the brand.
+- Adjacent: Reuters, FactSet, IBM 3270 mainframes.
+- Profession: Wall Street, where any visual concession to "design"
+  would be read as toy/amateur.
+
+### Layer 4 — Philosophy
+
+- **Mastery is the audience**. The interface is *deliberately* opaque
+  to outsiders because every concession to legibility for newcomers is
+  a concession of density to insiders.
+- **Speed of pattern-recognition over speed of learning**. The 6-month
+  learning curve is the moat.
+- **Information density is respect**. A user who can read the screen
+  doesn't need handholding.
+- **What it says without words**: "if you can't read this, you don't
+  belong on the desk."
+
+### Layer 5 — Identity Thesis
+
+> Bloomberg Terminal's identity is defined by **monospace data-density
+> coded with amber for structure**, expressed through **black canvas +
+> tabular text + cell-flash motion + keyboard-only navigation**, rooted
+> in **VT100 / Quotron heritage and Wall Street's mastery-over-onboarding
+> ethic**, designed to make the operator feel **inside the data, faster
+> than peers, professionally invisible to outsiders**.
+
+#### Minimum Authentic Set
+
+1. **Amber/yellow is the structural signal**. *Why essential*: this is
+   the cognitive shortcut — amber means "header / function / focus".
+2. **Tabular monospaced numerals everywhere**. *Why essential*: the
+   visual rhythm of aligned columns IS the data design.
+3. **Density without crowding via aggressive negative-space inversion**
+   (whitespace is rare and meaningful, not decorative). *Why essential*:
+   removing it makes the product feel toy-like.
+
+### Transferable to DeployView
+
+| Bloomberg element | DeployView application | Status |
+|---|---|---|
+| Amber as the structural signal | DeployView's accent IS amber. The semantic alignment with Bloomberg's "amber = function/header" is intentional — DV's accent marks primary action and active state, the same cognitive role. | ✓ done |
+| Tabular numerals for data | Adopted — `.type-metric` uses `font-variant-numeric: tabular-nums slashed-zero`, and `.sha-badge` uses the same. Build durations / bytes / counts in monospace tabular. | ✓ done |
+| Monospace for technical labels | Adopted — `.type-label` uses JetBrains Mono with small-caps tracking. Status pills use mono. | ✓ done |
+| Cell-flash on change as motion | Partially adopted — the runtime-error pill / build-failed pill flash via the existing CSS animations on state-transition. Could be more aggressive in a future iteration on live-changing values. | partial |
+| Keyboard-first navigation | Adopted — Cmd/Ctrl+K palette, n/r/c/t/a/b/, view shortcuts, ?/help. | ✓ done |
+
+### What we deliberately *don't* take from Bloomberg
+
+- **Pure black bg**: Bloomberg's bg is `#000000`. DV uses oklch 13%
+  (chromatic near-black) for OLED-friendliness and warmth. Pure black
+  fights with our warm text family.
+- **Reject onboarding entirely**: DV's audience includes individual
+  developers on phones (Termux). It must be learnable in 60 seconds —
+  the README promises that. We borrow density as a vocabulary, not as
+  a wall.
+- **Bitmap monospace**: outdated rendering aesthetic. JetBrains Mono is
+  the modern equivalent.
+
