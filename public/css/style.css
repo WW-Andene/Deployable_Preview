@@ -357,66 +357,171 @@ button {
   white-space: nowrap;
   transition: background var(--dur-micro) var(--ease-fast), transform var(--dur-micro) var(--ease-fast), box-shadow var(--dur-micro) var(--ease-fast);
 }
+/* ══════════════════════════════════════════════════
+   §3.5 — BUTTONS — every state explicit per §BUTTONS
+   ──────────────────────────────────────────────────
+   Each variant specifies all 6 states: rest, hover, active, focus,
+   disabled, loading. Hover-in is faster (--dur-micro 100ms) than
+   hover-out (--dur-enter 180ms) so objects "settle back" rather than
+   snap. Active is instant (50ms) for tactile press feedback.
+   Press physics: hover lifts -1px, active sinks +1px scale 0.97.
+
+   Variants:
+   - .bp / .btn-primary    amber filled CTA (1 per page max)
+   - .btn-secondary        accent-bordered, no fill (Save/Apply)
+   - .bg / .btn-ghost      transparent → surface on hover
+   - .bd / .btn-danger     calibrated err palette, accent left border
+   - .btn-icon             square 32×32, surface hover
+   - .bs / .btn-sm         compact size modifier (orthogonal to variant)
+   ══════════════════════════════════════════════════ */
+
 button:active { transform: translateY(1px) scale(0.97); transition-duration: 50ms; }
 
-/* B2 — Named button system. Each named class is a group-selector
-   alias of the original 2-letter class so old call sites still work
-   verbatim while new code can use semantic names.
-   .btn-primary  ↔ .bp     amber call-to-action, glows on hover
-   .btn-ghost    ↔ .bg     transparent w/ border, surface on hover
-   .btn-danger   ↔ .bd     destructive — warm red with err-border
-   .btn-secondary          accent border + accent text, no fill
-   .btn-icon               square 32×32, transparent, surface hover
-   .btn-sm       ↔ .bs     compact size modifier
-*/
-
-/* Primary — amber signal, glows on hover */
+/* ── Primary — amber filled CTA, the one chromatic action per page ── */
 .bp, .btn-primary {
+  /* Rest */
   background: var(--accent);
   color: var(--bg);
   font-weight: 600;
   padding: 8px 18px;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-sm), inset 0 1px 0 oklch(80% 0.150 var(--hue-accent) / 0.4);
+  min-width: 120px;
 }
 .bp:hover, .btn-primary:hover {
+  /* Hover — lighten + lift + glow */
   background: var(--accent-h);
-  box-shadow: var(--shadow-md), 0 0 20px var(--accent-mid);
+  box-shadow: var(--shadow-md), 0 0 20px var(--accent-mid), inset 0 1px 0 oklch(85% 0.150 var(--hue-accent) / 0.5);
   transform: translateY(-1px);
 }
+.bp:active, .btn-primary:active {
+  /* Active — darken + sink, shadow shrinks */
+  background: var(--accent-active);
+  box-shadow: 0 1px 2px var(--shadow-base);
+  transform: translateY(1px) scale(0.97);
+  transition-duration: 50ms;
+}
+.bp:focus-visible, .btn-primary:focus-visible {
+  /* Focus — double ring (bg gap + accent halo) per §FOCUS */
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--accent),
+    0 0 14px var(--accent-glow);
+}
+.bp:disabled, .bp[disabled],
+.btn-primary:disabled, .btn-primary[disabled] {
+  background: oklch(73% 0.135 var(--hue-accent) / 0.4);
+  color: oklch(13% 0.012 var(--hue-base) / 0.7);
+  box-shadow: none;
+  transform: none;
+  cursor: not-allowed;
+}
+.bp[aria-busy="true"], .btn-primary[aria-busy="true"] {
+  /* Loading — width preserved, content muted, no transform on hover */
+  background: var(--accent-active);
+  color: oklch(13% 0.012 var(--hue-base) / 0.6);
+  cursor: progress;
+  pointer-events: none;
+}
 
-/* Ghost — surface reveal on hover */
+/* ── Secondary — accent-bordered, no fill. For non-primary CTAs ── */
+.btn-secondary {
+  /* Rest */
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--border-accent);
+  padding: 7px 14px;
+  font-weight: 500;
+  min-width: 96px;
+}
+.btn-secondary:hover {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
+  transform: translateY(-1px);
+}
+.btn-secondary:active {
+  background: var(--accent-mid);
+  transform: translateY(1px) scale(0.97);
+  transition-duration: 50ms;
+}
+.btn-secondary:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--border-focus), 0 0 14px var(--accent-glow);
+}
+.btn-secondary:disabled, .btn-secondary[disabled] {
+  color: oklch(73% 0.135 var(--hue-accent) / 0.5);
+  border-color: var(--border);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ── Ghost — transparent → surface on hover. Most common variant ── */
 .bg, .btn-ghost {
   background: transparent;
   color: var(--tx2);
   border: 1px solid var(--border);
   padding: 7px 14px;
 }
-.bg:hover, .btn-ghost:hover { background: var(--sf2); color: var(--tx1); border-color: var(--border-h); }
+.bg:hover, .btn-ghost:hover {
+  background: var(--sf2);
+  color: var(--tx1);
+  border-color: var(--border-h);
+}
+.bg:active, .btn-ghost:active {
+  background: var(--sf3);
+  transform: translateY(1px) scale(0.97);
+  transition-duration: 50ms;
+}
+.bg:focus-visible, .btn-ghost:focus-visible {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--accent-dim), 0 0 12px var(--accent-glow);
+}
+.bg:disabled, .bg[disabled],
+.btn-ghost:disabled, .btn-ghost[disabled] {
+  color: var(--tx3);
+  border-color: var(--border);
+  cursor: not-allowed;
+  transform: none;
+  background: transparent;
+}
 
-/* Danger — warm red, thicker left border */
+/* ── Danger — calibrated err palette, asymmetric border accent ── */
 .bd, .btn-danger {
   background: var(--err-dim);
   color: var(--err);
   border: 1px solid var(--err-border);
-  padding: 7px 14px;
+  border-left-width: 3px;     /* §ERRORS — accent left border identity */
+  padding: 7px 14px 7px 12px; /* compensate for the heavier left border */
 }
-.bd:hover, .btn-danger:hover { background: var(--err-bg-h); }
-
-/* Secondary — accent border + accent text. Sits between primary
-   (filled) and ghost (silent) for actions like Save/Apply that aren't
-   the *one* page CTA but still need accent-coded affirmation. */
-.btn-secondary {
-  background: transparent;
-  color: var(--accent);
-  border: 1px solid var(--border-accent);
-  padding: 7px 14px;
-  font-weight: 500;
+.bd:hover, .btn-danger:hover {
+  background: var(--err-bg-h);
+  border-color: var(--err);
+  box-shadow: 0 0 12px oklch(60% 0.165 var(--hue-err) / 0.20);
+  transform: translateY(-1px);
 }
-.btn-secondary:hover { background: var(--accent-dim); border-color: var(--accent); }
+.bd:active, .btn-danger:active {
+  background: oklch(60% 0.165 var(--hue-err) / 0.30);
+  transform: translateY(1px) scale(0.97);
+  transition-duration: 50ms;
+}
+.bd:focus-visible, .btn-danger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px oklch(60% 0.165 var(--hue-err) / 0.35), 0 0 14px oklch(60% 0.165 var(--hue-err) / 0.20);
+}
+.bd:disabled, .bd[disabled],
+.btn-danger:disabled, .btn-danger[disabled] {
+  color: oklch(60% 0.165 var(--hue-err) / 0.5);
+  background: oklch(60% 0.165 var(--hue-err) / 0.05);
+  border-color: oklch(60% 0.165 var(--hue-err) / 0.15);
+  cursor: not-allowed;
+  transform: none;
+}
 
-/* Icon-only — 32×32 square, neutral hover. Use with `aria-label`
-   (or wrap with DV.iconBtn(label, opts, "iconName")) so screen
-   readers still announce the button's purpose. */
+/* ── Icon-only — 32×32 square, neutral surface hover ── */
 .btn-icon {
   background: transparent;
   color: var(--tx2);
@@ -427,10 +532,24 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
   min-width: 32px;
   border-radius: var(--r-btn);
 }
-.btn-icon:hover { background: var(--sf2); color: var(--tx1); border-color: var(--border); }
+.btn-icon:hover {
+  background: var(--sf2);
+  color: var(--tx1);
+  border-color: var(--border);
+}
+.btn-icon:active {
+  background: var(--sf3);
+  transform: translateY(1px) scale(0.94);
+  transition-duration: 50ms;
+}
+.btn-icon:focus-visible {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
 
-/* Small */
-.bs, .btn-sm { padding: 6px 10px; font-size: 12px; }
+/* ── Size modifier — orthogonal to variant ── */
+.bs, .btn-sm { padding: 6px 10px; font-size: 12px; min-width: 0; }
 
 /* ══════════════════════════════════════════════════
    §4 — COMPONENT CLASSES
@@ -876,8 +995,9 @@ button:disabled, button[disabled] {
   box-shadow: none !important;
   filter: saturate(0.3);
 }
-.bp:active, .btn-primary:active { background: var(--accent-active); box-shadow: 0 1px 2px var(--shadow-base); }
-.bg:active, .btn-ghost:active, .btn-secondary:active, .btn-icon:active { background: var(--sf3); }
+/* :active states are now defined per-variant in §3.5 with full
+   per-property timing instead of shared overrides — keeps each
+   variant's press physics consistent with its own rest/hover. */
 
 /* ── Separators ── */
 .sep-heavy { border-bottom: 2px solid var(--border-heavy); }
