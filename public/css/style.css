@@ -3370,6 +3370,24 @@ body.dv-mounted::before {
   color: var(--tx3);
   letter-spacing: 0.02em;
 }
+/* Secret-age indicator — neutral when fresh, accent-warning when
+   the secret has been around > 90 days. The 'rotate?' suffix is
+   advisory; the user can ignore it without blocking work. */
+.settings-age {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--tx3);
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.settings-age-stale {
+  color: var(--accent);
+  border-color: var(--border-accent);
+  background: var(--accent-dim);
+}
 .settings-hint {
   font-family: var(--font-mono);
   font-size: 10px;

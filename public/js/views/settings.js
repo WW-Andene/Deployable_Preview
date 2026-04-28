@@ -54,6 +54,28 @@ function keyRow(secret, onSave, onDelete) {
     top.appendChild(el("span", { c: "pill pill-ok" }, "\u2714"));
     top.appendChild(el("span", { c: "settings-masked" }, secret.masked));
     if (secret.source === "env") top.appendChild(el("span", { c: "pill pill-info" }, "env"));
+    // Age indicator \u2014 surfaces 'set 47d ago' so users can see which
+    // secrets are stale and need rotation. Only shown when the
+    // server has a setAt timestamp (older configs without metadata
+    // show nothing, no false 'fresh' claim).
+    if (secret.setAt) {
+      var ageMs = Date.now() - secret.setAt;
+      var ageDays = Math.floor(ageMs / 86400000);
+      var label;
+      if (ageMs < 60000) label = "set just now";
+      else if (ageMs < 3600000) label = "set " + Math.floor(ageMs / 60000) + "m ago";
+      else if (ageMs < 86400000) label = "set " + Math.floor(ageMs / 3600000) + "h ago";
+      else label = "set " + ageDays + "d ago";
+      // Stale-warning bg when > 90 days for tokens that benefit from
+      // rotation (GitHub PATs, OpenAI/Anthropic keys, Stripe, etc.).
+      var rotateRecommended = ageDays > 90;
+      top.appendChild(el("span", {
+        c: "settings-age" + (rotateRecommended ? " settings-age-stale" : ""),
+        attr: { title: rotateRecommended
+          ? "Set " + new Date(secret.setAt).toLocaleString() + " \u2014 consider rotating"
+          : "Set " + new Date(secret.setAt).toLocaleString() }
+      }, label + (rotateRecommended ? " \u00b7 rotate?" : "")));
+    }
   } else {
     top.appendChild(el("span", { c: "pill pill-warn" }, "\u2014"));
   }

@@ -119,6 +119,7 @@ function maskValue(val) {
 router.get("/secrets", (req, res) => {
   const config = getConfig();
   const secrets = config.secrets || {};
+  const secretsMeta = config.secretsMeta || {};
   // Build a case-folded view of stored secrets so any pre-existing
   // mixed-case keys (saved by an older revision before the POST
   // normalized to uppercase) still surface under their canonical
@@ -126,9 +127,11 @@ router.get("/secrets", (req, res) => {
   // match — protects against two intentionally-different-cased
   // entries that happen to share an uppercase form.
   const folded = {};
+  const foldedMeta = {};
   for (const k of Object.keys(secrets)) {
     const u = k.toUpperCase();
     if (!Object.prototype.hasOwnProperty.call(folded, u)) folded[u] = secrets[k];
+    if (secretsMeta[k] && !foldedMeta[u]) foldedMeta[u] = secretsMeta[k];
   }
   const allKeys = new Map();
   for (const sk of SUGGESTED_KEYS) allKeys.set(sk.key, { ...sk });
@@ -139,9 +142,11 @@ router.get("/secrets", (req, res) => {
   for (const [key, meta] of allKeys) {
     let val = secrets[key] || folded[key] || process.env[key] || "";
     if (key === "GITHUB_TOKEN" && !val) val = config.token || "";
+    const meta2 = secretsMeta[key] || foldedMeta[key] || null;
     result.push({
       key,
       label: meta.label || key,
+      setAt: meta2 && meta2.setAt ? meta2.setAt : null,
       hint: meta.hint || "",
       link: meta.link || null,
       suggested: SUGGESTED_KEYS.some((sk) => sk.key === key),
@@ -182,18 +187,26 @@ router.post("/secrets", audit.logAction("secret.write", { target: ["body.key"] }
   // bulk parser already strips, but a direct POST to a single key
   // (or an over-eager paste handler in a browser) bypasses.
   const trimmed = _cleanToken(value);
+  if (!config.secretsMeta) config.secretsMeta = {};
   if (trimmed) {
     config.secrets[key] = trimmed;
     if (key === "GITHUB_TOKEN") config.token = trimmed;
     process.env[key] = trimmed;
+    // Record set-time in a side table (config.secretsMeta) so we don't
+    // change the shape of config.secrets and break older configs that
+    // assume flat string values. Lets the UI render 'set 12d ago' so
+    // users can see which secrets are stale and need rotation.
+    config.secretsMeta[key] = { setAt: Date.now() };
     // Also clear any stale lowercase/mixed-case version that may have
     // been written by the buggy older revision so reads are unambiguous.
     if (rawKey !== key && Object.prototype.hasOwnProperty.call(config.secrets, rawKey)) {
       delete config.secrets[rawKey];
+      delete config.secretsMeta[rawKey];
       try { delete process.env[rawKey]; } catch (_) {}
     }
   } else {
     delete config.secrets[key];
+    delete config.secretsMeta[key];
     if (key === "GITHUB_TOKEN") config.token = "";
     delete process.env[key];
   }
@@ -211,6 +224,7 @@ router.delete("/secrets/:key", audit.logAction("secret.delete", { target: ["para
   // (PATH, HOME, …) that DV never set, breaking the running process.
   const wasOurs = Object.prototype.hasOwnProperty.call(config.secrets, key);
   delete config.secrets[key];
+  if (config.secretsMeta) delete config.secretsMeta[key];
   if (key === "GITHUB_TOKEN") config.token = "";
   if (wasOurs) delete process.env[key];
   saveConfig();
