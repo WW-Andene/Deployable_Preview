@@ -450,12 +450,16 @@ DV.views.settings = function(app) {
     if (stats.orphaned > 0) {
       wsBody.appendChild(el("button", { c: "bd bs", on: { click: function() {
         if (!confirm("Remove " + stats.orphaned + " orphaned dir(s)?")) return;
+        var b = this; var orig = b.textContent; b.disabled = true; b.textContent = "Cleaning…";
         fetch("/api/workspace/cleanup", { method: "POST" }).then(function(r) { return r.json(); }).then(function(r) {
-          DV.showToast("Cleaned " + (r.removed || 0) + " dir(s)", "success");
-          // Refresh the displayed stats so the panel doesn't keep claiming
-          // N orphaned dirs after we just removed them.
+          var msg = "Cleaned " + (r.removed || 0) + " dir(s)";
+          if (r.failed) msg += " — " + r.failed + " failed" + (r.errors && r.errors.length ? " (" + r.errors[0] + ")" : "");
+          DV.showToast(msg, r.failed ? "error" : "success");
           refreshWorkspaceStats();
-        }).catch(function() { DV.showToast("Cleanup failed", "error"); });
+        }).catch(function() {
+          b.disabled = false; b.textContent = orig;
+          DV.showToast("Cleanup failed: network error", "error");
+        });
       } } }, "Clean " + stats.orphaned + " orphaned"));
     }
     }).catch(function() { wsBody.textContent = "Could not load."; });
