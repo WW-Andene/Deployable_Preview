@@ -555,19 +555,90 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
    §4 — COMPONENT CLASSES
    ══════════════════════════════════════════════════ */
 
-/* ── Cards — glass surfaces with lift ── */
+/* ══════════════════════════════════════════════════
+   §4.1 — CARDS — material surfaces with hover physics
+   ──────────────────────────────────────────────────
+   §CARDS — Cards have material, weight, and behavior. Three variants:
+   - .card           default surface (most cards on the dashboard)
+   - .card-featured  larger, accent-bordered, used for the "main" item
+                     on a page (e.g. the active repo's main panel)
+   - .card-data      denser (smaller padding, tighter rhythm) — used
+                     where information density matters more than air
+   All variants share rest/hover/focus-within state vocabulary.
+   ══════════════════════════════════════════════════ */
+
 .card {
+  /* Rest: tonal surface 1, subtle border, palette-derived shadow */
+  position: relative;
+  overflow: hidden;
   background: var(--sf1);
   border: 1px solid var(--border);
   border-radius: var(--r-card);
-  padding: calc(var(--sp) * 2.5);
-  margin-bottom: calc(var(--sp) * 2);
-  transition: transform var(--dur-enter) var(--ease-physical), box-shadow var(--dur-enter) var(--ease-physical), border-color var(--dur-enter) var(--ease-fast);
+  padding: calc(var(--sp) * 2.5);   /* 17.5px */
+  margin-bottom: calc(var(--sp) * 2); /* 14px */
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--dur-enter) var(--ease-physical),
+              box-shadow var(--dur-enter) var(--ease-physical),
+              border-color var(--dur-enter) var(--ease-fast),
+              background-color var(--dur-enter) var(--ease-fast);
+}
+/* Card signal stripe — accent gradient on the left edge, fades in on
+   hover. The stripe is the recurring brand motif (chevron prompt)
+   manifesting as a vertical accent line. */
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--accent), transparent 80%);
+  opacity: 0;
+  transition: opacity var(--dur-enter) var(--ease-physical);
 }
 .card:hover {
+  /* Hover: physical lift + shadow grows + border brightens */
   transform: translateY(-2px);
   border-color: var(--border-h);
   box-shadow: var(--shadow-lg);
+}
+.card:hover::before {
+  opacity: 1;
+}
+.card:focus-within {
+  /* Focus-within: card contains an active interactive element. Same
+     subtle accent border the resting card gets via stripe, but no lift
+     so the user's keyboard cursor doesn't jiggle while typing. */
+  border-color: var(--border-accent);
+  box-shadow: var(--shadow-sm), 0 0 0 1px var(--accent-dim);
+}
+
+/* §CARDS variants — different cards should look distinct from each
+   other. Featured cards span more visual weight; data cards compress. */
+.card-featured {
+  /* Slightly elevated surface + accent-edged border on the left */
+  background: var(--sf2);
+  border-left: 3px solid var(--border-accent);
+  padding-left: calc(var(--sp) * 2.5 - 2px); /* offset for the heavier border */
+  box-shadow: var(--shadow-md);
+}
+.card-featured::before { display: none; }  /* the border-left replaces the stripe */
+.card-featured:hover {
+  border-left-color: var(--accent);
+  box-shadow: var(--shadow-lg), 0 0 24px var(--accent-glow);
+}
+
+.card-data {
+  /* Compressed for dense data — smaller padding, no margin between
+     stacked instances, no signature stripe (data cards don't lift). */
+  padding: var(--sp-md);   /* 14px instead of 17.5 */
+  margin-bottom: var(--sp-sm); /* 7px tight stack */
+}
+.card-data::before { display: none; }
+.card-data:hover {
+  /* Subtle bg shift only — data cards don't lift (they're a list, not
+     individual objects). */
+  transform: none;
+  background: var(--sf2);
+  box-shadow: var(--shadow-sm);
 }
 
 /* ── Spinner — accent colored ── */
@@ -1051,18 +1122,8 @@ button:disabled, button[disabled] {
 .signal-stripe:hover::before,
 .signal-stripe.active::before { opacity: 1; }
 
-/* Signal stripe on cards when hovered */
-.card { position: relative; overflow: hidden; }
-.card::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; bottom: 0;
-  width: 3px;
-  background: linear-gradient(180deg, var(--accent), transparent 80%);
-  opacity: 0;
-  transition: opacity var(--dur-enter) var(--ease-physical);
-}
-.card:hover::before { opacity: 1; }
+/* (.card stripe + state vocabulary moved to §4.1 above —
+   single source of truth.) */
 
 /* ── Error bar ── */
 .error-bar {
