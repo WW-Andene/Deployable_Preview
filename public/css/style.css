@@ -1093,6 +1093,26 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
   flex-direction: column;
   align-items: center;
   gap: 2px;
+  padding: calc(var(--sp) * 0.6) calc(var(--sp) * 1.4);
+  border-radius: var(--r-card);
+  border: 1px solid transparent;
+  transition: background-color var(--dur-micro) var(--ease-fast),
+              border-color var(--dur-micro) var(--ease-fast);
+}
+/* Clickable status tiles act as filter chips. Hover hints; active
+   state shows the tile borrowed the accent. Static tiles (Repos,
+   Branches) keep their plain look. */
+.stat-item-clickable { cursor: pointer; }
+.stat-item-clickable:hover { background: var(--sf1); border-color: var(--border-h); }
+.stat-item-clickable:focus-visible {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+.stat-item-active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
 }
 .stat-num {
   font-family: var(--font-ui);

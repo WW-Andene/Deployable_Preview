@@ -113,14 +113,30 @@ DV.views.dashboard = function(app) {
 
     // Stats bar — Repos / Branches / Ready always show. Building +
     // Failed only show when non-zero (transient state, not worth a
-    // permanent slot). Previously "Ready" showed even at 0 while
-    // "Failed" hid at 0, which was inconsistent.
+    // permanent slot). Stats are also filter chips: clicking a status
+    // tile (Ready / Building / Failed) toggles a status filter so
+    // users with many branches can triage by state instead of scanning.
     var statsBar = el("div", { c: "stats-bar" });
-    statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num" }, S.repos.length), el("span", { c: "stat-label" }, "Repos")]));
-    statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num" }, totalBranches), el("span", { c: "stat-label" }, "Branches")]));
-    if (readyCount)    statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num color-ok" },     readyCount),    el("span", { c: "stat-label" }, "Ready")]));
-    if (buildingCount) statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num color-accent" }, buildingCount), el("span", { c: "stat-label" }, "Building")]));
-    if (errorCount)    statsBar.appendChild(el("div", { c: "stat-item" }, [el("span", { c: "stat-num color-err" },    errorCount),    el("span", { c: "stat-label" }, "Failed")]));
+    function statTile(num, label, statusFilter, colorClass) {
+      var active = statusFilter && S.dashboardStatusFilter === statusFilter;
+      var attrs = statusFilter
+        ? { role: "button", tabindex: "0", "aria-pressed": active ? "true" : "false", title: active ? "Click to clear status filter" : "Filter to " + label.toLowerCase() }
+        : {};
+      var on = statusFilter
+        ? { click: function() { S.dashboardStatusFilter = active ? null : statusFilter; DV.render(); }, keydown: function(e) { if (e.key === " " || e.key === "Enter") { e.preventDefault(); S.dashboardStatusFilter = active ? null : statusFilter; DV.render(); } } }
+        : null;
+      var props = { c: "stat-item" + (statusFilter ? " stat-item-clickable" : "") + (active ? " stat-item-active" : ""), attr: attrs };
+      if (on) props.on = on;
+      return el("div", props, [
+        el("span", { c: "stat-num" + (colorClass ? " " + colorClass : "") }, num),
+        el("span", { c: "stat-label" }, label)
+      ]);
+    }
+    statsBar.appendChild(statTile(S.repos.length, "Repos", null, null));
+    statsBar.appendChild(statTile(totalBranches, "Branches", null, null));
+    if (readyCount)    statsBar.appendChild(statTile(readyCount,    "Ready",    "ready",    "color-ok"));
+    if (buildingCount) statsBar.appendChild(statTile(buildingCount, "Building", "building", "color-accent"));
+    if (errorCount)    statsBar.appendChild(statTile(errorCount,    "Failed",   "error",    "color-err"));
     ct.appendChild(statsBar);
 
     // Bulk action bar — appears when 1+ branches selected
@@ -137,11 +153,27 @@ DV.views.dashboard = function(app) {
     }
 
     var filteredRepos = S.repos;
-    if (S.dashboardFilter) {
-      var q = S.dashboardFilter.toLowerCase();
+    // Status-filter is a list of equivalent statuses to match (so the
+    // 'Ready' tile catches both 'ready' and 'running' since both
+    // represent live previews).
+    var statusFilter = S.dashboardStatusFilter;
+    var statusGroup = statusFilter === "ready" ? ["ready", "running"]
+                    : statusFilter === "building" ? ["building", "queued"]
+                    : statusFilter === "error" ? ["error"]
+                    : null;
+    if (S.dashboardFilter || statusGroup) {
+      var q = (S.dashboardFilter || "").toLowerCase();
       filteredRepos = S.repos.filter(function(r) {
-        if ((r.owner + "/" + r.repo).toLowerCase().indexOf(q) !== -1) return true;
         var bs = r.branchStatuses || {};
+        var slugs = Object.keys(bs);
+        // Status filter: keep the repo only if at least one branch
+        // matches one of the requested statuses.
+        if (statusGroup) {
+          var anyMatch = slugs.some(function(k) { return statusGroup.indexOf(bs[k].status) !== -1; });
+          if (!anyMatch) return false;
+        }
+        if (!q) return true;
+        if ((r.owner + "/" + r.repo).toLowerCase().indexOf(q) !== -1) return true;
         for (var k in bs) { if ((bs[k].branch || k).toLowerCase().indexOf(q) !== -1) return true; }
         return false;
       });
