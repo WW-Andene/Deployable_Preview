@@ -289,6 +289,22 @@ function render() {
       } catch (_) {}
     }
   }
+
+  // Keep the browser tab title in sync with the current view. Useful when
+  // the user has multiple DV tabs open + makes the back/forward history
+  // entries scannable instead of all reading "DeployView".
+  try {
+    var title = "DeployView";
+    if (S.view === "preview" && S.activeRepo) {
+      title = "DeployView · " + S.activeRepo.owner + "/" + S.activeRepo.repo + (S.activeBranch ? " · " + S.activeBranch : "");
+    } else if (S.view === "settings")  title = "DeployView · Settings";
+    else if (S.view === "analytics")   title = "DeployView · Analytics";
+    else if (S.view === "mcp")         title = "DeployView · MCP";
+    else if (S.view === "addRepo")     title = "DeployView · Add Repo";
+    else if (S.view === "setup")       title = "DeployView · Setup";
+    else if (S.view === "dashboard")   title = "DeployView · " + (S.repos ? S.repos.length : 0) + " repo" + ((S.repos && S.repos.length === 1) ? "" : "s");
+    if (document.title !== title) document.title = title;
+  } catch (_) {}
 }
 
 // Init

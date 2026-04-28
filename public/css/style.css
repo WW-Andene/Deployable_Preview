@@ -139,6 +139,28 @@ body::before {
 }
 #app { position: relative; z-index: 1; }
 
+/* Skip-to-content link — visually hidden until focused so keyboard
+   users can jump past the topbar without seeing it on every page. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: auto;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  z-index: 100;
+}
+.skip-link:focus {
+  left: 8px; top: 8px;
+  width: auto; height: auto;
+  padding: 6px 12px;
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+  border-radius: 4px;
+  text-decoration: none;
+  outline: 2px solid var(--bg);
+}
+
 /* ══════════════════════════════════════════════════
    §3 — BASE ELEMENTS (input, select, textarea, button)
    ══════════════════════════════════════════════════ */

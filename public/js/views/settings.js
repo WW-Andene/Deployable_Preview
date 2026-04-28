@@ -228,7 +228,9 @@ DV.views.settings = function(app) {
       keysBody.appendChild(el("div", { c: "settings-divider-label mt-16" }, "Bulk import"));
       var bulkWrap = el("div", { c: "settings-bulk" });
       var bulkTA = document.createElement("textarea");
+      bulkTA.id = "settings-bulk-import";
       bulkTA.className = "settings-bulk-textarea";
+      bulkTA.setAttribute("aria-label", "Bulk import: paste KEY=value pairs, one per line");
       bulkTA.placeholder = "Paste multiple keys \u2014 one per line:\n\nGITHUB_TOKEN=ghp_xxxx\nOPENAI_API_KEY=sk-xxxx\nSTRIPE_SECRET_KEY=sk_live_xxxx\nMY_CUSTOM_KEY=some_value\n\nSupports: KEY=value, export KEY=value, KEY=\"value\"";
       bulkTA.rows = 6;
       bulkWrap.appendChild(bulkTA);
@@ -417,7 +419,7 @@ DV.views.settings = function(app) {
         var mcpUrl = st.url + "/mcp";
         tunnelBody.appendChild(el("div", { c: "flex-row gap-6 items-center mb-8 flex-wrap" }, [
           el("span", { c: "pill pill-ok" }, st.provider),
-          el("code", { c: "settings-url" }, mcpUrl),
+          el("code", { c: "settings-url", attr: { "aria-label": "MCP URL: " + mcpUrl, title: mcpUrl } }, mcpUrl),
           el("button", { c: "bg bs", on: { click: function() { DV.copyToClipboard(mcpUrl); } } }, "Copy")
         ]));
         tunnelBody.appendChild(el("div", { c: "settings-hint mb-8" }, "Paste into claude.ai \u2192 Settings \u2192 Integrations. The URL must stay reachable from Anthropic\u2019s edge \u2014 keep this server and the tunnel running."));
