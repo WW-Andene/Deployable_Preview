@@ -290,55 +290,96 @@ body::after {
    §3 — BASE ELEMENTS (input, select, textarea, button)
    ══════════════════════════════════════════════════ */
 
-/* ── Inputs — carved into surface ── */
-input, select {
+/* ══════════════════════════════════════════════════
+   §3.1 — INPUTS — every state explicit per §INPUTS
+   ──────────────────────────────────────────────────
+   Personality: "Carved" — inset into the surface (palette-hued inset
+   shadow) with a 1.5px border. Focused state pushes the field forward
+   with a multi-layer accent ring (the field "lights up").
+
+   States covered: rest · hover · focus · filled · disabled · error.
+   ══════════════════════════════════════════════════ */
+
+input, select, textarea {
+  /* Rest: carved into bg, palette-hued inset, mono for technical UI */
   background: var(--bg);
   border: 1.5px solid var(--border-h);
   color: var(--tx1);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--text-base);
   padding: calc(var(--sp) * 1.5) calc(var(--sp) * 2);
   border-radius: var(--r-input);
   outline: none;
   width: 100%;
   box-shadow: var(--shadow-inset);
-  transition: border-color var(--dur-micro) var(--ease-fast), box-shadow var(--dur-micro) var(--ease-fast);
+  transition: border-color var(--dur-micro) var(--ease-fast),
+              box-shadow var(--dur-micro) var(--ease-fast),
+              background-color var(--dur-micro) var(--ease-fast);
 }
-input:focus, select:focus {
+textarea {
+  resize: vertical;
+  min-height: 60px;
+  font-family: var(--font-mono);
+  line-height: 1.55;
+}
+
+/* Hover — border brightens slightly, signaling interactivity */
+input:hover, select:hover, textarea:hover {
+  border-color: var(--border-h);
+  background: oklch(13% 0.012 var(--hue-base) / 1.0);  /* same as bg but explicit so transition has a target */
+}
+
+/* Focus — multi-layer accent ring + faint glow. The field lights up.
+   Inset shadow stays so the carved feel survives the focus state. */
+input:focus, select:focus, textarea:focus {
   border-color: var(--border-focus);
-  box-shadow: var(--shadow-inset), 0 0 0 3px var(--accent-dim), 0 0 20px var(--accent-glow);
+  box-shadow:
+    var(--shadow-inset),
+    0 0 0 3px var(--accent-dim),
+    0 0 20px var(--accent-glow);
 }
-input:hover, select:hover, textarea:hover { border-color: var(--border-h); }
+
+/* Filled — non-empty input gets a subtle bg lift so empty vs filled
+   is distinguishable at a glance per §INPUTS. Uses :not(:placeholder-
+   shown) which fires only on inputs that have content. */
+input:not(:placeholder-shown):not(:focus),
+textarea:not(:placeholder-shown):not(:focus) {
+  background: oklch(15% 0.012 var(--hue-base) / 1.0);  /* +2% L from bg */
+  border-color: var(--border-h);
+}
+
+/* Disabled — desaturated, readable but unavailable. */
 input:disabled, select:disabled, textarea:disabled {
   opacity: 0.45;
   cursor: not-allowed;
   background: var(--sf2);
   color: var(--tx3);
   box-shadow: none;
+  border-color: var(--border);
 }
-input::placeholder { color: var(--tx3); }
+
+/* Placeholder — derives from input surface hue family, not pure gray.
+   Slightly italicized to distinguish ghost text from real content. */
+input::placeholder, textarea::placeholder {
+  color: var(--tx3);
+  font-style: italic;
+  opacity: 0.85;
+}
+
+/* Error — calibrated err palette, asymmetric border accent.
+   Matches .bd / .error-message identity language. */
 input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="true"],
 input.error, select.error, textarea.error {
   border-color: var(--border-err);
+  border-left-width: 3px;          /* §ERRORS — accent left border */
   box-shadow: var(--shadow-inset), 0 0 0 2px var(--err-dim);
 }
-
-textarea {
-  background: var(--bg);
-  border: 1.5px solid var(--border-h);
-  color: var(--tx1);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  padding: calc(var(--sp) * 1.5) calc(var(--sp) * 2);
-  border-radius: var(--r-input);
-  outline: none;
-  width: 100%;
-  resize: vertical;
-  min-height: 60px;
-  box-shadow: var(--shadow-inset);
-  transition: border-color var(--dur-micro) var(--ease-fast);
+input[aria-invalid="true"]:focus, textarea[aria-invalid="true"]:focus {
+  box-shadow:
+    var(--shadow-inset),
+    0 0 0 3px oklch(60% 0.165 var(--hue-err) / 0.20),
+    0 0 20px oklch(60% 0.165 var(--hue-err) / 0.10);
 }
-textarea:focus { border-color: var(--border-focus); box-shadow: var(--shadow-inset), 0 0 0 3px var(--accent-dim); }
 
 /* ── Buttons — physical objects ── */
 button {
