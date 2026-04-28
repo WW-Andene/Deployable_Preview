@@ -1,0 +1,61 @@
+# H5W-BUILD.md — Build Queue
+
+This file is the primary work source when §BUILD-LOOP is active. The
+autoloop reads it, picks the next TODO (or the IN-PROGRESS task if one
+exists), and continues until all entries are DONE or BLOCKED.
+
+**Status values:**
+- `TODO` — not yet started
+- `IN-PROGRESS` — actively being built (only one at a time)
+- `BLOCKED` — waiting on external dependency (note the blocker)
+- `DONE` — implemented + verified + committed (move to # Completed)
+
+**Phase discipline:** Each feature is broken into 2-5 phases. A phase is
+DONE only when the code builds clean, the new functionality is exercised
+at least once, and the change is committed per `.h5w/git-policy`. "I
+wrote the code" alone is IN-PROGRESS, not DONE.
+
+---
+
+## Build Queue
+
+| ID | Feature | Phase | Status | Notes |
+|----|---------|-------|--------|-------|
+| B-EXAMPLE | Multi-monitor support | 1 — detect displays | TODO | DisplayManager API research first; document chosen approach in Notes column |
+| B-EXAMPLE | Multi-monitor support | 2 — render placement logic | TODO | depends on phase 1; preserve user's manual placement preference if set |
+| B-EXAMPLE | Multi-monitor support | 3 — persistence across reboots | TODO | depends on phase 2; use SharedPreferences with versioned key |
+
+*(Replace the example rows above with real tasks. Delete this file's
+example section once you have your own queue.)*
+
+---
+
+## Completed
+
+*(DONE entries get moved here at session end with a one-line summary
+of what was shipped.)*
+
+---
+
+## Notes for Claude (when this file is empty or first iteration)
+
+If §BUILD-LOOP is active and `H5W-BUILD.md` doesn't have any TODO/
+IN-PROGRESS entries, your first iteration's work is to translate the
+user's prompt into 2-5 phased tasks and populate this file. Use the
+table format above. The user's prompt should be the goal; you are
+responsible for the phase decomposition.
+
+**Phase decomposition heuristic:**
+- Phase 1: research/discovery (read existing code, identify integration
+  points, document API choices)
+- Phase 2: scaffolding (create new files/classes, stub out interfaces,
+  ensure it compiles)
+- Phase 3: core implementation (actual feature logic)
+- Phase 4: integration (wire into existing code paths, handle edge
+  cases)
+- Phase 5: verification (manual run or test invocation, fix anything
+  broken)
+
+Some features need more phases, some fewer. The point is that each
+phase is self-contained enough to be DONE on its own, with a verifiable
+result.
