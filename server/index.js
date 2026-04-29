@@ -418,9 +418,23 @@ httpServer = app.listen(PORT, () => {
 
   const config = getConfig();
   if (config.token && config.repos.length) {
-    console.log("  Auto-building " + config.repos.length + " repo(s)...");
+    // Skip branches that rehydrated cleanly from disk — clobbering a known-
+    // ready state with a fresh build would put already-built branches into
+    // the "building → maybe error" window unnecessarily, and on flaky
+    // networks (Termux, transient outages) it strands previously-working
+    // branches as "Failed" until the next manual rebuild. Only kick off
+    // a build for branches without artifacts on disk.
+    const { buildStatus, buildKey } = require("./build");
+    let queued = 0, skipped = 0;
     for (const repo of config.repos) {
-      for (const bc of repo.activeBranches || []) deployBranch(repo, bc);
+      for (const bc of repo.activeBranches || []) {
+        const k = buildKey(repo.owner, repo.repo, bc);
+        const slot = buildStatus[k];
+        if (slot && slot.status === "ready" && slot.outputPath) { skipped++; continue; }
+        deployBranch(repo, bc);
+        queued++;
+      }
     }
+    if (queued || skipped) console.log("  Auto-build: " + queued + " queued, " + skipped + " skipped (already ready)");
   }
 });
