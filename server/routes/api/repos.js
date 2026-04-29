@@ -93,6 +93,12 @@ router.post("/repos", (req, res) => {
     return res.status(400).json({ error: "Invalid repo name" });
   }
   const id = owner + "/" + repo;
+  // activeBranches must be an array (or absent). A bare string / object
+  // / number used to crash with `.map is not a function` and surface as
+  // a 500. Validate early so the client gets a 400 with a useful message.
+  if (activeBranches != null && !Array.isArray(activeBranches)) {
+    return res.status(400).json({ error: "activeBranches must be an array" });
+  }
   // GitHub treats owner/repo as case-insensitive (Foo/Bar == foo/bar);
   // duplicate detection has to too, otherwise the same repo gets added
   // twice with different cases and the second clone fails over the

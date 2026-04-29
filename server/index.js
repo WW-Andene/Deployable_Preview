@@ -86,6 +86,15 @@ if (isTermux) {
 loadConfig();
 migrateConfig();
 
+// Rehydrate build state from disk so a server restart doesn't strand
+// already-built branches in the "Never built" / "AWAITING BUILD" state.
+try {
+  const { rehydrateBuildStatus } = require("./build");
+  rehydrateBuildStatus(getConfig());
+} catch (e) {
+  console.warn("[build] Rehydrate skipped: " + (e && e.message));
+}
+
 const app = express();
 app.use(express.json({
   verify: (req, _res, buf) => { req.rawBody = buf; }  // preserve raw body for webhook HMAC
@@ -222,9 +231,23 @@ app.use(previewRoutes);
 // ── Global error handler ──
 app.use((err, req, res, _next) => {
   console.error("[ERROR] " + req.method + " " + req.url + ":", err.message);
-  if (!res.headersSent) {
-    res.status(500).json({ error: "Internal server error" });
+  if (res.headersSent) return;
+  // Body parse failures (malformed/oversized JSON) are client errors, not
+  // server faults. Surface 400 with the parse message instead of a flat
+  // 500 + "Internal server error" — otherwise every malformed-payload
+  // request looks like the server crashing.
+  const parseFailure = err && (
+    err.type === "entity.parse.failed" ||
+    err instanceof SyntaxError ||
+    /^Unexpected token|^Unterminated|JSON/.test(err.message || "")
+  );
+  if (parseFailure) {
+    return res.status(400).json({ error: "Invalid JSON: " + err.message });
   }
+  if (err && err.type === "entity.too.large") {
+    return res.status(413).json({ error: "Request body too large" });
+  }
+  res.status(500).json({ error: "Internal server error" });
 });
 
 // ── Graceful shutdown ──
@@ -395,9 +418,23 @@ httpServer = app.listen(PORT, () => {
 
   const config = getConfig();
   if (config.token && config.repos.length) {
-    console.log("  Auto-building " + config.repos.length + " repo(s)...");
+    // Skip branches that rehydrated cleanly from disk — clobbering a known-
+    // ready state with a fresh build would put already-built branches into
+    // the "building → maybe error" window unnecessarily, and on flaky
+    // networks (Termux, transient outages) it strands previously-working
+    // branches as "Failed" until the next manual rebuild. Only kick off
+    // a build for branches without artifacts on disk.
+    const { buildStatus, buildKey } = require("./build");
+    let queued = 0, skipped = 0;
     for (const repo of config.repos) {
-      for (const bc of repo.activeBranches || []) deployBranch(repo, bc);
+      for (const bc of repo.activeBranches || []) {
+        const k = buildKey(repo.owner, repo.repo, bc);
+        const slot = buildStatus[k];
+        if (slot && slot.status === "ready" && slot.outputPath) { skipped++; continue; }
+        deployBranch(repo, bc);
+        queued++;
+      }
     }
+    if (queued || skipped) console.log("  Auto-build: " + queued + " queued, " + skipped + " skipped (already ready)");
   }
 });

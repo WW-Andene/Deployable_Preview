@@ -615,7 +615,9 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
 .card {
   /* Rest: tonal surface 1, subtle border, palette-derived shadow */
   position: relative;
-  overflow: hidden;
+  /* No overflow:hidden — would clip the action-menu popover that
+     extends below the last branch row. The .card::before stripe
+     rounds its own left corners to match the card. */
   background: var(--sf1);
   border: 1px solid var(--border);
   border-radius: var(--r-card);
@@ -635,6 +637,9 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
   position: absolute;
   top: 0; left: 0; bottom: 0;
   width: 3px;
+  /* Round left corners to match the card — the card no longer
+     clips overflow, so the stripe must self-round. */
+  border-radius: var(--r-card) 0 0 var(--r-card);
   background: linear-gradient(180deg, var(--accent), transparent 80%);
   opacity: 0;
   transition: opacity var(--dur-enter) var(--ease-physical);
