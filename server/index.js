@@ -86,6 +86,15 @@ if (isTermux) {
 loadConfig();
 migrateConfig();
 
+// Rehydrate build state from disk so a server restart doesn't strand
+// already-built branches in the "Never built" / "AWAITING BUILD" state.
+try {
+  const { rehydrateBuildStatus } = require("./build");
+  rehydrateBuildStatus(getConfig());
+} catch (e) {
+  console.warn("[build] Rehydrate skipped: " + (e && e.message));
+}
+
 const app = express();
 app.use(express.json({
   verify: (req, _res, buf) => { req.rawBody = buf; }  // preserve raw body for webhook HMAC

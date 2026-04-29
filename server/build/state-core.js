@@ -138,6 +138,71 @@ try {
   });
 } catch (_) { /* config module not yet loaded — pruning will not register */ }
 
+// ── Rehydrate from disk on startup ─────────────────────────────────────────
+// buildStatus lives in memory; a process restart wipes it. Build artifacts
+// remain on disk in workspace/owner__repo__slug/<outputDir>, so without
+// rehydration the dashboard reports "Idle / Never built" and the preview
+// view shows "AWAITING BUILD" even though /preview/.../  would still serve
+// the artifacts. Walk the config + workspace and reconstruct the minimum
+// state (status: ready, outputPath, lastBuild from mtime) for every branch
+// whose output dir exists.
+
+function rehydrateBuildStatus(config) {
+  if (!config || !Array.isArray(config.repos)) return 0;
+  let restored = 0;
+  // Lazy-require to avoid a circular dep with detect.js consumers.
+  let outputSearchPaths;
+  try { ({ outputSearchPaths } = require("./detect")); } catch (_) { outputSearchPaths = null; }
+
+  for (const repo of config.repos) {
+    for (const bc of (repo.activeBranches || [])) {
+      const key = buildKey(repo.owner, repo.repo, bc);
+      if (buildStatus[key] && buildStatus[key].status) continue;
+
+      const workDir = getBranchDir(repo.owner, repo.repo, bc);
+      if (!fs.existsSync(workDir)) continue;
+
+      // Resolve output dir: explicit branch → repo → language defaults
+      const language = bc.language || "auto";
+      const candidates = [];
+      if (bc.outputDir) candidates.push(bc.outputDir);
+      if (repo.outputDir) candidates.push(repo.outputDir);
+      if (outputSearchPaths) candidates.push(...outputSearchPaths(language === "auto" ? "nodejs" : language));
+      else candidates.push("dist", "build", "out", "web-build", "public");
+
+      let outputPath = null;
+      for (const cand of candidates) {
+        if (!cand) continue;
+        const candPath = path.join(workDir, cand);
+        if (fs.existsSync(candPath) && fs.statSync(candPath).isDirectory()) {
+          // Sanity: must contain at least one file (avoid hitting an empty
+          // build/ dir created mid-flight).
+          try {
+            if (fs.readdirSync(candPath).length > 0) { outputPath = candPath; break; }
+          } catch (_) { /* unreadable — skip */ }
+        }
+      }
+      if (!outputPath) continue;
+
+      const stat = fs.statSync(outputPath);
+      buildStatus[key] = {
+        status: "ready",
+        log: "",
+        lastBuild: stat.mtimeMs,
+        commitSha: "",
+        mode: bc.mode || "static",
+        outputPath,
+        outputDir: path.relative(workDir, outputPath),
+        workDir,
+        rehydrated: true
+      };
+      restored++;
+    }
+  }
+  if (restored) console.log("[build] Rehydrated " + restored + " branch state(s) from disk");
+  return restored;
+}
+
 module.exports = {
   WORKSPACE,
   MAX_CONCURRENT_BUILDS,
@@ -149,5 +214,8 @@ module.exports = {
   getBranchDir,
   buildKey,
   keyFromSlug,
-  createLogger
+  createLogger,
+  rehydrateBuildStatus
 };
+
+
