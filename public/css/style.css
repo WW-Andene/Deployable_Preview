@@ -42,7 +42,9 @@
    PROPORTIONS: 7px spacing base (instant non-default).
    ═══════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
+/* Both Space Grotesk and JetBrains Mono are already loaded via <link> in
+   index.html (preconnect + display=swap). The @import here only covered
+   Space Grotesk and was a redundant render-blocking request. Removed. */
 
 /* ══════════════════════════════════════════════════
    §1 — DESIGN TOKENS (Variables)
@@ -55,6 +57,7 @@
   --hue-text: 75;      /* warm amber-leaning text family */
   --hue-accent: 75;    /* signature amber */
   --hue-err: 28;       /* warm error */
+  --hue-warn: 55;      /* orange warning — hotter than accent (75), cooler than err (28) */
   --hue-ok: 165;       /* cool-warm split for success */
   --hue-run: 245;      /* monochromatic blue for "running" semantic */
 
@@ -93,6 +96,10 @@
   --accent-glow-strong: oklch(73% 0.135 var(--hue-accent) / 0.10);
   --accent-bg-faint:    rgba(212,160,48,.03);
   --accent-bg-faint:    oklch(73% 0.135 var(--hue-accent) / 0.03);
+  --warn:       #d07820;
+  --warn:       oklch(65% 0.155 var(--hue-warn)); /* orange — distinct from amber accent */
+  --warn-dim:   rgba(208,120,32,.10);
+  --warn-dim:   oklch(65% 0.155 var(--hue-warn) / 0.10);
   --err:        #c45040;
   --err:        oklch(60% 0.165 var(--hue-err));
   --err-dim:    rgba(196,80,64,.10);
@@ -258,9 +265,6 @@ body::after {
   z-index: 0;
   mix-blend-mode: multiply;
   opacity: 0.6;
-}
-@media (prefers-reduced-motion: no-preference) {
-  /* Respect users who don't want any extra visual texture. */
 }
 #app { position: relative; z-index: 1; }
 
@@ -1068,7 +1072,9 @@ button:active { transform: translateY(1px) scale(0.97); transition-duration: 50m
   flex-wrap: wrap;
   margin-bottom: var(--sp);
   position: relative;
-  overflow: hidden;
+  /* No overflow:hidden — would clip the absolutely-positioned
+     .action-menu popover (top:100%) inside the row. The bottom
+     loading bar self-rounds to match this row's corners. */
   transition: border-color var(--dur-enter) var(--ease-fast), background var(--dur-enter) var(--ease-fast);
   min-height: 44px; /* touch target */
 }
@@ -1514,7 +1520,7 @@ button:disabled, button[disabled] {
   padding: 100px 20px;
   text-align: center;
 }
-.setup-logo {
+.brand-monogram {
   font-size: var(--text-3xl);
   font-family: var(--font-mono);
   font-weight: 700;
@@ -1555,43 +1561,6 @@ button:disabled, button[disabled] {
   min-width: 100px;
 }
 
-/* ─── dashboard.js ─── */
-.dashboard-page {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: calc(var(--sp) * 3) calc(var(--sp) * 2.5);
-}
-.empty-state {
-  text-align: center;
-  padding: 100px 20px;
-}
-.empty-logo {
-  font-size: var(--text-3xl);
-  font-family: var(--font-mono);
-  font-weight: 700;
-  color: var(--accent);
-  margin-bottom: 24px;
-  text-shadow: 0 0 24px var(--accent-glow);
-}
-.empty-title {
-  font-size: var(--text-2xl);
-  font-weight: 700;
-  margin-bottom: 8px;
-  letter-spacing: -0.04em;
-}
-.empty-subtitle {
-  color: var(--tx2);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  max-width: 400px;
-  margin: 0 auto 32px;
-  line-height: 1.8;
-  letter-spacing: 0.01em;
-}
-.empty-cta {
-  padding: 10px 28px;
-  font-size: 14px;
-}
 
 /* Branch row status left-border colors */
 .branch-row-ready    { border-left-color: var(--ok); }
@@ -1633,18 +1602,18 @@ button:disabled, button[disabled] {
   flex-shrink: 0;
 }
 
-/* Loading bar positioned at bottom of branch row */
+/* Loading bar positioned at bottom of branch row.
+   Rounds its own bottom corners to match the parent row's
+   border-radius — the row no longer uses overflow:hidden so
+   the bar must clip itself. */
 .branch-loading {
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
+  border-radius: 0 0 var(--r-input) var(--r-input);
 }
 
-/* Stat color accents (used in dashboard.js for stat-num) */
-.color-stat-ok      { color: var(--ok); }
-.color-stat-accent  { color: var(--accent); }
-.color-stat-err     { color: var(--err); }
 
 /* Disabled-look for preview/action buttons on non-ready branches */
 .opacity-dim {
@@ -1686,7 +1655,7 @@ button:disabled, button[disabled] {
 .error-text {
   color: var(--err);
   font-size: 12px;
-  font-family: monospace;
+  font-family: var(--font-mono);
   display: none;
 }
 .form-section {
@@ -1715,7 +1684,7 @@ button:disabled, button[disabled] {
 .label-hint-12 {
   color: var(--tx3);
   font-size: 12px;
-  font-family: monospace;
+  font-family: var(--font-mono);
   margin-top: 4px;
 }
 .chip-row {
@@ -2396,7 +2365,7 @@ button:disabled, button[disabled] {
 }
 .preview-empty-text {
   color: var(--tx3);
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 .select-inline {
@@ -2404,7 +2373,7 @@ button:disabled, button[disabled] {
   min-width: 150px;
   padding: 8px;
   font-size: 13px;
-  font-family: monospace;
+  font-family: var(--font-mono);
   background: var(--bg);
   border: 1.5px solid var(--border);
   color: var(--tx1);
@@ -2503,7 +2472,7 @@ button:disabled, button[disabled] {
   gap: 6px;
 }
 .frame-branch-status {
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 .frame-branch-status-ok { color: var(--ok); }
@@ -3084,7 +3053,9 @@ body.dv-mounted::before {
 }
 .color-err { color: var(--err); }
 .color-ok  { color: var(--ok);  }
-.color-warn { color: var(--accent); }
+/* --warn is hue 55 orange, visually distinct from --accent (hue 75 amber).
+   Use for non-critical caution states (e.g. bundle-size growth, deprecation). */
+.color-warn { color: var(--warn); }
 
 /* ══════════════════════════════════════════════════
    §APK-WD — APK working-directory input row

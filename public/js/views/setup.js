@@ -46,7 +46,7 @@ DV.views.setup = function(app) {
   inp.addEventListener("keydown", function(e) { if (e.key === "Enter") submit(); });
 
   app.appendChild(el("div", { c: "setup-page" }, [
-    el("div", { c: "setup-logo" }, "DV"),
+    el("div", { c: "brand-monogram" }, "DV"),
     el("h1", { c: "setup-title" }, [
       el("span", { c: "color-accent" }, "Deploy"),
       el("span", { c: "color-tx2" }, "View")
