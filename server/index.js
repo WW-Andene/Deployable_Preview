@@ -231,9 +231,23 @@ app.use(previewRoutes);
 // ── Global error handler ──
 app.use((err, req, res, _next) => {
   console.error("[ERROR] " + req.method + " " + req.url + ":", err.message);
-  if (!res.headersSent) {
-    res.status(500).json({ error: "Internal server error" });
+  if (res.headersSent) return;
+  // Body parse failures (malformed/oversized JSON) are client errors, not
+  // server faults. Surface 400 with the parse message instead of a flat
+  // 500 + "Internal server error" — otherwise every malformed-payload
+  // request looks like the server crashing.
+  const parseFailure = err && (
+    err.type === "entity.parse.failed" ||
+    err instanceof SyntaxError ||
+    /^Unexpected token|^Unterminated|JSON/.test(err.message || "")
+  );
+  if (parseFailure) {
+    return res.status(400).json({ error: "Invalid JSON: " + err.message });
   }
+  if (err && err.type === "entity.too.large") {
+    return res.status(413).json({ error: "Request body too large" });
+  }
+  res.status(500).json({ error: "Internal server error" });
 });
 
 // ── Graceful shutdown ──
