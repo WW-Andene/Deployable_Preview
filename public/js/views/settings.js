@@ -208,7 +208,12 @@ DV.views.settings = function(app) {
       var clean = line.replace(/^export\s+/i, "");
       var eq = clean.indexOf("=");
       if (eq <= 0) { skipped.push(i + 1); continue; }
-      var k = clean.slice(0, eq).trim();
+      // Normalize key to uppercase for parity with the single-key
+      // adder. Detection elsewhere (e.g. BROWSERLESS_API_KEY in the
+      // browser-engine row) compares case-sensitively, so a paste
+      // of `browserless_api_key=…` would save under the wrong name
+      // and silently fail to be recognized.
+      var k = clean.slice(0, eq).trim().toUpperCase();
       var v = clean.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
       if (k && v) {
         if (/\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*/.test(v)) interpolated.push(k);
@@ -794,7 +799,7 @@ DV.views.settings = function(app) {
           // copy-paste the same .env between the two textareas.
           t = t.replace(/^export\s+/i, "");
           var eq = t.indexOf("="); if (eq < 1) return;
-          var k = t.slice(0, eq).trim();
+          var k = t.slice(0, eq).trim().toUpperCase();
           // Strip a single matched layer of leading/trailing quotes.
           var v = t.slice(eq + 1).trim().replace(/^"(.*)"$|^'(.*)'$/, "$1$2");
           if (/\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*/.test(v)) interpolated.push(k);
@@ -831,7 +836,7 @@ DV.views.settings = function(app) {
         // strip matching wrap quotes, warn on $VAR / ${VAR}.
         t = t.replace(/^export\s+/i, "");
         var eq = t.indexOf("="); if (eq < 1) return;
-        var k = t.slice(0, eq).trim();
+        var k = t.slice(0, eq).trim().toUpperCase();
         var v = t.slice(eq + 1).trim().replace(/^"(.*)"$|^'(.*)'$/, "$1$2");
         if (!v) return;
         if (/\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*/.test(v)) interpolated.push(k);
