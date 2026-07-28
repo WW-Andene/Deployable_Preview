@@ -93,20 +93,45 @@ function ghRawGet(url, token) {
 
 function bridgeScript() {
   return [
-    "import http.server, socketserver, subprocess, json, os, urllib.parse, time",
+    "import http.server, socketserver, subprocess, json, os, re, urllib.parse, time",
+    "import xml.etree.ElementTree as ET",
     "TOKEN = os.environ['DV_BRIDGE_TOKEN']",
     "class H(http.server.BaseHTTPRequestHandler):",
     "    def _auth(self):",
     "        return self.headers.get('Authorization') == 'Bearer ' + TOKEN",
     "    def _adb(self, *args):",
     "        return subprocess.run(['adb', *args], capture_output=True)",
+    "    def _json(self, obj, status=200):",
+    "        body = json.dumps(obj).encode()",
+    "        self.send_response(status); self.send_header('Content-Type', 'application/json'); self.end_headers()",
+    "        self.wfile.write(body)",
+    "    def _screenshot_response(self):",
+    "        time.sleep(0.15)",
+    "        r = self._adb('exec-out', 'screencap', '-p')",
+    "        self.send_response(200); self.send_header('Content-Type', 'image/png'); self.end_headers()",
+    "        self.wfile.write(r.stdout)",
+    // Resolves a UI element by exact text or resource-id from a fresh
+    // uiautomator dump and returns its bounds' center point — lets a
+    // caller tap "the element labeled X" instead of having to read pixel
+    // coordinates off a screenshot first.
+    "    def _find_element_center(self, text=None, resource_id=None):",
+    "        self._adb('shell', 'uiautomator', 'dump', '/sdcard/dv_ui.xml')",
+    "        r = self._adb('shell', 'cat', '/sdcard/dv_ui.xml')",
+    "        root = ET.fromstring(r.stdout.decode('utf8', 'ignore'))",
+    "        for node in root.iter('node'):",
+    "            if text is not None and node.get('text') == text: pass",
+    "            elif resource_id is not None and node.get('resource-id') == resource_id: pass",
+    "            else: continue",
+    "            m = re.match(r'\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]', node.get('bounds') or '')",
+    "            if not m: continue",
+    "            x1, y1, x2, y2 = (int(v) for v in m.groups())",
+    "            return (x1 + x2) // 2, (y1 + y2) // 2",
+    "        return None",
     "    def do_GET(self):",
     "        if not self._auth():",
     "            self.send_response(401); self.end_headers(); return",
     "        if self.path == '/screenshot':",
-    "            r = self._adb('exec-out', 'screencap', '-p')",
-    "            self.send_response(200); self.send_header('Content-Type', 'image/png'); self.end_headers()",
-    "            self.wfile.write(r.stdout)",
+    "            self._screenshot_response()",
     "        elif self.path == '/ui':",
     "            self._adb('shell', 'uiautomator', 'dump', '/sdcard/dv_ui.xml')",
     "            r = self._adb('shell', 'cat', '/sdcard/dv_ui.xml')",
@@ -119,6 +144,32 @@ function bridgeScript() {
     "            self.send_response(401); self.end_headers(); return",
     "        length = int(self.headers.get('Content-Length', 0))",
     "        body = json.loads(self.rfile.read(length) or b'{}')",
+    // Debug-mode endpoints: audit what's actually running instead of only
+    // driving it visually. /shell is intentionally general — this is
+    // throwaway CI infrastructure scoped to one session, not a real
+    // device, so there's no meaningful blast radius to restricting it.
+    "        if self.path == '/shell':",
+    "            r = self._adb('shell', body.get('cmd', ''))",
+    "            self._json({ 'stdout': r.stdout.decode('utf8', 'ignore'), 'stderr': r.stderr.decode('utf8', 'ignore'), 'exitCode': r.returncode })",
+    "            return",
+    "        if self.path == '/logcat':",
+    "            lines = int(body.get('lines', 300))",
+    "            args = ['-d', '-v', 'time']",
+    "            if body.get('pkg'):",
+    "                pid = self._adb('shell', 'pidof', body['pkg']).stdout.decode().strip()",
+    "                if pid: args = ['-d', '-v', 'time', '--pid=' + pid]",
+    "            r = subprocess.run(['adb', 'logcat'] + args, capture_output=True)",
+    "            text = r.stdout.decode('utf8', 'ignore')",
+    "            self._json({ 'log': '\\n'.join(text.splitlines()[-lines:]) })",
+    "            return",
+    "        if self.path == '/tap_element':",
+    "            center = self._find_element_center(text=body.get('text'), resource_id=body.get('resourceId'))",
+    "            if not center:",
+    "                self._json({ 'error': 'No element matched text=' + repr(body.get('text')) + ' resourceId=' + repr(body.get('resourceId')) }, 404)",
+    "                return",
+    "            self._adb('shell', 'input', 'tap', str(center[0]), str(center[1]))",
+    "            self._screenshot_response()",
+    "            return",
     "        if self.path == '/tap':",
     "            self._adb('shell', 'input', 'tap', str(body['x']), str(body['y']))",
     "        elif self.path == '/swipe':",
@@ -134,10 +185,7 @@ function bridgeScript() {
     // action, then a *separate* GET /screenshot from the client). Each
     // round-trip pays the full tunnel + GitHub Actions runner latency, so
     // this is a real, not cosmetic, cut to the lag the user reported.
-    "        time.sleep(0.15)",
-    "        r = self._adb('exec-out', 'screencap', '-p')",
-    "        self.send_response(200); self.send_header('Content-Type', 'image/png'); self.end_headers()",
-    "        self.wfile.write(r.stdout)",
+    "        self._screenshot_response()",
     "    def log_message(self, *a): pass",
     // Threaded, not plain HTTPServer: a browser refresh and a concurrent
     // MCP tool call (Claude calling android_screenshot/tap directly)

@@ -191,4 +191,80 @@ dv.defineTool({
   }
 });
 
+dv.defineTool({
+  name: "android_tap_element",
+  category: "interact",
+  description: [
+    "Tap a UI element by its exact text or resource-id instead of pixel coordinates — resolved from a fresh",
+    "uiautomator dump, so it doesn't depend on reading a screenshot first. Fails with a clear error if no",
+    "element matches, rather than silently tapping the wrong spot. Returns a screenshot after the tap."
+  ].join(" "),
+  schema: {
+    type: "object",
+    properties: {
+      owner: { type: "string" }, repo: { type: "string" }, slug: { type: "string" },
+      text: { type: "string", description: "Exact visible text of the target element" },
+      resourceId: { type: "string", description: "Exact android:id resource-id of the target element (e.g. com.app:id/submit_button)" }
+    },
+    required: ["owner", "repo", "slug"]
+  },
+  async handler(args) {
+    if (!args.text && !args.resourceId) return dv.fail("Provide text or resourceId");
+    try {
+      const { buffer, contentType } = await bridgeRequest(keyOf(args), "POST", "/tap_element", { text: args.text, resourceId: args.resourceId });
+      if (contentType && contentType.indexOf("json") !== -1) {
+        return dv.fail(JSON.parse(buffer.toString("utf8")).error || "Element not found");
+      }
+      return dv.imageWithJson(buffer.toString("base64"), "image/png", { ok: true });
+    } catch (e) { return dv.fail(e.message); }
+  }
+});
+
+dv.defineTool({
+  name: "android_logcat",
+  category: "audit",
+  description: "Read recent logcat output from the live session — the app's own console/exception output, for auditing what the running code actually did instead of only what it visually shows.",
+  schema: {
+    type: "object",
+    properties: {
+      owner: { type: "string" }, repo: { type: "string" }, slug: { type: "string" },
+      lines: { type: "number", description: "Max lines to return, default 300" },
+      pkg: { type: "string", description: "Filter to one process's PID (e.g. the app's package name) — omit for the full system log" }
+    },
+    required: ["owner", "repo", "slug"]
+  },
+  async handler(args) {
+    try {
+      const { buffer } = await bridgeRequest(keyOf(args), "POST", "/logcat", { lines: args.lines || 300, pkg: args.pkg });
+      const parsed = JSON.parse(buffer.toString("utf8"));
+      return dv.text(parsed.log || "");
+    } catch (e) { return dv.fail(e.message); }
+  }
+});
+
+dv.defineTool({
+  name: "android_shell",
+  category: "audit",
+  description: [
+    "Run an arbitrary `adb shell` command on the live session's emulator — dumpsys, pm, content query,",
+    "am start with a deep-link URI to jump straight to a screen/feature, etc. This is throwaway CI",
+    "infrastructure scoped to one session, not the user's real device — safe to be broad with it.",
+    "Returns stdout/stderr/exitCode, no screenshot (use android_screenshot separately if you need one)."
+  ].join(" "),
+  schema: {
+    type: "object",
+    properties: {
+      owner: { type: "string" }, repo: { type: "string" }, slug: { type: "string" },
+      cmd: { type: "string", description: "Command to run under `adb shell`, e.g. 'dumpsys activity activities' or 'am start -a android.intent.action.VIEW -d myapp://route'" }
+    },
+    required: ["owner", "repo", "slug", "cmd"]
+  },
+  async handler(args) {
+    try {
+      const { buffer } = await bridgeRequest(keyOf(args), "POST", "/shell", { cmd: args.cmd });
+      return dv.jsonText(JSON.parse(buffer.toString("utf8")));
+    } catch (e) { return dv.fail(e.message); }
+  }
+});
+
 module.exports = {};

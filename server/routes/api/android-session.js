@@ -77,7 +77,10 @@ router.post("/android-session/:owner/:repo/input", async (req, res) => {
   const key = keyOf(req);
   if (!key) return res.status(400).json({ error: "slug query param required" });
   const { action, ...body } = req.body || {};
-  const paths = { tap: "/tap", swipe: "/swipe", text: "/text", key: "/key", ui: "/ui" };
+  const paths = {
+    tap: "/tap", swipe: "/swipe", text: "/text", key: "/key", ui: "/ui",
+    shell: "/shell", logcat: "/logcat", tapElement: "/tap_element"
+  };
   if (!paths[action]) return res.status(400).json({ error: "action must be one of: " + Object.keys(paths).join(", ") });
   try {
     const method = action === "ui" ? "GET" : "POST";
