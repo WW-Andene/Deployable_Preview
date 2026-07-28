@@ -300,8 +300,19 @@ function makeSessionWorkflow(workingDir, timeoutMinutes, branchName) {
     // monkey only needs the package name (launches its default LAUNCHER
     // activity) — skips the second point of failure of resolving the
     // exact launchable-activity class name for `am start -n pkg/activity`.
+    // Confirmed on a real run with a correctly-resolved package name:
+    // monkey still said "No activities found to run" fired ~275ms after
+    // `adb install` reported Success — the package manager hadn't
+    // finished registering the app's components yet. Retry with backoff
+    // instead of a single fixed sleep (boot/install speed varies a lot
+    // between runner instances).
     "          if [ -n \"$PKG\" ]; then",
-    "            adb shell monkey -p \"$PKG\" -c android.intent.category.LAUNCHER 1",
+    "            for i in 1 2 3 4 5; do",
+    "              if adb shell monkey -p \"$PKG\" -c android.intent.category.LAUNCHER 1 2>&1 | grep -q 'Events injected'; then",
+    "                break",
+    "              fi",
+    "              sleep 2",
+    "            done",
     "          else",
     "            echo \"WARNING: could not determine package name — app installed but not auto-launched\"",
     "          fi",
