@@ -77,16 +77,19 @@ function findOutputDir(owner, repo, slug) {
   return null;
 }
 
-// "Not Built Yet" placeholder with configurable refresh
-// ?refresh=N (seconds), ?refresh=0 or ?refresh=off to disable
+// "Not Built Yet" placeholder — no auto-refresh unless explicitly asked
+// for via ?refresh=N (seconds). Off by default: this page gets loaded
+// fresh on every automated navigation (Claude's MCP browser/screenshot
+// tools included), so a default-on <meta http-equiv="refresh"> was a
+// browser-native reload loop that no client-side "disable all timers"
+// fix could ever touch — each fresh load re-armed it regardless.
 function notBuiltPage(statusText, req) {
   var raw = (req.query.refresh || "").toLowerCase();
-  var disabled = raw === "0" || raw === "off" || raw === "false" || raw === "no";
-  var rate = disabled ? 0 : (parseInt(raw) > 0 ? parseInt(raw) : 5);
+  var rate = (parseInt(raw, 10) > 0) ? parseInt(raw, 10) : 0;
   var metaTag = rate > 0 ? '<meta http-equiv="refresh" content="' + rate + '">' : '';
   var refreshMsg = rate > 0
-    ? '<p>Auto-refreshes every ' + rate + 's. <a href="?refresh=off" style="color:#d4a030">Disable</a></p>'
-    : '<p>Auto-refresh disabled. <a href="?" style="color:#d4a030">Enable (5s)</a> · <button onclick="location.reload()" style="background:none;border:none;color:#d4a030;cursor:pointer;font-size:13px;text-decoration:underline;padding:0">Refresh now</button></p>';
+    ? '<p>Auto-refreshes every ' + rate + 's. <a href="?" style="color:#d4a030">Disable</a></p>'
+    : '<p>Auto-refresh off. <a href="?refresh=5" style="color:#d4a030">Enable (5s)</a> · <button onclick="location.reload()" style="background:none;border:none;color:#d4a030;cursor:pointer;font-size:13px;text-decoration:underline;padding:0">Refresh now</button></p>';
   return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Not Built Yet</title>'
     + '<style>body{background:#090a10;color:#e6e1d5;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}div{text-align:center}h1{color:#d4a030;font-size:18px}p{color:#9e9890;font-size:13px;margin:8px 0}a{text-decoration:underline}.status{display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-family:monospace;background:rgba(212,160,48,.1);color:#d4a030;border:1px solid rgba(212,160,48,.2)}</style>'
     + metaTag
