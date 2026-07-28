@@ -22,6 +22,9 @@ DV.renderAndroidLive = function (container, owner, repo, slug) {
   if (S._androidPollTimer) { clearInterval(S._androidPollTimer); S._androidPollTimer = null; }
   if (S._androidStatusTimer) { clearTimeout(S._androidStatusTimer); S._androidStatusTimer = null; }
   if (S._androidSSE) { try { S._androidSSE.close(); } catch (_) {} S._androidSSE = null; }
+  // Force poll() to render fresh on this mount rather than assuming the
+  // previously-mounted panel's last-seen status still applies.
+  S._androidLastRenderedStatus = null;
 
   var panel = el("div", { c: "android-live-panel" });
   container.appendChild(panel);
@@ -175,10 +178,23 @@ DV.renderAndroidLive = function (container, owner, repo, slug) {
   function poll() {
     api("GET", statusApi(owner, repo, slug)).then(function (st) {
       st = st || { status: "idle" };
-      if (st.status === "starting") renderStarting(st);
-      else if (st.status === "ready") renderReady(st);
-      else if (st.status === "error" || st.status === "stopped") renderStoppedOrError(st);
-      else renderIdle(st);
+      // Only tear down and rebuild the panel on an actual status change.
+      // renderReady() wipes body.innerHTML and creates a fresh <img> —
+      // calling it on every 4s status tick (even while status stayed
+      // "ready") destroyed and recreated the live screenshot in a loop,
+      // which is exactly what looked like "the preview disappears after
+      // a few seconds": the image kept getting yanked out and had to
+      // reload from scratch every single poll, forever. The screenshot
+      // itself already refreshes on its own independent ~900ms timer
+      // (S._androidPollTimer, started once inside renderReady) — the
+      // status poll only needs to notice ready→stopped/error transitions.
+      if (st.status !== S._androidLastRenderedStatus) {
+        S._androidLastRenderedStatus = st.status;
+        if (st.status === "starting") renderStarting(st);
+        else if (st.status === "ready") renderReady(st);
+        else if (st.status === "error" || st.status === "stopped") renderStoppedOrError(st);
+        else renderIdle(st);
+      }
 
       // Keep polling status while a session is starting or ready — a
       // ready session can flip to error/stopped server-side (job
