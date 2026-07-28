@@ -307,12 +307,26 @@ function makeSessionWorkflow(workingDir, timeoutMinutes, branchName) {
     // instead of a single fixed sleep (boot/install speed varies a lot
     // between runner instances).
     "          if [ -n \"$PKG\" ]; then",
+    "            LAUNCHED=0",
     "            for i in 1 2 3 4 5; do",
-    "              if adb shell monkey -p \"$PKG\" -c android.intent.category.LAUNCHER 1 2>&1 | grep -q 'Events injected'; then",
-    "                break",
-    "              fi",
+    // grep -q previously swallowed monkey's actual output from the log
+    // entirely (silent by design) — made a real failure indistinguishable
+    // from "all 5 attempts happened to fail". tee it through instead so
+    // the log always shows what monkey actually did.
+    "              MONKEY_OUT=$(adb shell monkey -p \"$PKG\" -c android.intent.category.LAUNCHER 1 2>&1)",
+    "              echo \"$MONKEY_OUT\"",
+    "              if echo \"$MONKEY_OUT\" | grep -q 'Events injected'; then LAUNCHED=1; break; fi",
     "              sleep 2",
     "            done",
+    "            echo \"launch attempt result: LAUNCHED=$LAUNCHED\"",
+    // Best-effort crash dump: if the app opened then immediately crashed
+    // back to the launcher (would look like exactly what got reported —
+    // the home screen flashing back after a few seconds), this surfaces
+    // the actual exception in the log instead of leaving it a mystery.
+    "            sleep 3",
+    "            echo '--- logcat crash check ---'",
+    "            adb logcat -d -b crash 2>&1 | tail -n 60",
+    "            adb shell dumpsys activity activities 2>&1 | grep -i 'mResumedActivity\\|topResumedActivity' | head -n 3",
     "          else",
     "            echo \"WARNING: could not determine package name — app installed but not auto-launched\"",
     "          fi",
