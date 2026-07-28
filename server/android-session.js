@@ -266,10 +266,30 @@ function makeSessionWorkflow(workingDir, timeoutMinutes, branchName) {
     // runner step would actually reach its internal script execution.
     "          GH_TOKEN='${{ secrets.GITHUB_TOKEN }}'",
     "          APK=\"$APK_PATH\"",
-    "          PKG=$(${ANDROID_SDK_ROOT}/build-tools/*/aapt dump badging \"$APK\" | grep package: | sed -e \"s/.*name='//\" -e \"s/'.*//\")",
-    "          ACT=$(${ANDROID_SDK_ROOT}/build-tools/*/aapt dump badging \"$APK\" | grep launchable-activity | sed -e \"s/.*name='//\" -e \"s/'.*//\")",
+    // A glob against a single build-tools version directory is fragile —
+    // confirmed on a real run: it resolved to a build-tools/35.0.0/aapt
+    // that isn't the real binary and errors "Unknown command". Search
+    // for aapt2 (more consistently present across SDK versions) instead,
+    // and fall back to apkanalyzer (bundled in cmdline-tools specifically
+    // for this) if aapt2 comes up empty.
+    "          PKG=\"\"",
+    "          AAPT2=$(find \"$ANDROID_SDK_ROOT\" -type f -name aapt2 2>/dev/null | head -n1)",
+    "          if [ -n \"$AAPT2\" ]; then",
+    "            PKG=$(\"$AAPT2\" dump badging \"$APK\" 2>/dev/null | grep package: | sed -e \"s/.*name='//\" -e \"s/'.*//\")",
+    "          fi",
+    "          if [ -z \"$PKG\" ]; then",
+    "            APKANALYZER=$(find \"$ANDROID_SDK_ROOT/cmdline-tools\" -type f -name apkanalyzer 2>/dev/null | head -n1)",
+    "            [ -n \"$APKANALYZER\" ] && PKG=$(\"$APKANALYZER\" manifest application-id \"$APK\" 2>/dev/null)",
+    "          fi",
     "          adb install -r \"$APK\"",
-    "          adb shell am start -n \"$PKG/$ACT\"",
+    // monkey only needs the package name (launches its default LAUNCHER
+    // activity) — skips the second point of failure of resolving the
+    // exact launchable-activity class name for `am start -n pkg/activity`.
+    "          if [ -n \"$PKG\" ]; then",
+    "            adb shell monkey -p \"$PKG\" -c android.intent.category.LAUNCHER 1",
+    "          else",
+    "            echo \"WARNING: could not determine package name — app installed but not auto-launched\"",
+    "          fi",
     "          export DV_BRIDGE_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(24))')",
     // Base64, not a heredoc: python needs zero leading indentation on
     // top-level statements, but the outer heredoc body still has to carry
