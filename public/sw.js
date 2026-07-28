@@ -13,7 +13,7 @@
 
 "use strict";
 
-const CACHE_VERSION = "dv-shell-v37";
+const CACHE_VERSION = "dv-shell-v38";
 const SHELL = [
   "/",
   "/index.html",
@@ -30,6 +30,7 @@ const SHELL = [
   "/js/views/dashboard.js",
   "/js/views/addRepo.js",
   "/js/views/preview.js",
+  "/js/views/android-live.js",
   "/js/views/mcp.js",
   "/js/views/settings.js",
   "/js/views/analytics.js",
