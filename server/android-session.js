@@ -150,6 +150,20 @@ function bridgeScript() {
     "                'className': first.get('class') if first is not None else None",
     "            })",
     "        return out",
+    "    def _top_activity(self):",
+    "        act = self._adb('shell', 'dumpsys', 'activity', 'activities')",
+    "        m = re.search(r'(?:mResumedActivity|topResumedActivity)=ActivityRecord\\{[^ ]+ [^ ]+ ([^ ]+) ', act.stdout.decode('utf8', 'ignore'))",
+    "        return m.group(1) if m else None",
+    // Relaunches via monkey if the top activity's package no longer
+    // matches the one this session launched — only called where a
+    // caller-supplied pkg is available, since there's nothing to compare
+    // against otherwise.
+    "    def _ensure_foreground(self, pkg):",
+    "        if not pkg: return False",
+    "        top = self._top_activity() or ''",
+    "        if top.split('/')[0] == pkg: return False",
+    "        self._adb('shell', 'monkey', '-p', pkg, '-c', 'android.intent.category.LAUNCHER', '1')",
+    "        return True",
     "    def do_GET(self):",
     "        if not self._auth():",
     "            self.send_response(401); self.end_headers(); return",
@@ -192,16 +206,22 @@ function bridgeScript() {
     // without ever touching a screenshot; only reach for one when a
     // specific assertion actually needs visual confirmation.
     "        if self.path == '/state':",
-    "            act = self._adb('shell', 'dumpsys', 'activity', 'activities')",
-    "            act_text = act.stdout.decode('utf8', 'ignore')",
-    "            m = re.search(r'(?:mResumedActivity|topResumedActivity)=ActivityRecord\\{[^ ]+ [^ ]+ ([^ ]+) ', act_text)",
     "            crash = self._adb('logcat', '-d', '-b', 'crash')",
     "            selectors = body.get('selectors') or []",
     "            self._json({",
-    "                'topActivity': m.group(1) if m else None,",
+    "                'topActivity': self._top_activity(),",
     "                'crashed': bool(crash.stdout.strip()),",
     "                'elements': self._query_elements(selectors) if selectors else []",
     "            })",
+    "            return",
+    // Explicit, one-call recovery for exactly the failure mode this exists
+    // to fix: a Home/Back keypress (including one buried inside a batch)
+    // knocking the caller out to the launcher with no way back short of
+    // knowing the exact package/activity name to relaunch by hand.
+    "        if self.path == '/relaunch':",
+    "            pkg = body.get('pkg', '')",
+    "            self._adb('shell', 'monkey', '-p', pkg, '-c', 'android.intent.category.LAUNCHER', '1')",
+    "            self._finish(body)",
     "            return",
     "        if self.path == '/tap_element':",
     "            center = self._find_element_center(text=body.get('text'), resource_id=body.get('resourceId'))",
@@ -225,7 +245,14 @@ function bridgeScript() {
     "                elif a == 'text': self._adb('shell', 'input', 'text', urllib.parse.quote(act['text']).replace('%20', '%s'))",
     "                elif a == 'key': self._adb('shell', 'input', 'keyevent', str(act['keycode']))",
     "                elif a == 'wait': time.sleep(max(0, act.get('ms', 300)) / 1000.0)",
-    "            self._finish(body, extra={ 'ranActions': len(body.get('actions', [])) })",
+    // Auto-recovery: a batch is exactly where a stray Home/Back among
+    // many scripted actions is easiest to lose track of — check whether
+    // we're still in the target app afterward and relaunch if not,
+    // instead of leaving the caller stranded on the launcher with no
+    // known way back. Only runs when pkg was supplied (android_batch
+    // defaults it from the session's known launched package).
+    "            relaunched = self._ensure_foreground(body.get('pkg'))",
+    "            self._finish(body, extra={ 'ranActions': len(body.get('actions', [])), 'relaunched': relaunched })",
     "            return",
     // The fastest possible stress test: Android's own `monkey` fuzzer
     // fires random events directly on-device with zero network round-trip

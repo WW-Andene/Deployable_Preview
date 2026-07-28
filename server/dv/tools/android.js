@@ -305,7 +305,9 @@ dv.defineTool({
     "per action — each round-trip pays full tunnel + GitHub Actions runner latency regardless of how fast",
     "you can produce the next action, so this is the real lever for driving the app as fast as you can",
     "think rather than as fast as the network allows one action at a time. Returns a screenshot after the",
-    "whole sequence, unless screenshot:false."
+    "whole sequence, unless screenshot:false. Self-healing: if any action in the sequence (e.g. a Back/Home",
+    "key buried among many taps) knocks the app out to the launcher, it's automatically relaunched before",
+    "returning — a stray key in a long batch can no longer strand you with no way back to the app."
   ].join(" "),
   schema: {
     type: "object",
@@ -316,14 +318,17 @@ dv.defineTool({
         description: "Executed in order. Each item: {action:'tap',x,y} | {action:'swipe',x1,y1,x2,y2,durationMs?} | {action:'text',text} | {action:'key',keycode} | {action:'wait',ms}",
         items: { type: "object" }
       },
-      screenshot: { type: "boolean", description: "Default true. Set false to skip the trailing screenshot." }
+      screenshot: { type: "boolean", description: "Default true. Set false to skip the trailing screenshot." },
+      pkg: { type: "string", description: "Package to auto-relaunch if the batch ends outside it. Defaults to the session's launched app; pass '' to disable the check." }
     },
     required: ["owner", "repo", "slug", "actions"]
   },
   async handler(args) {
     if (!Array.isArray(args.actions) || !args.actions.length) return dv.fail("actions must be a non-empty array");
+    const key = keyOf(args);
+    const pkg = args.pkg !== undefined ? args.pkg : (sessionStatus[key] && sessionStatus[key].packageName);
     try {
-      const { buffer, contentType } = await bridgeRequest(keyOf(args), "POST", "/batch", { actions: args.actions, screenshot: args.screenshot !== false });
+      const { buffer, contentType } = await bridgeRequest(key, "POST", "/batch", { actions: args.actions, screenshot: args.screenshot !== false, pkg: pkg });
       return respondFromBridge(buffer, contentType);
     } catch (e) { return dv.fail(e.message); }
   }
@@ -395,6 +400,36 @@ dv.defineTool({
     try {
       const { buffer } = await bridgeRequest(keyOf(args), "POST", "/state", { selectors: args.selectors || [] });
       return dv.jsonText(JSON.parse(buffer.toString("utf8")));
+    } catch (e) { return dv.fail(e.message); }
+  }
+});
+
+dv.defineTool({
+  name: "android_relaunch",
+  category: "interact",
+  description: [
+    "[Debug Interface by default, Debug Command with screenshot:false]",
+    "Bring the app back to the foreground if a Home/Back press (or anything else) knocked it out to the",
+    "launcher — no app icon to tap needed. Also runs automatically at the end of every android_batch, so",
+    "you should rarely need this manually; it's here as an explicit escape hatch for the tap/swipe/type/key",
+    "tools too, and for recovering an already-stranded session."
+  ].join(" "),
+  schema: {
+    type: "object",
+    properties: {
+      owner: { type: "string" }, repo: { type: "string" }, slug: { type: "string" },
+      pkg: { type: "string", description: "Package to bring to the foreground. Defaults to the session's launched app." },
+      screenshot: { type: "boolean", description: "Default true." }
+    },
+    required: ["owner", "repo", "slug"]
+  },
+  async handler(args) {
+    const key = keyOf(args);
+    const pkg = args.pkg || (sessionStatus[key] && sessionStatus[key].packageName);
+    if (!pkg) return dv.fail("No package specified and none known for this session — pass pkg explicitly");
+    try {
+      const { buffer, contentType } = await bridgeRequest(key, "POST", "/relaunch", { pkg: pkg, screenshot: args.screenshot !== false });
+      return respondFromBridge(buffer, contentType);
     } catch (e) { return dv.fail(e.message); }
   }
 });

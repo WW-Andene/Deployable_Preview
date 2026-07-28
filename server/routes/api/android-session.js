@@ -80,7 +80,7 @@ router.post("/android-session/:owner/:repo/input", async (req, res) => {
   const paths = {
     tap: "/tap", swipe: "/swipe", text: "/text", key: "/key", ui: "/ui",
     shell: "/shell", logcat: "/logcat", tapElement: "/tap_element",
-    batch: "/batch", stress: "/stress", state: "/state"
+    batch: "/batch", stress: "/stress", state: "/state", relaunch: "/relaunch"
   };
   if (!paths[action]) return res.status(400).json({ error: "action must be one of: " + Object.keys(paths).join(", ") });
   try {
