@@ -190,10 +190,57 @@ function makeSessionWorkflow(workingDir, timeoutMinutes, branchName) {
     "          chmod +x gradlew",
     "          ./gradlew assembleDebug --no-daemon",
     "",
+    // Resolve the built APK's absolute path in a normal step (runs in the
+    // correct working-directory, as one shell invocation) and hand it
+    // downstream via $GITHUB_ENV — the emulator-runner step below can't be
+    // trusted to inherit either the cwd or any variable a prior line in
+    // its own `script:` set (see the dv_session.sh step for why).
+    "      - name: Locate built APK",
+    "        run: |",
+    "          APK_PATH=\"$(pwd)/$(find . -path '*/outputs/apk/debug/*.apk' | head -n1)\"",
+    "          echo \"APK_PATH=$APK_PATH\" >> \"$GITHUB_ENV\"",
+    "",
     "      - name: Download cloudflared",
     "        run: |",
     "          curl -sL -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
     "          chmod +x /usr/local/bin/cloudflared",
+    "",
+    // reactivecircus/android-emulator-runner@v2 runs each line of `script:`
+    // as its own separate `sh -c` — variables set on one line are gone by
+    // the next (confirmed: "APK=$(find …)" then a fresh shell for the
+    // very next line sees an empty $APK). Write the real logic to a file
+    // via a normal run step (single shell invocation, so it behaves) and
+    // have `script:` be one line that just executes that file — sidesteps
+    // the per-line isolation entirely.
+    "      - name: Write session script",
+    "        run: |",
+    "          cat > /tmp/dv_session.sh <<'DVEOF'",
+    "          APK=\"$APK_PATH\"",
+    "          PKG=$(${ANDROID_SDK_ROOT}/build-tools/*/aapt dump badging \"$APK\" | grep package: | sed -e \"s/.*name='//\" -e \"s/'.*//\")",
+    "          ACT=$(${ANDROID_SDK_ROOT}/build-tools/*/aapt dump badging \"$APK\" | grep launchable-activity | sed -e \"s/.*name='//\" -e \"s/'.*//\")",
+    "          adb install -r \"$APK\"",
+    "          adb shell am start -n \"$PKG/$ACT\"",
+    "          export DV_BRIDGE_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(24))')",
+    // Base64, not a heredoc: python needs zero leading indentation on
+    // top-level statements, but the outer heredoc body still has to carry
+    // this block's own indentation to stay valid YAML — one line sidesteps
+    // the conflict entirely.
+    "          echo " + Buffer.from(bridgeScript()).toString("base64") + " | base64 -d > /tmp/dv_bridge.py",
+    "          python3 /tmp/dv_bridge.py &",
+    "          sleep 2",
+    "          /usr/local/bin/cloudflared tunnel --url http://127.0.0.1:8283 > /tmp/cf.log 2>&1 &",
+    "          for i in $(seq 1 30); do",
+    "            URL=$(grep -o 'https://[a-zA-Z0-9-]*\\.trycloudflare\\.com' /tmp/cf.log | head -n1)",
+    "            [ -n \"$URL\" ] && break",
+    "            sleep 2",
+    "          done",
+    "          echo \"DV_BRIDGE_URL=$URL\"",
+    "          echo \"DV_BRIDGE_TOKEN=$DV_BRIDGE_TOKEN\"",
+    "          echo \"DV_BRIDGE_PACKAGE=$PKG\"",
+    "          echo \"Session live — waiting for cancellation or timeout.\"",
+    "          while true; do sleep 60; done",
+    "          DVEOF",
+    "          chmod +x /tmp/dv_session.sh",
     "",
     "      - name: Boot emulator, install app, start bridge + tunnel",
     "        uses: reactivecircus/android-emulator-runner@v2",
@@ -201,31 +248,7 @@ function makeSessionWorkflow(workingDir, timeoutMinutes, branchName) {
     "          api-level: 34",
     "          arch: x86_64",
     "          profile: pixel_6",
-    "          script: |",
-    "            APK=$(find . -path '*/outputs/apk/debug/*.apk' | head -n1)",
-    "            PKG=$(${ANDROID_SDK_ROOT}/build-tools/*/aapt dump badging \"$APK\" | grep package: | sed -e \"s/.*name='//\" -e \"s/'.*//\")",
-    "            ACT=$(${ANDROID_SDK_ROOT}/build-tools/*/aapt dump badging \"$APK\" | grep launchable-activity | sed -e \"s/.*name='//\" -e \"s/'.*//\")",
-    "            adb install -r \"$APK\"",
-    "            adb shell am start -n \"$PKG/$ACT\"",
-    "            export DV_BRIDGE_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(24))')",
-    // Base64, not a heredoc: a heredoc body nested inside this YAML block
-    // scalar would need 12-space indentation to stay valid YAML, but that
-    // same indentation breaks Python (top-level statements can't be
-    // indented). Base64 sidesteps the conflict — one line, no ambiguity.
-    "            echo " + Buffer.from(bridgeScript()).toString("base64") + " | base64 -d > /tmp/dv_bridge.py",
-    "            python3 /tmp/dv_bridge.py &",
-    "            sleep 2",
-    "            /usr/local/bin/cloudflared tunnel --url http://127.0.0.1:8283 > /tmp/cf.log 2>&1 &",
-    "            for i in $(seq 1 30); do",
-    "              URL=$(grep -o 'https://[a-zA-Z0-9-]*\\.trycloudflare\\.com' /tmp/cf.log | head -n1)",
-    "              [ -n \"$URL\" ] && break",
-    "              sleep 2",
-    "            done",
-    "            echo \"DV_BRIDGE_URL=$URL\"",
-    "            echo \"DV_BRIDGE_TOKEN=$DV_BRIDGE_TOKEN\"",
-    "            echo \"DV_BRIDGE_PACKAGE=$PKG\"",
-    "            echo \"Session live — waiting for cancellation or timeout.\"",
-    "            while true; do sleep 60; done",
+    "          script: bash /tmp/dv_session.sh",
     ""
   ].join("\n");
 }
