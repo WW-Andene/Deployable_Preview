@@ -18,16 +18,38 @@ const path = require("path");
 // UI) — not a web app. There's no browser-servable output for this, so it's
 // kept distinct from "java" (which covers plain JVM/Gradle/Maven services
 // whose build output can still be run/served like a web server).
+// Depth-bounded scan for any module's AndroidManifest.xml — module folders
+// aren't always named "app" (e.g. "mobile", "android", a feature-module
+// layout), so a fixed-path guess misses real projects.
+function findAndroidManifest(dir, depth) {
+  if (depth > 4) return false;
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return false; }
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    if (e.name === "node_modules" || e.name === ".git" || e.name === "build" || e.name === ".gradle") continue;
+    const p = path.join(dir, e.name);
+    if (e.name === "main" && fs.existsSync(path.join(p, "AndroidManifest.xml"))) return true;
+    if (findAndroidManifest(p, depth + 1)) return true;
+  }
+  return false;
+}
+
 function isNativeAndroid(workDir) {
   try {
-    if (fs.existsSync(path.join(workDir, "app", "src", "main", "AndroidManifest.xml"))) return true;
-    if (fs.existsSync(path.join(workDir, "src", "main", "AndroidManifest.xml"))) return true;
+    if (findAndroidManifest(workDir, 0)) return true;
+    // Fallback for projects mid-checkout/sparse clones where the manifest
+    // isn't present yet but the Gradle config declares an Android app —
+    // covers direct plugin ids and version-catalog aliases naming "android".
     const hasSettings = fs.existsSync(path.join(workDir, "settings.gradle")) || fs.existsSync(path.join(workDir, "settings.gradle.kts"));
     if (!hasSettings) return false;
-    const candidates = ["build.gradle", "build.gradle.kts", path.join("app", "build.gradle"), path.join("app", "build.gradle.kts")];
+    let files;
+    try { files = fs.readdirSync(workDir); } catch (e) { return false; }
+    const candidates = files.filter((f) => f === "build.gradle" || f === "build.gradle.kts")
+      .concat(["app", "mobile", "android"].flatMap((m) => ["build.gradle", "build.gradle.kts"].map((f) => path.join(m, f))));
     for (const c of candidates) {
       const p = path.join(workDir, c);
-      if (fs.existsSync(p) && /com\.android\.application/.test(fs.readFileSync(p, "utf8"))) return true;
+      if (fs.existsSync(p) && /com\.android\.application|plugins\.android\.application/.test(fs.readFileSync(p, "utf8"))) return true;
     }
   } catch (e) {}
   return false;
