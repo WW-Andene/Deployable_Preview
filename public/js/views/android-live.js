@@ -114,16 +114,15 @@ DV.renderAndroidLive = function (container, owner, repo, slug) {
     textInput.placeholder = "Type text into focused field…";
     textInput.addEventListener("keydown", function (e) {
       if (e.key === "Enter" && textInput.value) {
-        api("POST", actionApi(owner, repo, slug, "/input"), { action: "text", text: textInput.value })
-          .then(function () { textInput.value = ""; refreshScreenshot(); });
+        postInput({ action: "text", text: textInput.value });
+        textInput.value = "";
       }
     });
     toolbar.appendChild(textInput);
 
     function keyBtn(label, keycode) {
       return el("button", { c: "bg bs", on: { click: function () {
-        api("POST", actionApi(owner, repo, slug, "/input"), { action: "key", keycode: keycode })
-          .then(refreshScreenshot);
+        postInput({ action: "key", keycode: keycode });
       } } }, label);
     }
     toolbar.appendChild(keyBtn("◀ Back", 4));
@@ -150,19 +149,44 @@ DV.renderAndroidLive = function (container, owner, repo, slug) {
       if (!img.naturalWidth || !img.naturalHeight) return;
       var x = Math.round((e.clientX - rect.left) / rect.width * img.naturalWidth);
       var y = Math.round((e.clientY - rect.top) / rect.height * img.naturalHeight);
-      api("POST", actionApi(owner, repo, slug, "/input"), { action: "tap", x: x, y: y })
-        .then(refreshScreenshot);
+      postInput({ action: "tap", x: x, y: y });
     });
 
     var firstLoad = true;
-    function refreshScreenshot() {
-      var next = new Image();
-      next.onload = function () {
-        img.src = next.src;
+    function showBlob(blob) {
+      var url = URL.createObjectURL(blob);
+      var prevUrl = img.dataset.blobUrl;
+      img.onload = function () {
+        if (prevUrl) URL.revokeObjectURL(prevUrl);
         if (firstLoad) { loader.style.display = "none"; firstLoad = false; }
       };
-      next.onerror = function () { DV.showToast("Screenshot fetch failed", "error"); };
-      next.src = "/api/android-session/" + owner + "/" + repo + "/screenshot?slug=" + encodeURIComponent(slug) + "&_t=" + Date.now();
+      img.dataset.blobUrl = url;
+      img.src = url;
+    }
+
+    // The bridge now returns the resulting screenshot directly from the
+    // /input POST itself (see server/android-session.js) instead of the
+    // caller needing a *separate* GET /screenshot afterward — halves the
+    // round-trips per tap/swipe/key/text, each of which pays full tunnel
+    // + GitHub Actions runner latency. Raw fetch, not DV.api(), since
+    // that helper JSON-parses response text and would corrupt binary PNG
+    // bytes.
+    function postInput(payload) {
+      fetch(actionApi(owner, repo, slug, "/input"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      })
+        .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.blob(); })
+        .then(showBlob)
+        .catch(function (e) { DV.showToast("Action failed: " + e.message, "error"); });
+    }
+
+    function refreshScreenshot() {
+      fetch("/api/android-session/" + owner + "/" + repo + "/screenshot?slug=" + encodeURIComponent(slug) + "&_t=" + Date.now())
+        .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.blob(); })
+        .then(showBlob)
+        .catch(function () { DV.showToast("Screenshot fetch failed", "error"); });
     }
     refreshScreenshot();
   }

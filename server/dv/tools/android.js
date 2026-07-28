@@ -104,8 +104,10 @@ dv.defineTool({
   },
   async handler(args) {
     try {
-      await bridgeRequest(keyOf(args), "POST", "/tap", { x: args.x, y: args.y });
-      const { buffer } = await bridgeRequest(keyOf(args), "GET", "/screenshot");
+      // The bridge now returns the resulting screenshot directly from the
+      // POST itself — no separate GET /screenshot needed. Halves the
+      // round-trips through the tunnel + GitHub Actions runner per call.
+      const { buffer } = await bridgeRequest(keyOf(args), "POST", "/tap", { x: args.x, y: args.y });
       return dv.imageWithJson(buffer.toString("base64"), "image/png", { ok: true });
     } catch (e) { return dv.fail(e.message); }
   }
@@ -126,8 +128,7 @@ dv.defineTool({
   },
   async handler(args) {
     try {
-      await bridgeRequest(keyOf(args), "POST", "/swipe", { x1: args.x1, y1: args.y1, x2: args.x2, y2: args.y2, durationMs: args.durationMs || 300 });
-      const { buffer } = await bridgeRequest(keyOf(args), "GET", "/screenshot");
+      const { buffer } = await bridgeRequest(keyOf(args), "POST", "/swipe", { x1: args.x1, y1: args.y1, x2: args.x2, y2: args.y2, durationMs: args.durationMs || 300 });
       return dv.imageWithJson(buffer.toString("base64"), "image/png", { ok: true });
     } catch (e) { return dv.fail(e.message); }
   }
@@ -147,8 +148,7 @@ dv.defineTool({
   },
   async handler(args) {
     try {
-      await bridgeRequest(keyOf(args), "POST", "/text", { text: args.text });
-      const { buffer } = await bridgeRequest(keyOf(args), "GET", "/screenshot");
+      const { buffer } = await bridgeRequest(keyOf(args), "POST", "/text", { text: args.text });
       return dv.imageWithJson(buffer.toString("base64"), "image/png", { ok: true });
     } catch (e) { return dv.fail(e.message); }
   }
@@ -168,8 +168,7 @@ dv.defineTool({
   },
   async handler(args) {
     try {
-      await bridgeRequest(keyOf(args), "POST", "/key", { keycode: args.keycode });
-      const { buffer } = await bridgeRequest(keyOf(args), "GET", "/screenshot");
+      const { buffer } = await bridgeRequest(keyOf(args), "POST", "/key", { keycode: args.keycode });
       return dv.imageWithJson(buffer.toString("base64"), "image/png", { ok: true });
     } catch (e) { return dv.fail(e.message); }
   }

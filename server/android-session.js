@@ -93,7 +93,7 @@ function ghRawGet(url, token) {
 
 function bridgeScript() {
   return [
-    "import http.server, socketserver, subprocess, json, os, urllib.parse",
+    "import http.server, socketserver, subprocess, json, os, urllib.parse, time",
     "TOKEN = os.environ['DV_BRIDGE_TOKEN']",
     "class H(http.server.BaseHTTPRequestHandler):",
     "    def _auth(self):",
@@ -129,8 +129,15 @@ function bridgeScript() {
     "            self._adb('shell', 'input', 'keyevent', str(body['keycode']))",
     "        else:",
     "            self.send_response(404); self.end_headers(); return",
-    "        self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers()",
-    "        self.wfile.write(b'{\"ok\":true}')",
+    // Return the resulting screenshot directly instead of a bare {"ok":true}
+    // ack — halves the round-trips a tap/swipe/type/key needed (was: POST
+    // action, then a *separate* GET /screenshot from the client). Each
+    // round-trip pays the full tunnel + GitHub Actions runner latency, so
+    // this is a real, not cosmetic, cut to the lag the user reported.
+    "        time.sleep(0.15)",
+    "        r = self._adb('exec-out', 'screencap', '-p')",
+    "        self.send_response(200); self.send_header('Content-Type', 'image/png'); self.end_headers()",
+    "        self.wfile.write(r.stdout)",
     "    def log_message(self, *a): pass",
     // Threaded, not plain HTTPServer: a browser refresh and a concurrent
     // MCP tool call (Claude calling android_screenshot/tap directly)
@@ -567,6 +574,13 @@ async function stopSession(owner, repo, slug) {
 
 // ─── bridge proxy (called by MCP tools + REST routes) ─────────────────────────
 
+// Reused across calls instead of opening a fresh TLS connection to the
+// cloudflared tunnel edge on every single tap/screenshot — a full TLS
+// handshake over a tunnel with real-world RTT is a meaningful chunk of
+// the latency the user reported, and it's pure waste to pay it repeatedly
+// for the same tunnel host for the session's whole lifetime.
+const bridgeAgent = new https.Agent({ keepAlive: true, maxSockets: 4 });
+
 function bridgeRequest(key, method, path, body) {
   const st = sessionStatus[key];
   if (!st || st.status !== "ready" || !st.tunnelUrl) {
@@ -579,6 +593,7 @@ function bridgeRequest(key, method, path, body) {
       hostname: url.hostname,
       path: url.pathname,
       method,
+      agent: bridgeAgent,
       headers: {
         "Authorization": "Bearer " + st.bridgeToken,
         ...(data ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data) } : {})
