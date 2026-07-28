@@ -234,6 +234,14 @@ DV.views.preview = function(app) {
   } } }, DV.iconEl("arrow_out")));
   app.appendChild(urlBar);
 
+  // Native Android branch: no browser-servable output exists (there's no
+  // dist/ to iframe), so swap the whole device-frame preview section for
+  // a live emulator session panel instead.
+  if (bs.isNativeAndroid) {
+    DV.renderAndroidLive(app, repo.owner, repo.repo, S.activeBranch);
+    return;
+  }
+
   // View toggles
   var ratioBar = el("div", { c: "preview-branch-bar" });
   var presetKeys = Object.keys(VIEW_PRESETS);

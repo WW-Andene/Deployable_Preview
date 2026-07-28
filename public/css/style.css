@@ -2926,6 +2926,53 @@ button:disabled, button[disabled] {
   font-size: 14px;
 }
 
+/* Android live session panel */
+.android-live-panel {
+  padding: 16px;
+}
+.android-live-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  font-size: 15px;
+  font-weight: 700;
+}
+.android-live-icon {
+  font-size: 18px;
+}
+.android-live-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.android-live-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.android-live-text-input {
+  flex: 1;
+  min-width: 160px;
+}
+.android-live-screen-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: 420px;
+  border: 1px solid var(--bd);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #000;
+}
+.android-live-screen {
+  display: block;
+  width: 100%;
+  height: auto;
+  cursor: crosshair;
+  user-select: none;
+}
+
 /* Log toolbar (Clear / Auto-scroll / Word-wrap) */
 .log-toolbar {
   display: flex;
