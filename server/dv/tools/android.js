@@ -352,4 +352,37 @@ dv.defineTool({
   }
 });
 
+dv.defineTool({
+  name: "android_state",
+  category: "audit",
+  description: [
+    "Code-only test primitive: no screenshot, no full UI-tree transfer — just the current top activity,",
+    "whether anything has crashed, and found/count/bounds for whatever element selectors you ask about,",
+    "in one tiny JSON response. This is what makes running hundreds or thousands of assertions practical:",
+    "reach for android_screenshot only when a specific check actually needs visual confirmation, use this",
+    "for everything else (\"did this button appear\", \"did navigation land on the right screen\", \"did it crash\")."
+  ].join(" "),
+  schema: {
+    type: "object",
+    properties: {
+      owner: { type: "string" }, repo: { type: "string" }, slug: { type: "string" },
+      selectors: {
+        type: "array",
+        description: "Elements to check for existence in the current UI, e.g. [{\"text\":\"Log In\"},{\"resourceId\":\"com.app:id/submit\"}]. Omit for just topActivity/crashed.",
+        items: {
+          type: "object",
+          properties: { text: { type: "string" }, resourceId: { type: "string" } }
+        }
+      }
+    },
+    required: ["owner", "repo", "slug"]
+  },
+  async handler(args) {
+    try {
+      const { buffer } = await bridgeRequest(keyOf(args), "POST", "/state", { selectors: args.selectors || [] });
+      return dv.jsonText(JSON.parse(buffer.toString("utf8")));
+    } catch (e) { return dv.fail(e.message); }
+  }
+});
+
 module.exports = {};

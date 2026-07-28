@@ -110,14 +110,16 @@ function bridgeScript() {
     "        r = self._adb('exec-out', 'screencap', '-p')",
     "        self.send_response(200); self.send_header('Content-Type', 'image/png'); self.end_headers()",
     "        self.wfile.write(r.stdout)",
+    "    def _dump_root(self):",
+    "        self._adb('shell', 'uiautomator', 'dump', '/sdcard/dv_ui.xml')",
+    "        r = self._adb('shell', 'cat', '/sdcard/dv_ui.xml')",
+    "        return ET.fromstring(r.stdout.decode('utf8', 'ignore'))",
     // Resolves a UI element by exact text or resource-id from a fresh
     // uiautomator dump and returns its bounds' center point — lets a
     // caller tap "the element labeled X" instead of having to read pixel
     // coordinates off a screenshot first.
     "    def _find_element_center(self, text=None, resource_id=None):",
-    "        self._adb('shell', 'uiautomator', 'dump', '/sdcard/dv_ui.xml')",
-    "        r = self._adb('shell', 'cat', '/sdcard/dv_ui.xml')",
-    "        root = ET.fromstring(r.stdout.decode('utf8', 'ignore'))",
+    "        root = self._dump_root()",
     "        for node in root.iter('node'):",
     "            if text is not None and node.get('text') == text: pass",
     "            elif resource_id is not None and node.get('resource-id') == resource_id: pass",
@@ -127,6 +129,27 @@ function bridgeScript() {
     "            x1, y1, x2, y2 = (int(v) for v in m.groups())",
     "            return (x1 + x2) // 2, (y1 + y2) // 2",
     "        return None",
+    // Structural existence check for a batch of selectors against ONE
+    // dump — returns compact match info (count, first hit's text/id/
+    // bounds), not the whole XML tree. This is the primitive that makes
+    // "thousands of assertions" tractable: no image, no full-tree
+    // transfer, just a tiny JSON per query.
+    "    def _query_elements(self, selectors):",
+    "        root = self._dump_root()",
+    "        nodes = list(root.iter('node'))",
+    "        out = []",
+    "        for sel in selectors:",
+    "            text_q, rid_q = sel.get('text'), sel.get('resourceId')",
+    "            matches = [n for n in nodes if (text_q is not None and n.get('text') == text_q) or (rid_q is not None and n.get('resource-id') == rid_q)]",
+    "            first = matches[0] if matches else None",
+    "            out.append({",
+    "                'selector': sel, 'found': bool(matches), 'count': len(matches),",
+    "                'text': first.get('text') if first is not None else None,",
+    "                'resourceId': first.get('resource-id') if first is not None else None,",
+    "                'bounds': first.get('bounds') if first is not None else None,",
+    "                'className': first.get('class') if first is not None else None",
+    "            })",
+    "        return out",
     "    def do_GET(self):",
     "        if not self._auth():",
     "            self.send_response(401); self.end_headers(); return",
@@ -161,6 +184,24 @@ function bridgeScript() {
     "            r = subprocess.run(['adb', 'logcat'] + args, capture_output=True)",
     "            text = r.stdout.decode('utf8', 'ignore')",
     "            self._json({ 'log': '\\n'.join(text.splitlines()[-lines:]) })",
+    "            return",
+    // Code-only test primitive: no image, no full XML tree — just the
+    // current activity/package, whether the crash buffer has anything in
+    // it, and found/count/bounds for whatever selectors were asked about.
+    // Meant to be called hundreds or thousands of times in a test loop
+    // without ever touching a screenshot; only reach for one when a
+    // specific assertion actually needs visual confirmation.
+    "        if self.path == '/state':",
+    "            act = self._adb('shell', 'dumpsys', 'activity', 'activities')",
+    "            act_text = act.stdout.decode('utf8', 'ignore')",
+    "            m = re.search(r'(?:mResumedActivity|topResumedActivity)=ActivityRecord\\{[^ ]+ [^ ]+ ([^ ]+) ', act_text)",
+    "            crash = self._adb('logcat', '-d', '-b', 'crash')",
+    "            selectors = body.get('selectors') or []",
+    "            self._json({",
+    "                'topActivity': m.group(1) if m else None,",
+    "                'crashed': bool(crash.stdout.strip()),",
+    "                'elements': self._query_elements(selectors) if selectors else []",
+    "            })",
     "            return",
     "        if self.path == '/tap_element':",
     "            center = self._find_element_center(text=body.get('text'), resource_id=body.get('resourceId'))",
