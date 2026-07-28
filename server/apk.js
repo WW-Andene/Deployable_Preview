@@ -88,7 +88,7 @@ function downloadFile(url, dest, token) {
 
 // ─── workflow YAML ────────────────────────────────────────────────────────────
 
-function makeWorkflow(appId, appName, buildCommand, outputDir, workingDir) {
+function makeWorkflow(appId, appName, buildCommand, outputDir, workingDir, branchName) {
   // Normalise: blank / "." / "./" all mean repo root
   const wd = (workingDir || ".").replace(/\/$/, "") || ".";
   const isRoot = (wd === ".");
@@ -117,6 +117,9 @@ function makeWorkflow(appId, appName, buildCommand, outputDir, workingDir) {
     "      working_directory:",
     "        description: Subdirectory containing package.json (leave blank for repo root)",
     "        default: " + yq(wd),
+    "      branch:",
+    "        description: Branch to check out and build",
+    "        default: " + yq(branchName || "main"),
     "",
     "jobs:",
     "  build-apk:",
@@ -125,7 +128,13 @@ function makeWorkflow(appId, appName, buildCommand, outputDir, workingDir) {
     "      run:",
     "        working-directory: ${{ github.event.inputs.working_directory }}",
     "    steps:",
+    // Dispatch targets the default branch (so the workflow is always
+    // discoverable there); check out the actual feature branch explicitly
+    // instead of relying on checkout's default, which follows the dispatch
+    // ref and would silently build the default branch's code.
     "      - uses: actions/checkout@v4",
+    "        with:",
+    "          ref: ${{ github.event.inputs.branch }}",
     "",
     "      - uses: actions/setup-node@v4",
     "        with:",
@@ -173,7 +182,7 @@ function makeWorkflow(appId, appName, buildCommand, outputDir, workingDir) {
 
 // Native Android/Kotlin project: build the repo's own Gradle project
 // directly — no web build, no Capacitor wrapper.
-function makeNativeAndroidWorkflow(workingDir) {
+function makeNativeAndroidWorkflow(workingDir, branchName) {
   const wd = (workingDir || ".").replace(/\/$/, "") || ".";
   function yq(s) { return "'" + String(s).replace(/'/g, "''") + "'"; }
 
@@ -187,6 +196,9 @@ function makeNativeAndroidWorkflow(workingDir) {
     "      working_directory:",
     "        description: Subdirectory containing settings.gradle (leave blank for repo root)",
     "        default: " + yq(wd),
+    "      branch:",
+    "        description: Branch to check out and build",
+    "        default: " + yq(branchName || "main"),
     "",
     "jobs:",
     "  build-apk:",
@@ -196,6 +208,8 @@ function makeNativeAndroidWorkflow(workingDir) {
     "        working-directory: ${{ github.event.inputs.working_directory }}",
     "    steps:",
     "      - uses: actions/checkout@v4",
+    "        with:",
+    "          ref: ${{ github.event.inputs.branch }}",
     "",
     "      - uses: actions/setup-java@v4",
     "        with:",
@@ -261,6 +275,15 @@ async function buildApk(owner, repo, slug, workingDir) {
                     owner.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() + "." +
                     repo.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
 
+  const { findBranchConfig } = require("./build/state");
+  const bc = findBranchConfig(owner, repo, slug);
+  if (!bc || !bc.branch) {
+    addLog(key, "ERROR: Could not resolve the git branch for " + key + " — re-add the branch and try again.");
+    apkStatus[key].status = "error"; return;
+  }
+  const targetBranch = bc.branch;
+  addLog(key, "Target branch: " + targetBranch);
+
   const WORKFLOW_FILE = ".github/workflows/deployview-apk.yml";
 
   // ── 1. get default branch ────────────────────────────────────────────────
@@ -278,7 +301,7 @@ async function buildApk(owner, repo, slug, workingDir) {
   // Don't pollute the user's git history with no-op commits when nothing
   // has changed. Compare the existing file's contents byte-for-byte first.
   addLog(key, "Checking build workflow in repo...");
-  const newContent = isNative ? makeNativeAndroidWorkflow(workDir) : makeWorkflow(appId, appName, buildCmd, outputDir, workDir);
+  const newContent = isNative ? makeNativeAndroidWorkflow(workDir, targetBranch) : makeWorkflow(appId, appName, buildCmd, outputDir, workDir, targetBranch);
   const newContentB64 = Buffer.from(newContent).toString("base64");
   let existingSha = null, existingContent = "";
   try {
@@ -315,8 +338,8 @@ async function buildApk(owner, repo, slug, workingDir) {
   // trigger" even though the file is already committed and valid. Retry
   // with backoff instead of failing the whole build on that transient.
   const dispatchInputs = isNative
-    ? { working_directory: workDir }
-    : { build_command: buildCmd, output_dir: outputDir, working_directory: workDir };
+    ? { working_directory: workDir, branch: targetBranch }
+    : { build_command: buildCmd, output_dir: outputDir, working_directory: workDir, branch: targetBranch };
   const dispatchDelays = [3000, 6000, 10000, 15000, 20000];
   let dispatched = false, lastErr = null;
   for (let attempt = 0; attempt <= dispatchDelays.length; attempt++) {

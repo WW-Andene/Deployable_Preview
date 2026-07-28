@@ -136,7 +136,7 @@ function bridgeScript() {
   ].join("\n");
 }
 
-function makeSessionWorkflow(workingDir, timeoutMinutes) {
+function makeSessionWorkflow(workingDir, timeoutMinutes, branchName) {
   const wd = (workingDir || ".").replace(/\/$/, "") || ".";
   function yq(s) { return "'" + String(s).replace(/'/g, "''") + "'"; }
 
@@ -150,6 +150,9 @@ function makeSessionWorkflow(workingDir, timeoutMinutes) {
     "      working_directory:",
     "        description: Subdirectory containing settings.gradle (leave blank for repo root)",
     "        default: " + yq(wd),
+    "      branch:",
+    "        description: Branch to check out and build",
+    "        default: " + yq(branchName || "main"),
     "",
     "jobs:",
     "  session:",
@@ -159,7 +162,15 @@ function makeSessionWorkflow(workingDir, timeoutMinutes) {
     "      run:",
     "        working-directory: ${{ github.event.inputs.working_directory }}",
     "    steps:",
+    // Dispatch runs against the default branch (so the workflow file is
+    // always discoverable there) but the code we actually want to build
+    // usually lives on a feature branch — check that out explicitly
+    // rather than relying on checkout's default (which follows the
+    // dispatch ref, i.e. the default branch, and silently builds the
+    // wrong code).
     "      - uses: actions/checkout@v4",
+    "        with:",
+    "          ref: ${{ github.event.inputs.branch }}",
     "",
     "      - uses: actions/setup-java@v4",
     "        with:",
@@ -246,6 +257,15 @@ async function startSession(owner, repo, slug, workingDir, timeoutMinutes) {
   const workDir = (workingDir || ".").replace(/\/$/, "") || ".";
   const WORKFLOW_FILE = ".github/workflows/deployview-android-session.yml";
 
+  const { findBranchConfig } = require("./build/state");
+  const bc = findBranchConfig(owner, repo, slug);
+  if (!bc || !bc.branch) {
+    addLog(key, "ERROR: Could not resolve the git branch for " + key + " — re-add the branch and try again.");
+    sessionStatus[key].status = "error"; return;
+  }
+  const targetBranch = bc.branch;
+  addLog(key, "Target branch: " + targetBranch);
+
   addLog(key, "Fetching repo info...");
   let defaultBranch;
   try {
@@ -256,7 +276,7 @@ async function startSession(owner, repo, slug, workingDir, timeoutMinutes) {
   }
 
   addLog(key, "Checking session workflow in repo...");
-  const newContent = makeSessionWorkflow(workDir, timeoutMinutes);
+  const newContent = makeSessionWorkflow(workDir, timeoutMinutes, targetBranch);
   const newContentB64 = Buffer.from(newContent).toString("base64");
   let existingSha = null, existingContent = "";
   try {
@@ -297,7 +317,7 @@ async function startSession(owner, repo, slug, workingDir, timeoutMinutes) {
     try {
       await ghReq("POST", "/repos/" + owner + "/" + repo + "/actions/workflows/deployview-android-session.yml/dispatches", {
         ref: defaultBranch,
-        inputs: { working_directory: workDir }
+        inputs: { working_directory: workDir, branch: targetBranch }
       }, token);
       dispatched = true;
       break;

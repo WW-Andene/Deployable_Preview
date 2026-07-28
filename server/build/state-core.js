@@ -96,6 +96,23 @@ function keyFromSlug(owner, repo, slug) {
   return String(owner).toLowerCase() + "/" + String(repo).toLowerCase() + ":" + String(slug);
 }
 
+// Look up the branchConfig (has .branch, .baseDir, ...) for a given
+// owner/repo/slug. buildStatus entries don't carry the git branch name
+// themselves — only repos.js's frontend-facing serialization merges it in
+// — so anything that needs to check out the *actual* branch (GitHub
+// Actions workflows for APK/Android-session builds, which otherwise
+// default to checking out the repo's default branch) has to look it up
+// here instead.
+function findBranchConfig(owner, repo, slug) {
+  const { getConfig } = require("../config");
+  const config = getConfig();
+  const r = (config.repos || []).find((x) =>
+    String(x.owner).toLowerCase() === String(owner).toLowerCase() &&
+    String(x.repo).toLowerCase() === String(repo).toLowerCase());
+  if (!r) return null;
+  return (r.activeBranches || []).find((bc) => branchSlug(bc) === slug) || null;
+}
+
 // ── Logger factory ──────────────────────────────────────────────────────────
 // Returns an addLog function bound to buildStatus[key].log + the SSE log
 // stream. The buildStatus check guards against the slot being deleted
@@ -214,6 +231,7 @@ module.exports = {
   getBranchDir,
   buildKey,
   keyFromSlug,
+  findBranchConfig,
   createLogger,
   rehydrateBuildStatus
 };
