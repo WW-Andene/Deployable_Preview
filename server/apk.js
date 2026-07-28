@@ -310,15 +310,33 @@ async function buildApk(owner, repo, slug, workingDir) {
   // ── 3. trigger workflow_dispatch ─────────────────────────────────────────
   addLog(key, "Triggering GitHub Actions run...");
   const triggerTime = Date.now();
-  try {
-    await ghReq("POST", "/repos/" + owner + "/" + repo + "/actions/workflows/deployview-apk.yml/dispatches", {
-      ref: defaultBranch,
-      inputs: isNative
-        ? { working_directory: workDir }
-        : { build_command: buildCmd, output_dir: outputDir, working_directory: workDir }
-    }, token);
-  } catch (e) {
-    addLog(key, "ERROR triggering workflow: " + e.message);
+  // GitHub needs a beat to index a workflow file that was just pushed —
+  // dispatching too soon 422s with "does not have 'workflow_dispatch'
+  // trigger" even though the file is already committed and valid. Retry
+  // with backoff instead of failing the whole build on that transient.
+  const dispatchInputs = isNative
+    ? { working_directory: workDir }
+    : { build_command: buildCmd, output_dir: outputDir, working_directory: workDir };
+  const dispatchDelays = [3000, 6000, 10000, 15000, 20000];
+  let dispatched = false, lastErr = null;
+  for (let attempt = 0; attempt <= dispatchDelays.length; attempt++) {
+    try {
+      await ghReq("POST", "/repos/" + owner + "/" + repo + "/actions/workflows/deployview-apk.yml/dispatches", {
+        ref: defaultBranch,
+        inputs: dispatchInputs
+      }, token);
+      dispatched = true;
+      break;
+    } catch (e) {
+      lastErr = e;
+      const notYetRegistered = /workflow_dispatch/.test(e.message) && /422/.test(e.message);
+      if (!notYetRegistered || attempt === dispatchDelays.length) break;
+      addLog(key, "Workflow not indexed by GitHub yet — retrying in " + (dispatchDelays[attempt] / 1000) + "s...");
+      await sleep(dispatchDelays[attempt]);
+    }
+  }
+  if (!dispatched) {
+    addLog(key, "ERROR triggering workflow: " + lastErr.message);
     apkStatus[key].status = "error"; return;
   }
 

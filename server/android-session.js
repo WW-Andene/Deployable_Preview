@@ -285,13 +285,30 @@ async function startSession(owner, repo, slug, workingDir, timeoutMinutes) {
 
   addLog(key, "Triggering GitHub Actions run...");
   const triggerTime = Date.now();
-  try {
-    await ghReq("POST", "/repos/" + owner + "/" + repo + "/actions/workflows/deployview-android-session.yml/dispatches", {
-      ref: defaultBranch,
-      inputs: { working_directory: workDir }
-    }, token);
-  } catch (e) {
-    addLog(key, "ERROR triggering workflow: " + e.message);
+  // GitHub needs a beat to index a workflow file that was just pushed —
+  // dispatching too soon 422s with "does not have 'workflow_dispatch'
+  // trigger" even though the file is already committed and valid. Retry
+  // with backoff instead of failing the whole session on that transient.
+  const dispatchDelays = [3000, 6000, 10000, 15000, 20000];
+  let dispatched = false, lastErr = null;
+  for (let attempt = 0; attempt <= dispatchDelays.length; attempt++) {
+    try {
+      await ghReq("POST", "/repos/" + owner + "/" + repo + "/actions/workflows/deployview-android-session.yml/dispatches", {
+        ref: defaultBranch,
+        inputs: { working_directory: workDir }
+      }, token);
+      dispatched = true;
+      break;
+    } catch (e) {
+      lastErr = e;
+      const notYetRegistered = /workflow_dispatch/.test(e.message) && /422/.test(e.message);
+      if (!notYetRegistered || attempt === dispatchDelays.length) break;
+      addLog(key, "Workflow not indexed by GitHub yet — retrying in " + (dispatchDelays[attempt] / 1000) + "s...");
+      await sleep(dispatchDelays[attempt]);
+    }
+  }
+  if (!dispatched) {
+    addLog(key, "ERROR triggering workflow: " + lastErr.message);
     sessionStatus[key].status = "error"; return;
   }
 
