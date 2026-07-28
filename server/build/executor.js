@@ -92,6 +92,22 @@ async function buildBranch(repoConfig, branchConfig) {
     const language = detectLanguage(workDir, branchConfig);
     addLog("Language: " + language);
 
+    if (language === "android") {
+      addLog("Native Android (Kotlin/Gradle) project detected — no browser preview is possible for a native UI.");
+      addLog("Use the \"Build APK\" action to compile it via GitHub Actions and download an installable APK.");
+      buildStatus[key].status = "ready";
+      buildStatus[key].lastBuild = Date.now();
+      buildStatus[key].duration = 0;
+      buildStatus[key].outputPath = workDir;
+      buildStatus[key].workDir = workDir;
+      buildStatus[key].isNativeAndroid = true;
+      buildStatus[key].buildCommand = null;
+      buildStatus[key].outputDir = null;
+      saveLog(key, addLog.getLog());
+      broadcastStatus(key, buildStatus[key]);
+      return;
+    }
+
     addLog("Cleaning...");
     await runCmd("rm -rf dist build out web-build", workDir).catch(() => {});
 
@@ -225,10 +241,10 @@ async function buildBranch(repoConfig, branchConfig) {
       await runCmd("pygbag --build .", workDir, userEnv);
       outName = "build/web";
     } else {
-      cmd = branchConfig.buildCommand || (language === "nodejs" ? repoConfig.buildCommand : "") || defaultBuildCommand(language);
+      cmd = branchConfig.buildCommand || (language === "nodejs" ? repoConfig.buildCommand : "") || defaultBuildCommand(language, workDir);
       addLog("Building: " + cmd);
       await runCmd(cmd, workDir, userEnv);
-      outName = branchConfig.outputDir || (language === "nodejs" ? repoConfig.outputDir : "") || defaultOutputDir(language);
+      outName = branchConfig.outputDir || (language === "nodejs" ? repoConfig.outputDir : "") || defaultOutputDir(language, workDir);
     }
 
     const outPath = path.join(workDir, outName);

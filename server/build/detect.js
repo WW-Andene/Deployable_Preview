@@ -14,11 +14,36 @@ const path = require("path");
 
 // ── Language detection ─────────────────────────────────────────────────────
 
+// Native Android app (Kotlin/Java + Gradle + Android SDK, Activities/Compose
+// UI) — not a web app. There's no browser-servable output for this, so it's
+// kept distinct from "java" (which covers plain JVM/Gradle/Maven services
+// whose build output can still be run/served like a web server).
+function isNativeAndroid(workDir) {
+  try {
+    if (fs.existsSync(path.join(workDir, "app", "src", "main", "AndroidManifest.xml"))) return true;
+    if (fs.existsSync(path.join(workDir, "src", "main", "AndroidManifest.xml"))) return true;
+    const hasSettings = fs.existsSync(path.join(workDir, "settings.gradle")) || fs.existsSync(path.join(workDir, "settings.gradle.kts"));
+    if (!hasSettings) return false;
+    const candidates = ["build.gradle", "build.gradle.kts", path.join("app", "build.gradle"), path.join("app", "build.gradle.kts")];
+    for (const c of candidates) {
+      const p = path.join(workDir, c);
+      if (fs.existsSync(p) && /com\.android\.application/.test(fs.readFileSync(p, "utf8"))) return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
+function isGradleProject(workDir) {
+  return fs.existsSync(path.join(workDir, "build.gradle")) || fs.existsSync(path.join(workDir, "build.gradle.kts")) ||
+    fs.existsSync(path.join(workDir, "settings.gradle")) || fs.existsSync(path.join(workDir, "settings.gradle.kts"));
+}
+
 function detectLanguage(workDir, branchConfig) {
   // Explicit config takes priority
   if (branchConfig && branchConfig.language && branchConfig.language !== "auto") return branchConfig.language;
   // Auto-detect from project files
-  if (fs.existsSync(path.join(workDir, "pom.xml")) || fs.existsSync(path.join(workDir, "build.gradle")) || fs.existsSync(path.join(workDir, "build.gradle.kts"))) return "java";
+  if (isNativeAndroid(workDir)) return "android";
+  if (fs.existsSync(path.join(workDir, "pom.xml")) || isGradleProject(workDir)) return "java";
   if (fs.existsSync(path.join(workDir, "requirements.txt")) || fs.existsSync(path.join(workDir, "pyproject.toml")) || fs.existsSync(path.join(workDir, "setup.py")) || fs.existsSync(path.join(workDir, "Pipfile"))) return "python";
   // Check for .py files (no manifest but still a Python project)
   try { const entries = fs.readdirSync(workDir); if (entries.some(function(f) { return f.endsWith(".py"); })) return "python"; } catch (e) {}
@@ -113,20 +138,31 @@ function patchPygameForAsync(filePath, addLog) {
 
 // ── Per-language defaults ──────────────────────────────────────────────────
 
-function defaultBuildCommand(language) {
-  if (language === "java")   return "mvn package -DskipTests";
+function defaultBuildCommand(language, workDir) {
+  if (language === "java") {
+    if (workDir && fs.existsSync(path.join(workDir, "gradlew"))) return "./gradlew build -x test";
+    if (workDir && isGradleProject(workDir)) return "gradle build -x test";
+    return "mvn package -DskipTests";
+  }
+  if (language === "android") return null; // built via the GitHub Actions APK flow, not the local pipeline
   if (language === "python") return "python -m py_compile *.py || true";
   return "npm run build";
 }
 
-function defaultStartCommand(language) {
-  if (language === "java")   return "java -jar target/*.jar";
+function defaultStartCommand(language, workDir) {
+  if (language === "java") {
+    if (workDir && (fs.existsSync(path.join(workDir, "gradlew")) || isGradleProject(workDir))) return "java -jar build/libs/*.jar";
+    return "java -jar target/*.jar";
+  }
   if (language === "python") return "python app.py";
   return "npm start";
 }
 
-function defaultOutputDir(language) {
-  if (language === "java")   return "target";
+function defaultOutputDir(language, workDir) {
+  if (language === "java") {
+    if (workDir && (fs.existsSync(path.join(workDir, "gradlew")) || isGradleProject(workDir))) return "build/libs";
+    return "target";
+  }
   if (language === "python") return ".";
   return "dist";
 }
@@ -139,6 +175,8 @@ function outputSearchPaths(language) {
 
 module.exports = {
   detectLanguage,
+  isNativeAndroid,
+  isGradleProject,
   detectPygame,
   findMainPyFile,
   patchPygameForAsync,
