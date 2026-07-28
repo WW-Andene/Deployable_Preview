@@ -1,12 +1,17 @@
 // views/android-live.js — live Android emulator session panel.
 // Rendered by preview.js in place of the device-frame iframes when the
 // active branch is a native Android project (bs.isNativeAndroid).
+//
+// Fully manual — no auto-polling. The screenshot bridge (server/android-
+// session.js's Python HTTP server) handles one request at a time; every
+// automatic timer here was a request competing with Claude's own MCP
+// tool calls (android_screenshot/tap/etc.) for the same single-threaded
+// server. Status and screenshot both only refresh on explicit user action
+// (a click) now.
 
 (function () {
 "use strict";
 var S = DV.S, el = DV.el, api = DV.api;
-
-var SCREENSHOT_POLL_MS = 900;
 
 function statusApi(owner, repo, slug) {
   return "/api/android-session/" + owner + "/" + repo + "/status?slug=" + encodeURIComponent(slug);
@@ -16,15 +21,8 @@ function actionApi(owner, repo, slug, suffix) {
 }
 
 DV.renderAndroidLive = function (container, owner, repo, slug) {
-  // Kill any previous poll/SSE from a prior render of this panel before
-  // building a new one — without this, switching branches or any full
-  // re-render would stack up duplicate intervals.
-  if (S._androidPollTimer) { clearInterval(S._androidPollTimer); S._androidPollTimer = null; }
-  if (S._androidStatusTimer) { clearTimeout(S._androidStatusTimer); S._androidStatusTimer = null; }
+  // Kill any leftover SSE from a prior mount of this panel.
   if (S._androidSSE) { try { S._androidSSE.close(); } catch (_) {} S._androidSSE = null; }
-  // Force poll() to render fresh on this mount rather than assuming the
-  // previously-mounted panel's last-seen status still applies.
-  S._androidLastRenderedStatus = null;
 
   var panel = el("div", { c: "android-live-panel" });
   container.appendChild(panel);
@@ -72,7 +70,7 @@ DV.renderAndroidLive = function (container, owner, repo, slug) {
       api("POST", actionApi(owner, repo, slug), { workingDir: wd })
         .then(function (res) {
           if (res && res.error) { DV.showToast(res.error, "error"); btn.disabled = false; btn.textContent = "Start Live Session"; return; }
-          poll();
+          checkStatus();
         })
         .catch(function (e) { DV.showToast("Failed to start: " + e.message, "error"); btn.disabled = false; btn.textContent = "Start Live Session"; });
     } } }, "Start Live Session");
@@ -83,11 +81,15 @@ DV.renderAndroidLive = function (container, owner, repo, slug) {
     body.innerHTML = "";
     body.appendChild(el("div", { c: "flex-row items-center gap-6" }, [
       el("span", { c: "spin" }),
-      el("span", {}, "Booting emulator + building app… (usually 3–6 min)")
+      el("span", { c: "flex-1" }, "Booting emulator + building app… (usually 3–6 min)"),
+      el("button", { c: "bg bs", on: { click: checkStatus } }, "Check now")
     ]));
     var logDiv = el("div", { c: "live-log" }, st.log || "");
     body.appendChild(logDiv);
 
+    // The log stream is server-push (SSE), not a client poll loop — it's
+    // fine to leave connected while starting. It carries no traffic
+    // unless the server has something new to say.
     if (S._androidSSE) { try { S._androidSSE.close(); } catch (_) {} }
     S._androidSSE = new EventSource("/api/android-session/" + owner + "/" + repo + "/log-stream?slug=" + encodeURIComponent(slug));
     S._androidSSE.onmessage = function (ev) {
@@ -127,10 +129,10 @@ DV.renderAndroidLive = function (container, owner, repo, slug) {
     toolbar.appendChild(keyBtn("◀ Back", 4));
     toolbar.appendChild(keyBtn("⌂ Home", 3));
     toolbar.appendChild(keyBtn("↩ Enter", 66));
+    toolbar.appendChild(el("button", { c: "bg bs", on: { click: refreshScreenshot } }, "↻ Refresh"));
 
     toolbar.appendChild(el("button", { c: "bg bs", on: { click: function () {
-      if (S._androidPollTimer) { clearInterval(S._androidPollTimer); S._androidPollTimer = null; }
-      api("POST", actionApi(owner, repo, slug, "/stop")).then(poll);
+      api("POST", actionApi(owner, repo, slug, "/stop")).then(checkStatus);
     } } }, "Stop Session"));
     body.appendChild(toolbar);
 
@@ -159,11 +161,10 @@ DV.renderAndroidLive = function (container, owner, repo, slug) {
         img.src = next.src;
         if (firstLoad) { loader.style.display = "none"; firstLoad = false; }
       };
-      next.onerror = function () { /* transient — next poll will retry */ };
+      next.onerror = function () { DV.showToast("Screenshot fetch failed", "error"); };
       next.src = "/api/android-session/" + owner + "/" + repo + "/screenshot?slug=" + encodeURIComponent(slug) + "&_t=" + Date.now();
     }
     refreshScreenshot();
-    S._androidPollTimer = setInterval(refreshScreenshot, SCREENSHOT_POLL_MS);
   }
 
   function renderStoppedOrError(st) {
@@ -175,37 +176,19 @@ DV.renderAndroidLive = function (container, owner, repo, slug) {
     renderIdle(st);
   }
 
-  function poll() {
+  // One-shot status check — called on mount, after Start/Stop, and via
+  // the manual "Check now" button while a session is booting. No timer
+  // ever calls this on its own.
+  function checkStatus() {
     api("GET", statusApi(owner, repo, slug)).then(function (st) {
       st = st || { status: "idle" };
-      // Only tear down and rebuild the panel on an actual status change.
-      // renderReady() wipes body.innerHTML and creates a fresh <img> —
-      // calling it on every 4s status tick (even while status stayed
-      // "ready") destroyed and recreated the live screenshot in a loop,
-      // which is exactly what looked like "the preview disappears after
-      // a few seconds": the image kept getting yanked out and had to
-      // reload from scratch every single poll, forever. The screenshot
-      // itself already refreshes on its own independent ~900ms timer
-      // (S._androidPollTimer, started once inside renderReady) — the
-      // status poll only needs to notice ready→stopped/error transitions.
-      if (st.status !== S._androidLastRenderedStatus) {
-        S._androidLastRenderedStatus = st.status;
-        if (st.status === "starting") renderStarting(st);
-        else if (st.status === "ready") renderReady(st);
-        else if (st.status === "error" || st.status === "stopped") renderStoppedOrError(st);
-        else renderIdle(st);
-      }
-
-      // Keep polling status while a session is starting or ready — a
-      // ready session can flip to error/stopped server-side (job
-      // finished/cancelled) without any client action.
-      if (st.status === "starting" || st.status === "ready") {
-        if (S._androidStatusTimer) clearTimeout(S._androidStatusTimer);
-        S._androidStatusTimer = setTimeout(poll, 4000);
-      }
+      if (st.status === "starting") renderStarting(st);
+      else if (st.status === "ready") renderReady(st);
+      else if (st.status === "error" || st.status === "stopped") renderStoppedOrError(st);
+      else renderIdle(st);
     }).catch(function () { /* transient — leave current view up */ });
   }
 
-  poll();
+  checkStatus();
 };
 })();

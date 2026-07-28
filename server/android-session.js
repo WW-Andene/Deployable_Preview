@@ -93,7 +93,7 @@ function ghRawGet(url, token) {
 
 function bridgeScript() {
   return [
-    "import http.server, subprocess, json, os, urllib.parse",
+    "import http.server, socketserver, subprocess, json, os, urllib.parse",
     "TOKEN = os.environ['DV_BRIDGE_TOKEN']",
     "class H(http.server.BaseHTTPRequestHandler):",
     "    def _auth(self):",
@@ -132,7 +132,13 @@ function bridgeScript() {
     "        self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers()",
     "        self.wfile.write(b'{\"ok\":true}')",
     "    def log_message(self, *a): pass",
-    "http.server.HTTPServer(('127.0.0.1', 8283), H).serve_forever()"
+    // Threaded, not plain HTTPServer: a browser refresh and a concurrent
+    // MCP tool call (Claude calling android_screenshot/tap directly)
+    // would otherwise queue behind each other one request at a time —
+    // each `adb` call already takes real wall-clock time.
+    "class TS(socketserver.ThreadingMixIn, http.server.HTTPServer):",
+    "    daemon_threads = True",
+    "TS(('127.0.0.1', 8283), H).serve_forever()"
   ].join("\n");
 }
 
