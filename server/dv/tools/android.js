@@ -25,6 +25,20 @@ function respondFromBridge(buffer, contentType) {
   return dv.jsonText(JSON.parse(buffer.toString("utf8")));
 }
 
+// MCP clients (Claude Desktop / claude.ai) default to a 60s per-request
+// timeout, but reset it every time a progress notification arrives —
+// same mechanism dv/tools/network.js's `download` tool already relies on.
+// android_batch/android_stress genuinely can run past 60s (a long action
+// sequence, or a big stress-test count), so heartbeat through them
+// instead of letting the client kill the call. No-op when the client
+// didn't ask for progress (ctx.progress is undefined outside that case).
+function startHeartbeat(ctx) {
+  if (!ctx || typeof ctx.progress !== "function") return { stop() {} };
+  let n = 0;
+  const id = setInterval(() => { n++; ctx.progress(n, undefined, "still running…"); }, 8000);
+  return { stop() { clearInterval(id); } };
+}
+
 dv.defineTool({
   name: "android_start",
   category: "deploy",
@@ -307,7 +321,8 @@ dv.defineTool({
     "think rather than as fast as the network allows one action at a time. Returns a screenshot after the",
     "whole sequence, unless screenshot:false. Self-healing: if any action in the sequence (e.g. a Back/Home",
     "key buried among many taps) knocks the app out to the launcher, it's automatically relaunched before",
-    "returning — a stray key in a long batch can no longer strand you with no way back to the app."
+    "returning — a stray key in a long batch can no longer strand you with no way back to the app.",
+    "Long sequences won't hit the MCP client's 60s timeout — this heartbeats progress notifications while running."
   ].join(" "),
   schema: {
     type: "object",
@@ -323,14 +338,16 @@ dv.defineTool({
     },
     required: ["owner", "repo", "slug", "actions"]
   },
-  async handler(args) {
+  async handler(args, ctx) {
     if (!Array.isArray(args.actions) || !args.actions.length) return dv.fail("actions must be a non-empty array");
     const key = keyOf(args);
     const pkg = args.pkg !== undefined ? args.pkg : (sessionStatus[key] && sessionStatus[key].packageName);
+    const heartbeat = startHeartbeat(ctx);
     try {
       const { buffer, contentType } = await bridgeRequest(key, "POST", "/batch", { actions: args.actions, screenshot: args.screenshot !== false, pkg: pkg });
       return respondFromBridge(buffer, contentType);
     } catch (e) { return dv.fail(e.message); }
+    finally { heartbeat.stop(); }
   }
 });
 
@@ -342,7 +359,8 @@ dv.defineTool({
     "Heavy stress test via Android's own `monkey` fuzzer — fires random touch/motion/app-switch events",
     "directly on-device with zero network round-trip per event (nothing over HTTP could match its raw",
     "throughput). Use this, not a loop of individual taps, for genuinely hammering the app fast. Reports",
-    "whether it crashed, the crash log if so, and a final screenshot."
+    "whether it crashed, the crash log if so, and a final screenshot. Heartbeats progress so a large event",
+    "count won't hit the MCP client's 60s timeout."
   ].join(" "),
   schema: {
     type: "object",
@@ -354,10 +372,11 @@ dv.defineTool({
     },
     required: ["owner", "repo", "slug"]
   },
-  async handler(args) {
+  async handler(args, ctx) {
     const key = keyOf(args);
     const pkg = args.pkg || (sessionStatus[key] && sessionStatus[key].packageName);
     if (!pkg) return dv.fail("No package specified and none known for this session — pass pkg explicitly");
+    const heartbeat = startHeartbeat(ctx);
     try {
       const { buffer } = await bridgeRequest(key, "POST", "/stress", { pkg: pkg, count: args.count || 500, throttleMs: args.throttleMs || 0 });
       const parsed = JSON.parse(buffer.toString("utf8"));
@@ -367,6 +386,7 @@ dv.defineTool({
       content.push({ type: "text", text: JSON.stringify(meta, null, 2) });
       return dv.makeResult(content, !!meta.crashed);
     } catch (e) { return dv.fail(e.message); }
+    finally { heartbeat.stop(); }
   }
 });
 
