@@ -197,9 +197,11 @@ function makeSessionWorkflow(workingDir, timeoutMinutes) {
     "            adb install -r \"$APK\"",
     "            adb shell am start -n \"$PKG/$ACT\"",
     "            export DV_BRIDGE_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(24))')",
-    "            cat > /tmp/dv_bridge.py <<'PYEOF'",
-    bridgeScript(),
-    "            PYEOF",
+    // Base64, not a heredoc: a heredoc body nested inside this YAML block
+    // scalar would need 12-space indentation to stay valid YAML, but that
+    // same indentation breaks Python (top-level statements can't be
+    // indented). Base64 sidesteps the conflict — one line, no ambiguity.
+    "            echo " + Buffer.from(bridgeScript()).toString("base64") + " | base64 -d > /tmp/dv_bridge.py",
     "            python3 /tmp/dv_bridge.py &",
     "            sleep 2",
     "            /usr/local/bin/cloudflared tunnel --url http://127.0.0.1:8283 > /tmp/cf.log 2>&1 &",
