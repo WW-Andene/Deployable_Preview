@@ -30,9 +30,18 @@ dv.defineTool({
   category: "deploy",
   description: [
     "Start a live Android emulator session for a native Kotlin/Android branch — builds the debug APK,",
-    "boots a KVM emulator on GitHub Actions, installs + launches the app, and exposes it for",
-    "android_screenshot/android_tap/android_swipe/android_type/android_key. Takes ~3-6 min to come up.",
-    "Call android_start once, then poll with android_status until status is 'ready'."
+    "boots a KVM emulator on GitHub Actions, installs + launches the app. Takes ~3-6 min to come up.",
+    "Call android_start once, then poll with android_status until status is 'ready'.",
+    "",
+    "Once ready, every android_* tool falls into one of two modes:",
+    "  • Debug Interface (visual) — android_screenshot, and android_tap/swipe/type/key/tap_element/batch",
+    "    by default: each returns a PNG of the resulting screen. Use these when you need to actually SEE",
+    "    what happened — one-off exploration, confirming a specific visual, debugging something unclear.",
+    "  • Debug Command (headless/code-only) — the same tap/swipe/type/key/tap_element/batch tools with",
+    "    screenshot:false, plus android_state/logcat/shell/ui_dump/stress: no image ever generated or",
+    "    transferred, just small JSON. Use these for anything you'd run more than a couple of times —",
+    "    scripted test sequences, assertions ('did this button appear', 'did it crash'), bulk fuzzing.",
+    "    This is the fast path; the visual mode is for when you specifically need eyes on the screen."
   ].join("\n"),
   schema: {
     type: "object",
@@ -56,7 +65,7 @@ dv.defineTool({
 dv.defineTool({
   name: "android_status",
   category: "deploy",
-  description: "Poll the live Android session's status/log (starting / ready / error / stopped).",
+  description: "[Session control] Poll the live Android session's status/log (starting / ready / error / stopped).",
   schema: {
     type: "object",
     properties: { owner: { type: "string" }, repo: { type: "string" }, slug: { type: "string" } },
@@ -72,7 +81,7 @@ dv.defineTool({
 dv.defineTool({
   name: "android_stop",
   category: "deploy",
-  description: "Stop the live Android session (cancels the underlying GitHub Actions run).",
+  description: "[Session control] Stop the live Android session (cancels the underlying GitHub Actions run).",
   schema: {
     type: "object",
     properties: { owner: { type: "string" }, repo: { type: "string" }, slug: { type: "string" } },
@@ -87,7 +96,7 @@ dv.defineTool({
 dv.defineTool({
   name: "android_screenshot",
   category: "visual",
-  description: "Screenshot the running app on the live Android session. Requires android_start to have reached 'ready'.",
+  description: "[Debug Interface — visual] Screenshot the running app on the live Android session. Requires android_start to have reached 'ready'.",
   schema: {
     type: "object",
     properties: { owner: { type: "string" }, repo: { type: "string" }, slug: { type: "string" } },
@@ -104,7 +113,7 @@ dv.defineTool({
 dv.defineTool({
   name: "android_tap",
   category: "interact",
-  description: "Tap a point on the live Android app screen. Returns a screenshot after the tap, unless screenshot:false (for rapid-fire input sequences where you only want to look once at the end).",
+  description: "[Debug Interface by default, Debug Command with screenshot:false] Tap a point on the live Android app screen. Returns a screenshot after the tap, unless screenshot:false (for rapid-fire input sequences where you only want to look once at the end).",
   schema: {
     type: "object",
     properties: {
@@ -128,7 +137,7 @@ dv.defineTool({
 dv.defineTool({
   name: "android_swipe",
   category: "interact",
-  description: "Swipe from (x1,y1) to (x2,y2) on the live Android app. Returns a screenshot after the swipe, unless screenshot:false.",
+  description: "[Debug Interface by default, Debug Command with screenshot:false] Swipe from (x1,y1) to (x2,y2) on the live Android app. Returns a screenshot after the swipe, unless screenshot:false.",
   schema: {
     type: "object",
     properties: {
@@ -150,7 +159,7 @@ dv.defineTool({
 dv.defineTool({
   name: "android_type",
   category: "interact",
-  description: "Type text into the focused field on the live Android app. Returns a screenshot after typing, unless screenshot:false.",
+  description: "[Debug Interface by default, Debug Command with screenshot:false] Type text into the focused field on the live Android app. Returns a screenshot after typing, unless screenshot:false.",
   schema: {
     type: "object",
     properties: {
@@ -171,7 +180,7 @@ dv.defineTool({
 dv.defineTool({
   name: "android_key",
   category: "interact",
-  description: "Send an Android keyevent code (e.g. 4=BACK, 66=ENTER, 67=DEL) to the live session. Returns a screenshot after, unless screenshot:false.",
+  description: "[Debug Interface by default, Debug Command with screenshot:false] Send an Android keyevent code (e.g. 4=BACK, 66=ENTER, 67=DEL) to the live session. Returns a screenshot after, unless screenshot:false.",
   schema: {
     type: "object",
     properties: {
@@ -192,7 +201,7 @@ dv.defineTool({
 dv.defineTool({
   name: "android_ui_dump",
   category: "audit",
-  description: "Dump the current Android UI hierarchy (uiautomator XML) — element bounds/text/resource-ids for locating tap targets precisely.",
+  description: "[Debug Command — headless] Dump the current Android UI hierarchy (uiautomator XML) — element bounds/text/resource-ids for locating tap targets precisely. For simple existence checks prefer android_state (much smaller response); use this when you need the full tree.",
   schema: {
     type: "object",
     properties: { owner: { type: "string" }, repo: { type: "string" }, slug: { type: "string" } },
@@ -210,6 +219,7 @@ dv.defineTool({
   name: "android_tap_element",
   category: "interact",
   description: [
+    "[Debug Interface by default, Debug Command with screenshot:false]",
     "Tap a UI element by its exact text or resource-id instead of pixel coordinates — resolved from a fresh",
     "uiautomator dump, so it doesn't depend on reading a screenshot first. Fails with a clear error if no",
     "element matches, rather than silently tapping the wrong spot. Returns a screenshot after the tap."
@@ -241,7 +251,7 @@ dv.defineTool({
 dv.defineTool({
   name: "android_logcat",
   category: "audit",
-  description: "Read recent logcat output from the live session — the app's own console/exception output, for auditing what the running code actually did instead of only what it visually shows.",
+  description: "[Debug Command — headless] Read recent logcat output from the live session — the app's own console/exception output, for auditing what the running code actually did instead of only what it visually shows.",
   schema: {
     type: "object",
     properties: {
@@ -264,6 +274,7 @@ dv.defineTool({
   name: "android_shell",
   category: "audit",
   description: [
+    "[Debug Command — headless]",
     "Run an arbitrary `adb shell` command on the live session's emulator — dumpsys, pm, content query,",
     "am start with a deep-link URI to jump straight to a screen/feature, etc. This is throwaway CI",
     "infrastructure scoped to one session, not the user's real device — safe to be broad with it.",
@@ -289,6 +300,7 @@ dv.defineTool({
   name: "android_batch",
   category: "interact",
   description: [
+    "[Debug Interface by default, Debug Command with screenshot:false]",
     "Run a whole scripted sequence of taps/swipes/text/key/wait actions in ONE round-trip instead of one",
     "per action — each round-trip pays full tunnel + GitHub Actions runner latency regardless of how fast",
     "you can produce the next action, so this is the real lever for driving the app as fast as you can",
@@ -321,6 +333,7 @@ dv.defineTool({
   name: "android_stress",
   category: "audit",
   description: [
+    "[Debug Command — headless, except for the one trailing screenshot]",
     "Heavy stress test via Android's own `monkey` fuzzer — fires random touch/motion/app-switch events",
     "directly on-device with zero network round-trip per event (nothing over HTTP could match its raw",
     "throughput). Use this, not a loop of individual taps, for genuinely hammering the app fast. Reports",
@@ -356,6 +369,7 @@ dv.defineTool({
   name: "android_state",
   category: "audit",
   description: [
+    "[Debug Command — headless]",
     "Code-only test primitive: no screenshot, no full UI-tree transfer — just the current top activity,",
     "whether anything has crashed, and found/count/bounds for whatever element selectors you ask about,",
     "in one tiny JSON response. This is what makes running hundreds or thousands of assertions practical:",
