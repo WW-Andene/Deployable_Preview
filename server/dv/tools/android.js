@@ -14,6 +14,17 @@ const { sessionStatus, startSession, stopSession, bridgeRequest } = require("../
 
 function keyOf(args) { return args.owner + "/" + args.repo + ":" + args.slug; }
 
+// tap/swipe/text/key/tap_element/batch all respond with either a
+// screenshot (image/png, default) or a bare JSON ack (screenshot:false —
+// for firing many actions back-to-back without paying for image
+// encoding/transfer on every single one). Render whichever came back.
+function respondFromBridge(buffer, contentType) {
+  if (contentType && contentType.indexOf("image") !== -1) {
+    return dv.imageWithJson(buffer.toString("base64"), "image/png", { ok: true });
+  }
+  return dv.jsonText(JSON.parse(buffer.toString("utf8")));
+}
+
 dv.defineTool({
   name: "android_start",
   category: "deploy",
@@ -93,12 +104,13 @@ dv.defineTool({
 dv.defineTool({
   name: "android_tap",
   category: "interact",
-  description: "Tap a point on the live Android app screen. Returns a screenshot after the tap.",
+  description: "Tap a point on the live Android app screen. Returns a screenshot after the tap, unless screenshot:false (for rapid-fire input sequences where you only want to look once at the end).",
   schema: {
     type: "object",
     properties: {
       owner: { type: "string" }, repo: { type: "string" }, slug: { type: "string" },
-      x: { type: "number" }, y: { type: "number" }
+      x: { type: "number" }, y: { type: "number" },
+      screenshot: { type: "boolean", description: "Default true. Set false to skip the screenshot and get a near-instant ack instead — for stress-testing many actions back-to-back." }
     },
     required: ["owner", "repo", "slug", "x", "y"]
   },
@@ -107,8 +119,8 @@ dv.defineTool({
       // The bridge now returns the resulting screenshot directly from the
       // POST itself — no separate GET /screenshot needed. Halves the
       // round-trips through the tunnel + GitHub Actions runner per call.
-      const { buffer } = await bridgeRequest(keyOf(args), "POST", "/tap", { x: args.x, y: args.y });
-      return dv.imageWithJson(buffer.toString("base64"), "image/png", { ok: true });
+      const { buffer, contentType } = await bridgeRequest(keyOf(args), "POST", "/tap", { x: args.x, y: args.y, screenshot: args.screenshot !== false });
+      return respondFromBridge(buffer, contentType);
     } catch (e) { return dv.fail(e.message); }
   }
 });
@@ -116,20 +128,21 @@ dv.defineTool({
 dv.defineTool({
   name: "android_swipe",
   category: "interact",
-  description: "Swipe from (x1,y1) to (x2,y2) on the live Android app. Returns a screenshot after the swipe.",
+  description: "Swipe from (x1,y1) to (x2,y2) on the live Android app. Returns a screenshot after the swipe, unless screenshot:false.",
   schema: {
     type: "object",
     properties: {
       owner: { type: "string" }, repo: { type: "string" }, slug: { type: "string" },
       x1: { type: "number" }, y1: { type: "number" }, x2: { type: "number" }, y2: { type: "number" },
-      durationMs: { type: "number" }
+      durationMs: { type: "number" },
+      screenshot: { type: "boolean", description: "Default true. Set false to skip the screenshot for a near-instant ack." }
     },
     required: ["owner", "repo", "slug", "x1", "y1", "x2", "y2"]
   },
   async handler(args) {
     try {
-      const { buffer } = await bridgeRequest(keyOf(args), "POST", "/swipe", { x1: args.x1, y1: args.y1, x2: args.x2, y2: args.y2, durationMs: args.durationMs || 300 });
-      return dv.imageWithJson(buffer.toString("base64"), "image/png", { ok: true });
+      const { buffer, contentType } = await bridgeRequest(keyOf(args), "POST", "/swipe", { x1: args.x1, y1: args.y1, x2: args.x2, y2: args.y2, durationMs: args.durationMs || 300, screenshot: args.screenshot !== false });
+      return respondFromBridge(buffer, contentType);
     } catch (e) { return dv.fail(e.message); }
   }
 });
@@ -137,19 +150,20 @@ dv.defineTool({
 dv.defineTool({
   name: "android_type",
   category: "interact",
-  description: "Type text into the focused field on the live Android app. Returns a screenshot after typing.",
+  description: "Type text into the focused field on the live Android app. Returns a screenshot after typing, unless screenshot:false.",
   schema: {
     type: "object",
     properties: {
       owner: { type: "string" }, repo: { type: "string" }, slug: { type: "string" },
-      text: { type: "string" }
+      text: { type: "string" },
+      screenshot: { type: "boolean", description: "Default true. Set false to skip the screenshot for a near-instant ack." }
     },
     required: ["owner", "repo", "slug", "text"]
   },
   async handler(args) {
     try {
-      const { buffer } = await bridgeRequest(keyOf(args), "POST", "/text", { text: args.text });
-      return dv.imageWithJson(buffer.toString("base64"), "image/png", { ok: true });
+      const { buffer, contentType } = await bridgeRequest(keyOf(args), "POST", "/text", { text: args.text, screenshot: args.screenshot !== false });
+      return respondFromBridge(buffer, contentType);
     } catch (e) { return dv.fail(e.message); }
   }
 });
@@ -157,19 +171,20 @@ dv.defineTool({
 dv.defineTool({
   name: "android_key",
   category: "interact",
-  description: "Send an Android keyevent code (e.g. 4=BACK, 66=ENTER, 67=DEL) to the live session. Returns a screenshot after.",
+  description: "Send an Android keyevent code (e.g. 4=BACK, 66=ENTER, 67=DEL) to the live session. Returns a screenshot after, unless screenshot:false.",
   schema: {
     type: "object",
     properties: {
       owner: { type: "string" }, repo: { type: "string" }, slug: { type: "string" },
-      keycode: { type: "number", description: "Android KEYCODE_* integer value" }
+      keycode: { type: "number", description: "Android KEYCODE_* integer value" },
+      screenshot: { type: "boolean", description: "Default true. Set false to skip the screenshot for a near-instant ack." }
     },
     required: ["owner", "repo", "slug", "keycode"]
   },
   async handler(args) {
     try {
-      const { buffer } = await bridgeRequest(keyOf(args), "POST", "/key", { keycode: args.keycode });
-      return dv.imageWithJson(buffer.toString("base64"), "image/png", { ok: true });
+      const { buffer, contentType } = await bridgeRequest(keyOf(args), "POST", "/key", { keycode: args.keycode, screenshot: args.screenshot !== false });
+      return respondFromBridge(buffer, contentType);
     } catch (e) { return dv.fail(e.message); }
   }
 });
@@ -204,16 +219,19 @@ dv.defineTool({
     properties: {
       owner: { type: "string" }, repo: { type: "string" }, slug: { type: "string" },
       text: { type: "string", description: "Exact visible text of the target element" },
-      resourceId: { type: "string", description: "Exact android:id resource-id of the target element (e.g. com.app:id/submit_button)" }
+      resourceId: { type: "string", description: "Exact android:id resource-id of the target element (e.g. com.app:id/submit_button)" },
+      screenshot: { type: "boolean", description: "Default true. Set false to skip the screenshot for a near-instant ack." }
     },
     required: ["owner", "repo", "slug"]
   },
   async handler(args) {
     if (!args.text && !args.resourceId) return dv.fail("Provide text or resourceId");
     try {
-      const { buffer, contentType } = await bridgeRequest(keyOf(args), "POST", "/tap_element", { text: args.text, resourceId: args.resourceId });
-      if (contentType && contentType.indexOf("json") !== -1) {
-        return dv.fail(JSON.parse(buffer.toString("utf8")).error || "Element not found");
+      const { buffer, contentType } = await bridgeRequest(keyOf(args), "POST", "/tap_element", { text: args.text, resourceId: args.resourceId, screenshot: args.screenshot !== false });
+      if (contentType && contentType.indexOf("image") === -1) {
+        const parsed = JSON.parse(buffer.toString("utf8"));
+        if (parsed.error) return dv.fail(parsed.error);
+        return dv.jsonText(parsed);
       }
       return dv.imageWithJson(buffer.toString("base64"), "image/png", { ok: true });
     } catch (e) { return dv.fail(e.message); }
@@ -263,6 +281,73 @@ dv.defineTool({
     try {
       const { buffer } = await bridgeRequest(keyOf(args), "POST", "/shell", { cmd: args.cmd });
       return dv.jsonText(JSON.parse(buffer.toString("utf8")));
+    } catch (e) { return dv.fail(e.message); }
+  }
+});
+
+dv.defineTool({
+  name: "android_batch",
+  category: "interact",
+  description: [
+    "Run a whole scripted sequence of taps/swipes/text/key/wait actions in ONE round-trip instead of one",
+    "per action — each round-trip pays full tunnel + GitHub Actions runner latency regardless of how fast",
+    "you can produce the next action, so this is the real lever for driving the app as fast as you can",
+    "think rather than as fast as the network allows one action at a time. Returns a screenshot after the",
+    "whole sequence, unless screenshot:false."
+  ].join(" "),
+  schema: {
+    type: "object",
+    properties: {
+      owner: { type: "string" }, repo: { type: "string" }, slug: { type: "string" },
+      actions: {
+        type: "array",
+        description: "Executed in order. Each item: {action:'tap',x,y} | {action:'swipe',x1,y1,x2,y2,durationMs?} | {action:'text',text} | {action:'key',keycode} | {action:'wait',ms}",
+        items: { type: "object" }
+      },
+      screenshot: { type: "boolean", description: "Default true. Set false to skip the trailing screenshot." }
+    },
+    required: ["owner", "repo", "slug", "actions"]
+  },
+  async handler(args) {
+    if (!Array.isArray(args.actions) || !args.actions.length) return dv.fail("actions must be a non-empty array");
+    try {
+      const { buffer, contentType } = await bridgeRequest(keyOf(args), "POST", "/batch", { actions: args.actions, screenshot: args.screenshot !== false });
+      return respondFromBridge(buffer, contentType);
+    } catch (e) { return dv.fail(e.message); }
+  }
+});
+
+dv.defineTool({
+  name: "android_stress",
+  category: "audit",
+  description: [
+    "Heavy stress test via Android's own `monkey` fuzzer — fires random touch/motion/app-switch events",
+    "directly on-device with zero network round-trip per event (nothing over HTTP could match its raw",
+    "throughput). Use this, not a loop of individual taps, for genuinely hammering the app fast. Reports",
+    "whether it crashed, the crash log if so, and a final screenshot."
+  ].join(" "),
+  schema: {
+    type: "object",
+    properties: {
+      owner: { type: "string" }, repo: { type: "string" }, slug: { type: "string" },
+      pkg: { type: "string", description: "Package to fuzz. Defaults to the session's launched app." },
+      count: { type: "number", description: "Number of events to fire, default 500, max 20000" },
+      throttleMs: { type: "number", description: "Delay between events in ms, default 0 (as fast as possible)" }
+    },
+    required: ["owner", "repo", "slug"]
+  },
+  async handler(args) {
+    const key = keyOf(args);
+    const pkg = args.pkg || (sessionStatus[key] && sessionStatus[key].packageName);
+    if (!pkg) return dv.fail("No package specified and none known for this session — pass pkg explicitly");
+    try {
+      const { buffer } = await bridgeRequest(key, "POST", "/stress", { pkg: pkg, count: args.count || 500, throttleMs: args.throttleMs || 0 });
+      const parsed = JSON.parse(buffer.toString("utf8"));
+      const content = [];
+      if (parsed.screenshotBase64) content.push({ type: "image", data: parsed.screenshotBase64, mimeType: "image/png" });
+      const { screenshotBase64, ...meta } = parsed;
+      content.push({ type: "text", text: JSON.stringify(meta, null, 2) });
+      return dv.makeResult(content, !!meta.crashed);
     } catch (e) { return dv.fail(e.message); }
   }
 });

@@ -168,7 +168,47 @@ function bridgeScript() {
     "                self._json({ 'error': 'No element matched text=' + repr(body.get('text')) + ' resourceId=' + repr(body.get('resourceId')) }, 404)",
     "                return",
     "            self._adb('shell', 'input', 'tap', str(center[0]), str(center[1]))",
-    "            self._screenshot_response()",
+    "            self._finish(body)",
+    "            return",
+    // Run a whole scripted sequence in ONE round-trip instead of one per
+    // action — each round-trip pays full tunnel + GitHub Actions runner
+    // latency regardless of how fast the caller can produce the next
+    // action, so batching is the real lever for driving the app "as fast
+    // as Claude can input/output" rather than as fast as the network
+    // allows one action at a time.
+    "        if self.path == '/batch':",
+    "            for act in body.get('actions', []):",
+    "                a = act.get('action')",
+    "                if a == 'tap': self._adb('shell', 'input', 'tap', str(act['x']), str(act['y']))",
+    "                elif a == 'swipe': self._adb('shell', 'input', 'swipe', str(act['x1']), str(act['y1']), str(act['x2']), str(act['y2']), str(act.get('durationMs', 300)))",
+    "                elif a == 'text': self._adb('shell', 'input', 'text', urllib.parse.quote(act['text']).replace('%20', '%s'))",
+    "                elif a == 'key': self._adb('shell', 'input', 'keyevent', str(act['keycode']))",
+    "                elif a == 'wait': time.sleep(max(0, act.get('ms', 300)) / 1000.0)",
+    "            self._finish(body, extra={ 'ranActions': len(body.get('actions', [])) })",
+    "            return",
+    // The fastest possible stress test: Android's own `monkey` fuzzer
+    // fires random events directly on-device with zero network round-trip
+    // per event at all — nothing this bridge does over HTTP could compete
+    // with that for raw throughput. Reports the crash log (if any) and a
+    // final screenshot so a crash is immediately visible, not just a
+    // nonzero exit code to interpret.
+    "        if self.path == '/stress':",
+    "            pkg = body.get('pkg', '')",
+    "            count = max(1, min(int(body.get('count', 500)), 20000))",
+    "            throttle = max(0, int(body.get('throttleMs', 0)))",
+    "            r = self._adb('shell', 'monkey', '-p', pkg, '--throttle', str(throttle),",
+    "                          '--pct-touch', '40', '--pct-motion', '20', '--pct-appswitch', '10', str(count))",
+    "            crash = self._adb('logcat', '-d', '-b', 'crash')",
+    "            img = self._adb('exec-out', 'screencap', '-p')",
+    "            payload = {",
+    "                'eventsRequested': count,",
+    "                'monkeyOutput': r.stdout.decode('utf8', 'ignore')[-4000:],",
+    "                'monkeyError': r.stderr.decode('utf8', 'ignore')[-2000:],",
+    "                'crashed': bool(crash.stdout.strip()),",
+    "                'crashLog': crash.stdout.decode('utf8', 'ignore')[-4000:],",
+    "                'screenshotBase64': __import__('base64').b64encode(img.stdout).decode('ascii')",
+    "            }",
+    "            self._json(payload)",
     "            return",
     "        if self.path == '/tap':",
     "            self._adb('shell', 'input', 'tap', str(body['x']), str(body['y']))",
@@ -180,12 +220,16 @@ function bridgeScript() {
     "            self._adb('shell', 'input', 'keyevent', str(body['keycode']))",
     "        else:",
     "            self.send_response(404); self.end_headers(); return",
-    // Return the resulting screenshot directly instead of a bare {"ok":true}
-    // ack — halves the round-trips a tap/swipe/type/key needed (was: POST
-    // action, then a *separate* GET /screenshot from the client). Each
-    // round-trip pays the full tunnel + GitHub Actions runner latency, so
-    // this is a real, not cosmetic, cut to the lag the user reported.
-    "        self._screenshot_response()",
+    "        self._finish(body)",
+    // body.get('screenshot', True): screenshot response by default (also
+    // halves round-trips vs. the old separate GET /screenshot), but skip
+    // it — a bare, near-instant JSON ack — when the caller is firing many
+    // actions back-to-back and only wants to look once at the end.
+    "    def _finish(self, body, extra=None):",
+    "        if body.get('screenshot', True):",
+    "            self._screenshot_response()",
+    "        else:",
+    "            self._json(dict({ 'ok': True }, **(extra or {})))",
     "    def log_message(self, *a): pass",
     // Threaded, not plain HTTPServer: a browser refresh and a concurrent
     // MCP tool call (Claude calling android_screenshot/tap directly)
