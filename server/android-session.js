@@ -243,6 +243,14 @@ function makeSessionWorkflow(workingDir, timeoutMinutes, branchName) {
     "        run: |",
     "          APK_PATH=\"$(pwd)/$(find . -path '*/outputs/apk/debug/*.apk' | head -n1)\"",
     "          echo \"APK_PATH=$APK_PATH\" >> \"$GITHUB_ENV\"",
+    // Read applicationId straight out of build.gradle(.kts) — declared
+    // literally in the overwhelming majority of projects. Every SDK-tool
+    // route tried so far has been unreliable on this runner image (aapt
+    // errored "Unknown command", apkanalyzer returned "15" — some
+    // unrelated numeric value, not a package name) — this has zero
+    // dependency on which SDK components happen to be installed.
+    "          GRADLE_PKG_GUESS=$(grep -rhoE 'applicationId[[:space:]]*=?[[:space:]]*\"[^\"]+\"' --include='build.gradle*' . | head -n1 | sed -E 's/.*\"([^\"]+)\".*/\\1/')",
+    "          echo \"GRADLE_PKG_GUESS=$GRADLE_PKG_GUESS\" >> \"$GITHUB_ENV\"",
     "",
     "      - name: Download cloudflared",
     "        run: |",
@@ -266,20 +274,27 @@ function makeSessionWorkflow(workingDir, timeoutMinutes, branchName) {
     // runner step would actually reach its internal script execution.
     "          GH_TOKEN='${{ secrets.GITHUB_TOKEN }}'",
     "          APK=\"$APK_PATH\"",
-    // A glob against a single build-tools version directory is fragile —
-    // confirmed on a real run: it resolved to a build-tools/35.0.0/aapt
-    // that isn't the real binary and errors "Unknown command". Search
-    // for aapt2 (more consistently present across SDK versions) instead,
-    // and fall back to apkanalyzer (bundled in cmdline-tools specifically
-    // for this) if aapt2 comes up empty.
+    // Every SDK-tool route has proven unreliable on this runner image:
+    // aapt errored "Unknown command", apkanalyzer returned "15" — a
+    // garbage value, not a package name. A validation guard against a
+    // Java-package-shaped string stops garbage like that from ever being
+    // accepted, regardless of which source produced it.
+    "          is_valid_pkg() { echo \"$1\" | grep -qE '^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+$'; }",
     "          PKG=\"\"",
-    "          AAPT2=$(find \"$ANDROID_SDK_ROOT\" -type f -name aapt2 2>/dev/null | head -n1)",
-    "          if [ -n \"$AAPT2\" ]; then",
-    "            PKG=$(\"$AAPT2\" dump badging \"$APK\" 2>/dev/null | grep package: | sed -e \"s/.*name='//\" -e \"s/'.*//\")",
+    "          is_valid_pkg \"$GRADLE_PKG_GUESS\" && PKG=\"$GRADLE_PKG_GUESS\"",
+    "          if [ -z \"$PKG\" ]; then",
+    "            AAPT2=$(find \"$ANDROID_SDK_ROOT\" -type f -name aapt2 2>/dev/null | head -n1)",
+    "            if [ -n \"$AAPT2\" ]; then",
+    "              CAND=$(\"$AAPT2\" dump badging \"$APK\" 2>/dev/null | grep package: | sed -e \"s/.*name='//\" -e \"s/'.*//\")",
+    "              is_valid_pkg \"$CAND\" && PKG=\"$CAND\"",
+    "            fi",
     "          fi",
     "          if [ -z \"$PKG\" ]; then",
     "            APKANALYZER=$(find \"$ANDROID_SDK_ROOT/cmdline-tools\" -type f -name apkanalyzer 2>/dev/null | head -n1)",
-    "            [ -n \"$APKANALYZER\" ] && PKG=$(\"$APKANALYZER\" manifest application-id \"$APK\" 2>/dev/null)",
+    "            if [ -n \"$APKANALYZER\" ]; then",
+    "              CAND=$(\"$APKANALYZER\" manifest application-id \"$APK\" 2>/dev/null)",
+    "              is_valid_pkg \"$CAND\" && PKG=\"$CAND\"",
+    "            fi",
     "          fi",
     "          adb install -r \"$APK\"",
     // monkey only needs the package name (launches its default LAUNCHER
