@@ -243,13 +243,25 @@ function makeSessionWorkflow(workingDir, timeoutMinutes, branchName) {
     "        run: |",
     "          APK_PATH=\"$(pwd)/$(find . -path '*/outputs/apk/debug/*.apk' | head -n1)\"",
     "          echo \"APK_PATH=$APK_PATH\" >> \"$GITHUB_ENV\"",
-    // Read applicationId straight out of build.gradle(.kts) — declared
-    // literally in the overwhelming majority of projects. Every SDK-tool
-    // route tried so far has been unreliable on this runner image (aapt
-    // errored "Unknown command", apkanalyzer returned "15" — some
-    // unrelated numeric value, not a package name) — this has zero
-    // dependency on which SDK components happen to be installed.
-    "          GRADLE_PKG_GUESS=$(grep -rhoE 'applicationId[[:space:]]*=?[[:space:]]*\"[^\"]+\"' --include='build.gradle*' . | head -n1 | sed -E 's/.*\"([^\"]+)\".*/\\1/')",
+    // AGP writes the *exact* applicationId actually used for this specific
+    // APK (base id + any applicationIdSuffix from the buildType/flavor,
+    // already merged) to output-metadata.json next to it — authoritative,
+    // no guessing. Confirmed necessary on a real run: this project's debug
+    // buildType has `applicationIdSuffix = \".debug\"`, so the installed
+    // package was fr.scanneat.app.debug while a plain grep of build.gradle
+    // only ever found the base fr.scanneat.app — Android correctly found
+    // no LAUNCHER activity under that wrong, unsuffixed name.
+    "          OUTPUT_META=$(find . -path '*/outputs/apk/debug/output-metadata.json' | head -n1)",
+    "          GRADLE_PKG_GUESS=\"\"",
+    "          if [ -n \"$OUTPUT_META\" ]; then",
+    "            GRADLE_PKG_GUESS=$(python3 -c \"import json; print(json.load(open('$OUTPUT_META')).get('applicationId',''))\" 2>/dev/null)",
+    "          fi",
+    // Fallback for projects without an AGP metadata file (unusual, but
+    // cheap to keep as a safety net) — misses applicationIdSuffix, but
+    // is_valid_pkg still filters out garbage before anything acts on it.
+    "          if [ -z \"$GRADLE_PKG_GUESS\" ]; then",
+    "            GRADLE_PKG_GUESS=$(grep -rhoE 'applicationId[[:space:]]*=?[[:space:]]*\"[^\"]+\"' --include='build.gradle*' . | head -n1 | sed -E 's/.*\"([^\"]+)\".*/\\1/')",
+    "          fi",
     "          echo \"GRADLE_PKG_GUESS=$GRADLE_PKG_GUESS\" >> \"$GITHUB_ENV\"",
     "",
     "      - name: Download cloudflared",
