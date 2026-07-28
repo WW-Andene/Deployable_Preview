@@ -136,6 +136,41 @@ function bridgeScript() {
   ].join("\n");
 }
 
+// Reports the bridge URL/token/package to a Check Run once the tunnel is
+// up, so DV can read it via the Checks API — which updates live — instead
+// of the job-logs-download endpoint, which 404s until the job completes
+// (and this job is meant to stay running for the session's lifetime).
+function reportScript() {
+  return [
+    "import os, json, urllib.request",
+    "payload = {",
+    "    'name': 'deployview-bridge',",
+    "    'head_sha': os.environ['GITHUB_SHA'],",
+    "    'status': 'completed',",
+    "    'conclusion': 'success',",
+    "    'output': {",
+    "        'title': 'DV Bridge',",
+    "        'summary': json.dumps({",
+    "            'url': os.environ['DV_URL'],",
+    "            'token': os.environ['DV_BRIDGE_TOKEN'],",
+    "            'package': os.environ.get('DV_PKG', '')",
+    "        })",
+    "    }",
+    "}",
+    "req = urllib.request.Request(",
+    "    'https://api.github.com/repos/' + os.environ['GITHUB_REPOSITORY'] + '/check-runs',",
+    "    data=json.dumps(payload).encode(),",
+    "    headers={",
+    "        'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],",
+    "        'Accept': 'application/vnd.github+json',",
+    "        'Content-Type': 'application/json'",
+    "    },",
+    "    method='POST'",
+    ")",
+    "urllib.request.urlopen(req)"
+  ].join("\n");
+}
+
 function makeSessionWorkflow(workingDir, timeoutMinutes, branchName) {
   const wd = (workingDir || ".").replace(/\/$/, "") || ".";
   function yq(s) { return "'" + String(s).replace(/'/g, "''") + "'"; }
@@ -153,6 +188,15 @@ function makeSessionWorkflow(workingDir, timeoutMinutes, branchName) {
     "      branch:",
     "        description: Branch to check out and build",
     "        default: " + yq(branchName || "main"),
+    "",
+    // The bridge-ready signal is posted via the Checks API instead of
+    // grepped from job logs — GitHub's job-logs-download endpoint 404s
+    // for a job that's still in_progress (confirmed against a live run),
+    // and this job is *meant* to stay in_progress for the session's
+    // whole lifetime. Checks update live regardless of job completion.
+    "permissions:",
+    "  checks: write",
+    "  contents: read",
     "",
     "jobs:",
     "  session:",
@@ -215,6 +259,12 @@ function makeSessionWorkflow(workingDir, timeoutMinutes, branchName) {
     "      - name: Write session script",
     "        run: |",
     "          cat > /tmp/dv_session.sh <<'DVEOF'",
+    // ${{ secrets.GITHUB_TOKEN }} is substituted by the runner into this
+    // step's literal text *before* bash ever sees it (workflow-level
+    // templating, independent of the heredoc's quoting) — baking it in
+    // here sidesteps any doubt about whether env: set on the emulator-
+    // runner step would actually reach its internal script execution.
+    "          GH_TOKEN='${{ secrets.GITHUB_TOKEN }}'",
     "          APK=\"$APK_PATH\"",
     "          PKG=$(${ANDROID_SDK_ROOT}/build-tools/*/aapt dump badging \"$APK\" | grep package: | sed -e \"s/.*name='//\" -e \"s/'.*//\")",
     "          ACT=$(${ANDROID_SDK_ROOT}/build-tools/*/aapt dump badging \"$APK\" | grep launchable-activity | sed -e \"s/.*name='//\" -e \"s/'.*//\")",
@@ -237,6 +287,8 @@ function makeSessionWorkflow(workingDir, timeoutMinutes, branchName) {
     "          echo \"DV_BRIDGE_URL=$URL\"",
     "          echo \"DV_BRIDGE_TOKEN=$DV_BRIDGE_TOKEN\"",
     "          echo \"DV_BRIDGE_PACKAGE=$PKG\"",
+    "          export DV_URL=\"$URL\" DV_PKG=\"$PKG\" GH_TOKEN",
+    "          echo " + Buffer.from(reportScript()).toString("base64") + " | base64 -d | python3",
     "          echo \"Session live — waiting for cancellation or timeout.\"",
     "          while true; do sleep 60; done",
     "          DVEOF",
@@ -378,10 +430,12 @@ async function startSession(owner, repo, slug, workingDir, timeoutMinutes) {
   addLog(key, "Run started → " + runUrl);
   addLog(key, "Booting emulator + building app (usually 3–6 min)...");
 
-  // Poll the job log for the bridge markers. The job stays running after
-  // this (deliberately — that's the live session), so we can't wait for
-  // "completed" like apk.js does; we watch the log for the markers, or bail
-  // if the run finishes early (build/boot failure).
+  // Poll the Checks API for the "deployview-bridge" check run the workflow
+  // posts once the tunnel is up. NOT the job-logs-download endpoint — that
+  // 404s until the job reaches "completed", and this job is meant to stay
+  // in_progress for the session's entire lifetime (confirmed against a
+  // live run: the endpoint 404'd outright while the emulator step was
+  // still running). Checks update live regardless of job completion.
   let bridgeUrl = null, bridgeToken = null, pkg = null;
   for (let i = 0; i < 90; i++) {
     await sleep(10000);
@@ -394,17 +448,17 @@ async function startSession(owner, repo, slug, workingDir, timeoutMinutes) {
     try {
       const jobs = await ghReq("GET", "/repos/" + owner + "/" + repo + "/actions/runs/" + runId + "/jobs", null, token);
       const job = (jobs.jobs || [])[0];
-      if (!job) continue;
-      sessionStatus[key].jobId = job.id;
-      const logText = await ghRawGet("https://api.github.com/repos/" + owner + "/" + repo + "/actions/jobs/" + job.id + "/logs", token);
-      const mUrl = logText.match(/DV_BRIDGE_URL=(\S+)/);
-      const mTok = logText.match(/DV_BRIDGE_TOKEN=(\S+)/);
-      const mPkg = logText.match(/DV_BRIDGE_PACKAGE=(\S+)/);
-      if (mUrl && mUrl[1] && mTok && mTok[1]) {
-        bridgeUrl = mUrl[1]; bridgeToken = mTok[1]; pkg = mPkg ? mPkg[1] : null;
-        break;
+      if (job) sessionStatus[key].jobId = job.id;
+      const checks = await ghReq("GET", "/repos/" + owner + "/" + repo + "/commits/" + run.head_sha + "/check-runs", null, token);
+      const cr = (checks.check_runs || []).find((c) => c.name === "deployview-bridge");
+      if (cr && cr.output && cr.output.summary) {
+        const info = JSON.parse(cr.output.summary);
+        if (info && info.url && info.token) {
+          bridgeUrl = info.url; bridgeToken = info.token; pkg = info.package || null;
+          break;
+        }
       }
-    } catch (e) { /* logs not ready yet */ }
+    } catch (e) { /* check run not posted yet */ }
   }
 
   if (!bridgeUrl) {
