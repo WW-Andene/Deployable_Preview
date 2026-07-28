@@ -26,3 +26,4 @@ require("./sandbox");
 require("./live");
 require("./workflow");
 require("./security");
+require("./android");

@@ -102,6 +102,7 @@ router.use("/", require("./config"));
 router.use("/", require("./build"));
 router.use("/", require("./infra"));
 router.use("/", require("./apk"));
+router.use("/", require("./android-session"));
 router.use("/", require("./dv"));
 router.use("/", require("./fetch"));
 
