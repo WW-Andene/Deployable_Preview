@@ -196,6 +196,17 @@ router.use("/preview/:owner/:repo/:branchSlug/*", (req, res) => {
     const statusText = st ? st.status : "idle";
     return res.status(404).send(notBuiltPage(statusText, req));
   }
+
+  // Only client-side routes (no file extension) get the SPA index.html
+  // fallback. A request that looks like a static asset (sw.js, *.css,
+  // manifest.webmanifest, ...) reaching this far means express.static
+  // in the previous middleware couldn't find it on disk — serving
+  // index.html for that would lie about the file existing (wrong bytes,
+  // wrong MIME type, e.g. service worker registration failing with
+  // "unsupported MIME type ('text/html')"). Return a real 404 instead.
+  if (path.extname(req.path)) {
+    return res.status(404).type("text/plain").send("404 — " + req.path + " not found in build output");
+  }
   serveIndex(outDir, res, previewPrefix(req));
 });
 
