@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const router = express.Router();
 
-const { buildStatus } = require("../build");
+const { buildStatus, keyFromSlug } = require("../build");
 const { runningServers } = require("../process");
 const { proxyTo, serveIndex } = require("../proxy");
 const { executeHandler } = require("../serverless");
@@ -34,7 +34,7 @@ router.post("/preview/:owner/:repo/:branchSlug/__auth", express.urlencoded({ ext
 // (and Claude) compare past builds side-by-side without rolling back.
 router.use("/preview/:owner/:repo/:branchSlug/__snapshot/:snapId", function(req, res, next) {
   const { owner, repo, branchSlug, snapId } = req.params;
-  const key = owner + "/" + repo + ":" + branchSlug;
+  const key = keyFromSlug(owner, repo, branchSlug);
   const hist = getHistory(key);
   // K4: snapId may be either a raw history id OR a tag. Tag wins so
   // /preview/.../__snapshot/v1.0/ keeps working as v1.0 moves.
@@ -72,7 +72,7 @@ router.use("/preview/:owner/:repo/:branchSlug", previewAuthMiddleware);
 router.use("/preview/:owner/:repo/:branchSlug", edgeMiddleware);
 
 function findOutputDir(owner, repo, slug) {
-  const key = owner + "/" + repo + ":" + slug;
+  const key = keyFromSlug(owner, repo, slug);
   if (buildStatus[key] && buildStatus[key].outputPath) return buildStatus[key].outputPath;
   return null;
 }
@@ -120,7 +120,7 @@ function previewPrefix(req) {
 // Serverless API functions — must come before static serving
 router.use("/preview/:owner/:repo/:branchSlug/api", express.json(), (req, res, next) => {
   const slug = req.params.branchSlug;
-  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  const key = keyFromSlug(req.params.owner, req.params.repo, slug);
   const status = buildStatus[key];
 
   // Server mode: proxy to running process
@@ -150,7 +150,7 @@ router.use("/preview/:owner/:repo/:branchSlug/api", express.json(), (req, res, n
 // Static assets / server proxy
 router.use("/preview/:owner/:repo/:branchSlug", (req, res, next) => {
   const slug = req.params.branchSlug;
-  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  const key = keyFromSlug(req.params.owner, req.params.repo, slug);
 
   const srv = runningServers[key];
   if (srv && srv.status === "running") { res.removeHeader("X-Frame-Options"); return proxyTo(srv.port, req, res, previewPrefix(req)); }
@@ -175,7 +175,7 @@ router.use("/preview/:owner/:repo/:branchSlug", (req, res, next) => {
 // SPA fallback
 router.use("/preview/:owner/:repo/:branchSlug/*", (req, res) => {
   const slug = req.params.branchSlug;
-  const key = req.params.owner + "/" + req.params.repo + ":" + slug;
+  const key = keyFromSlug(req.params.owner, req.params.repo, slug);
   const srv = runningServers[key];
   if (srv && srv.status === "running") { res.removeHeader("X-Frame-Options"); return proxyTo(srv.port, req, res, previewPrefix(req)); }
 
