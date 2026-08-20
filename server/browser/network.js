@@ -293,8 +293,18 @@ async function runSimpleAction(page, act) {
       // plain <img>/<video>/<audio>/<a> selector by resolving its src/href,
       // or a literal blob:/data:/http(s) URL passed directly as `value`.
       const literalUrl = (value != null && /^(blob:|data:|https?:)/i.test(String(value))) ? String(value) : null;
+      // Default raised from the original 15MB — still a real ceiling (base64
+      // inflates size ~33%, and the whole thing has to fit in one MCP tool
+      // response / the calling agent's context), but configurable per-call
+      // via act.maxBytes for a genuinely large asset, up to a hard cap this
+      // module enforces regardless of what's requested.
+      const requestedMax = Number(act && act.maxBytes);
+      const maxBytes = Math.min(
+        Number.isFinite(requestedMax) && requestedMax > 0 ? requestedMax : 50 * 1024 * 1024,
+        500 * 1024 * 1024
+      );
       const asset = await page.evaluate(async (args) => {
-        const { sel, literal } = args;
+        const { sel, literal, maxBytes } = args;
         function toBase64(buf) {
           let binary = "";
           const bytes = new Uint8Array(buf);
@@ -303,6 +313,9 @@ async function runSimpleAction(page, act) {
             binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
           }
           return btoa(binary);
+        }
+        function tooLarge(byteLength) {
+          return { error: "asset too large (" + byteLength + " bytes, cap is " + maxBytes + ") — raise it with act.maxBytes (hard ceiling 500MB), but a multi-hundred-MB base64 payload may still be impractical for the calling agent's context regardless of this cap" };
         }
         let url = literal;
         if (!url && sel) {
@@ -313,7 +326,7 @@ async function runSimpleAction(page, act) {
               const dataUrl = el.toDataURL();
               const res = await fetch(dataUrl);
               const buf = await res.arrayBuffer();
-              if (buf.byteLength > 15 * 1024 * 1024) return { error: "asset too large (" + buf.byteLength + " bytes) — downloadAsset caps at 15MB to stay within MCP response limits" };
+              if (buf.byteLength > maxBytes) return tooLarge(buf.byteLength);
               return { source: sel + " (canvas.toDataURL)", mimeType: "image/png", byteLength: buf.byteLength, base64: toBase64(buf) };
             } catch (e) {
               return { error: "canvas.toDataURL failed (likely tainted by cross-origin content): " + (e && e.message) };
@@ -325,12 +338,12 @@ async function runSimpleAction(page, act) {
         try {
           const res = await fetch(url);
           const buf = await res.arrayBuffer();
-          if (buf.byteLength > 15 * 1024 * 1024) return { error: "asset too large (" + buf.byteLength + " bytes) — downloadAsset caps at 15MB to stay within MCP response limits", source: url };
+          if (buf.byteLength > maxBytes) return Object.assign(tooLarge(buf.byteLength), { source: url });
           return { source: url, mimeType: res.headers.get("content-type") || "", byteLength: buf.byteLength, base64: toBase64(buf) };
         } catch (e) {
           return { error: "fetch failed: " + (e && e.message) };
         }
-      }, { sel: selector || null, literal: literalUrl });
+      }, { sel: selector || null, literal: literalUrl, maxBytes });
       if (asset && asset.error) throw new Error(asset.error);
       return asset;
     }

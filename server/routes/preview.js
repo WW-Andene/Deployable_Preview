@@ -12,6 +12,40 @@ const { edgeMiddleware } = require("../edge");
 const imageOpt = require("../image-opt");
 const { getHistory } = require("../build");
 
+// ── Static asset cache headers ──────────────────────────────────────────────
+// Nothing was setting Cache-Control on build output before this — every
+// asset (including immutable, content-hashed bundle files) got the
+// framework-default ETag/Last-Modified revalidation, meaning a repeat
+// visitor re-validates every single JS/CSS chunk on every load instead of
+// using a local cache. A content-hashed filename (main.a1b2c3d4.js,
+// index-Cx7f2AbZ.js) is safe to cache forever — a new build produces a new
+// hash, so there's no staleness risk. Anything else (index.html, an
+// unhashed favicon.ico) must keep revalidating, since the same path could
+// legitimately serve different content after a redeploy.
+const HASHED_ASSET_RE = /[.\-_][A-Za-z0-9]{8,32}\.[a-zA-Z0-9]+$/;
+function isHashedAsset(filePath) { return HASHED_ASSET_RE.test(filePath); }
+function staticCacheHeaders(res, filePath) {
+  res.setHeader("Cache-Control", isHashedAsset(filePath)
+    ? "public, max-age=31536000, immutable"
+    : "no-cache");
+}
+
+// express.static(outDir) was being re-constructed on every single request
+// (proxy for one image = one new middleware instance). Memoize per outDir
+// instead — same behavior, one less allocation per asset request. Capped
+// so a host serving thousands of distinct branch output dirs over a long
+// uptime doesn't grow this unboundedly.
+const _staticMwCache = new Map();
+function getStaticMiddleware(outDir) {
+  let mw = _staticMwCache.get(outDir);
+  if (!mw) {
+    mw = express.static(outDir, { setHeaders: staticCacheHeaders });
+    if (_staticMwCache.size > 500) _staticMwCache.clear();
+    _staticMwCache.set(outDir, mw);
+  }
+  return mw;
+}
+
 // Escape user-controlled strings before splicing into the small HTML
 // error pages this router emits. Without this an attacker can craft
 // /preview/.../__snapshot/<script>... and trigger reflected XSS in
@@ -60,8 +94,8 @@ router.use("/preview/:owner/:repo/:branchSlug/__snapshot/:snapId", function(req,
   }
   const filePath = path.join(entry.snapshotDir, decodeURIComponent(req.url.split("?")[0]));
   Promise.resolve(imageOpt.maybeServeOptimized(filePath, req, res))
-    .then(function(handled) { if (!handled) express.static(entry.snapshotDir)(req, res, next); })
-    .catch(function() { express.static(entry.snapshotDir)(req, res, next); });
+    .then(function(handled) { if (!handled) getStaticMiddleware(entry.snapshotDir)(req, res, next); })
+    .catch(function() { getStaticMiddleware(entry.snapshotDir)(req, res, next); });
 });
 
 // Password gate — runs in front of every other preview route. No-op for
@@ -168,8 +202,8 @@ router.use("/preview/:owner/:repo/:branchSlug", (req, res, next) => {
   // ?w=/?h=/?fmt=/?q= and sharp is installed; otherwise pass through.
   const filePath = path.join(outDir, decodeURIComponent(reqPath));
   Promise.resolve(imageOpt.maybeServeOptimized(filePath, req, res))
-    .then(function(handled) { if (!handled) express.static(outDir)(req, res, next); })
-    .catch(function() { express.static(outDir)(req, res, next); });
+    .then(function(handled) { if (!handled) getStaticMiddleware(outDir)(req, res, next); })
+    .catch(function() { getStaticMiddleware(outDir)(req, res, next); });
 });
 
 // SPA fallback

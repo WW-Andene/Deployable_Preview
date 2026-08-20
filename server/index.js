@@ -96,6 +96,17 @@ try {
 }
 
 const app = express();
+
+// gzip/brotli response compression. Nothing was compressing preview assets
+// or API responses before this — every request paid full uncompressed
+// bandwidth. Defensive require: if `compression` hasn't been npm-installed
+// yet on an existing deployment, skip it rather than crash startup.
+try {
+  app.use(require("compression")());
+} catch (e) {
+  console.warn("  ⚠ 'compression' package not installed — responses will be uncompressed. Run: npm install compression");
+}
+
 app.use(express.json({
   verify: (req, _res, buf) => { req.rawBody = buf; }  // preserve raw body for webhook HMAC
 }));

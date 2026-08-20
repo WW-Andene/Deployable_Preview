@@ -396,10 +396,33 @@ function status() {
   let libraries = {};
   let groqAuthorized = false;
   let browserAvailable = false;
+  let disk = null;
 
   try { libraries = require("../mcp-enrichments").status(); } catch (_) {}
   try { groqAuthorized = require("../mcp-groq").isClaudeGroqAuthorized(); } catch (_) {}
   try { browserAvailable = require("../browser").hasPlaywright(); } catch (_) {}
+  try {
+    const { WORKSPACE } = require("../build");
+    const { getDiskUsage, fmtBytes } = require("../disk-usage");
+    const d = getDiskUsage(WORKSPACE);
+    if (d.available) {
+      disk = {
+        path: d.path,
+        freeBytes: d.freeBytes,
+        totalBytes: d.totalBytes,
+        usedPercent: d.usedPercent,
+        free: fmtBytes(d.freeBytes),
+        total: fmtBytes(d.totalBytes),
+        // Past 90% used, a build (npm install, especially) can fail mid-way
+        // with a raw ENOSPC that looks nothing like a disk problem unless
+        // you already suspect one — surface it here so dv_status catches
+        // it before that happens.
+        lowSpace: typeof d.usedPercent === "number" && d.usedPercent >= 90
+      };
+    } else {
+      disk = { available: false, reason: d.reason };
+    }
+  } catch (_) {}
 
   const byCat = {};
   for (const t of registry.values()) byCat[t.category] = (byCat[t.category] || 0) + 1;
@@ -409,7 +432,8 @@ function status() {
     categories: byCat,
     browser: browserAvailable,
     groqAuthorized,
-    libraries
+    libraries,
+    disk
   };
 }
 
