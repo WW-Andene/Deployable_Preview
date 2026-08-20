@@ -48,7 +48,8 @@ dv.defineTool({
             as:        { type: "string", description: "Bind result to results.<name> for later steps" },
             when:      { type: "string", description: "JS expression that must be truthy for this step to run" },
             onError:   { type: "string", enum: ["continue", "abort"], description: "Default: abort" },
-            label:     { type: "string", description: "Human-readable label in the transcript" }
+            label:     { type: "string", description: "Human-readable label in the transcript" },
+            parallel:  { type: "boolean", description: "Run concurrently with adjacent parallel:true steps (Promise.all) instead of waiting for the previous step. Big latency win for independent read-only calls (e.g. several screenshots/audits at once). Steps in the same parallel batch can't see each other's results via `as`/`last` — only what was bound before the batch started." }
           },
           required: ["tool"]
         }
@@ -69,30 +70,26 @@ dv.defineTool({
     const transcript = [];
     let aborted = false, abortReason = null;
 
-    for (let i = 0; i < steps.length && i < maxSteps && !aborted; i++) {
-      const step = steps[i] || {};
+    // Evaluate gate + args for one step against the `results`/`last` snapshot
+    // as of the start of its batch, then run it. Returns a transcript entry
+    // plus the bits needed to commit it into `results`/`last` afterwards.
+    async function runOne(step, i, snapshotResults, snapshotLast) {
       const label = step.label || step.as || step.tool || ("step_" + i);
 
-      // Gate
       if (step.when) {
         let passed;
-        try { passed = !!evalExpr(step.when, results, last); }
+        try { passed = !!evalExpr(step.when, snapshotResults, snapshotLast); }
         catch (e) {
-          transcript.push({ index: i, label, tool: step.tool, ok: false, skipped: false, error: "when-eval: " + e.message });
-          if ((step.onError || "abort") === "abort") { aborted = true; abortReason = "when-eval failure"; break; }
-          continue;
+          return { index: i, label, tool: step.tool, ok: false, skipped: false, error: "when-eval: " + e.message, hardFail: (step.onError || "abort") === "abort", failReason: "when-eval failure" };
         }
-        if (!passed) { transcript.push({ index: i, label, tool: step.tool, skipped: true, reason: "when was falsy" }); continue; }
+        if (!passed) return { index: i, label, tool: step.tool, skipped: true, reason: "when was falsy" };
       }
 
-      // Args
       let finalArgs;
       if (typeof step.argsFrom === "string" && step.argsFrom.trim()) {
-        try { finalArgs = evalExpr(step.argsFrom, results, last); }
+        try { finalArgs = evalExpr(step.argsFrom, snapshotResults, snapshotLast); }
         catch (e) {
-          transcript.push({ index: i, label, tool: step.tool, ok: false, error: "argsFrom-eval: " + e.message });
-          if ((step.onError || "abort") === "abort") { aborted = true; abortReason = "argsFrom failure"; break; }
-          continue;
+          return { index: i, label, tool: step.tool, ok: false, error: "argsFrom-eval: " + e.message, hardFail: (step.onError || "abort") === "abort", failReason: "argsFrom failure" };
         }
       } else {
         finalArgs = Object.assign({}, step.args || {});
@@ -104,14 +101,13 @@ dv.defineTool({
       catch (e) { r = dv.failCode("INTERNAL", e.message); }
       const ok = !r.isError;
 
-      // Parse first text block for inclusion in `results` (JSON if possible).
       const textBlocks = (r.content || []).filter(function(x){ return x.type === "text"; }).map(function(x){ return x.text; });
       let parsed = null;
       if (textBlocks.length) {
         try { parsed = JSON.parse(textBlocks[0]); } catch (_) { parsed = textBlocks[0]; }
       }
 
-      const entry = {
+      return {
         index: i,
         label,
         tool: step.tool,
@@ -119,17 +115,42 @@ dv.defineTool({
         durationMs: Date.now() - tStart,
         textPreview: textBlocks[0] ? String(textBlocks[0]).slice(0, 300) : null,
         images: (r.content || []).filter(function(x){ return x.type === "image"; }).length,
-        error: ok ? undefined : parsed && parsed.message ? parsed.message : (textBlocks[0] || "").slice(0, 400)
+        error: ok ? undefined : parsed && parsed.message ? parsed.message : (textBlocks[0] || "").slice(0, 400),
+        hardFail: !ok && (step.onError || "abort") === "abort",
+        failReason: !ok ? (parsed && parsed.message ? parsed.message : (textBlocks[0] || "").slice(0, 400)) || ("step " + i + " failed") : null,
+        as: step.as,
+        parsed
       };
-      transcript.push(entry);
+    }
 
-      last = { ok, result: parsed, tool: step.tool };
-      if (step.as) results[step.as] = parsed;
+    function commit(entry) {
+      // eslint-disable-next-line no-unused-vars
+      const { as, parsed, hardFail, failReason, ...pub } = entry;
+      transcript.push(pub);
+      if (!entry.skipped) last = { ok: entry.ok, result: parsed, tool: entry.tool };
+      if (as) results[as] = parsed;
+      if (entry.hardFail) { aborted = true; abortReason = failReason; }
+    }
 
-      if (!ok && (step.onError || "abort") === "abort") {
-        aborted = true;
-        abortReason = entry.error || ("step " + i + " failed");
-        break;
+    for (let i = 0; i < steps.length && i < maxSteps && !aborted;) {
+      // Batch consecutive parallel:true steps together (min batch size 2 —
+      // a lone parallel:true step just runs normally).
+      let j = i;
+      if (steps[i] && steps[i].parallel) {
+        while (j + 1 < steps.length && j + 1 < maxSteps && steps[j + 1] && steps[j + 1].parallel) j++;
+      }
+
+      if (j > i) {
+        const snapResults = Object.assign({}, results);
+        const snapLast = last;
+        const batch = steps.slice(i, j + 1);
+        const entries = await Promise.all(batch.map((step, k) => runOne(step, i + k, snapResults, snapLast)));
+        for (const entry of entries) commit(entry);
+        i = j + 1;
+      } else {
+        const entry = await runOne(steps[i], i, results, last);
+        commit(entry);
+        i++;
       }
     }
 

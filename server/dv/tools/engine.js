@@ -23,24 +23,55 @@ dv.defineTool({
 dv.defineTool({
   name: "dv_tools",
   category: "engine",
-  description: "List every registered DV tool grouped by category. Much easier to navigate than the flat MCP tools/list when looking for something specific.",
+  description: "List or search every registered DV tool. Much easier to navigate than the flat MCP tools/list when looking for something specific — pass `search` for a keyword lookup across 100+ tools instead of scanning the full list, or `compact:true` to shave the payload down to name+description (no schemas) when you just need an overview.",
   requires: [],
   schema: {
     type: "object",
     properties: {
-      category: { type: "string", description: "Optional: filter to a single category" }
+      category: { type: "string", description: "Optional: filter to a single category" },
+      search: { type: "string", description: "Keyword(s) matched against tool name + description (case-insensitive, any-word-matches). Fastest way to find the right tool without reading the whole list." },
+      compact: { type: "boolean", description: "Drop input schemas from the response — just name/category/description. Much smaller payload for a quick overview." }
     }
   },
   async handler(args) {
+    args = args || {};
+    const shrink = (t) => args.compact
+      ? { name: t.name, category: t.category, description: t.description }
+      : t;
+
+    if (args.search && String(args.search).trim()) {
+      const words = String(args.search).toLowerCase().split(/\s+/).filter(Boolean);
+      const all = dv.listTools();
+      const scored = [];
+      for (const t of all) {
+        const hay = (t.name + " " + t.category + " " + t.description).toLowerCase();
+        let score = 0;
+        for (const w of words) {
+          if (t.name.toLowerCase() === w) score += 10;
+          else if (t.name.toLowerCase().includes(w)) score += 5;
+          else if (hay.includes(w)) score += 1;
+        }
+        if (score > 0) scored.push({ t, score });
+      }
+      scored.sort((a, b) => b.score - a.score);
+      return dv.ok({
+        query: args.search,
+        matchCount: scored.length,
+        tools: scored.slice(0, 25).map((s) => shrink(s.t))
+      });
+    }
+
     const grouped = dv.getToolsByCategory();
-    if (args && args.category) {
+    if (args.category) {
       const only = grouped[args.category];
       if (!only) return dv.failCode("BAD_ARGS", "Unknown category: " + args.category, { available: Object.keys(grouped) });
-      return dv.ok({ category: args.category, tools: only });
+      return dv.ok({ category: args.category, tools: only.map(shrink) });
     }
+    const toolsByCategory = {};
+    for (const cat of Object.keys(grouped)) toolsByCategory[cat] = grouped[cat].map(shrink);
     return dv.ok({
       categories: Object.keys(grouped).sort(),
-      toolsByCategory: grouped
+      toolsByCategory
     });
   }
 });
