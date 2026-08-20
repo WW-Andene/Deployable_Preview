@@ -375,4 +375,58 @@ async function imageMetadata(buf) {
   }
 }
 
-module.exports = { pixelDiff, sharpPixel, sharpCrop, sharpMetadata, extractPalette, colorStats, ssimDiff, toleranceDiff, renderOverlay, imageDimensions, imageMetadata };
+// ── Generic format/resize conversion ──────────────────────────────────────
+// Reuses the same sharp install already required for pixel diffing/palette/
+// metadata above — no new dependency. Takes any buffer sharp can decode
+// (jpeg/png/webp/avif/gif/tiff/svg, heic/heif if this sharp build was
+// compiled with libheif) and re-encodes it to a requested format/size.
+const CONVERT_FORMATS = ["jpeg", "png", "webp", "avif", "gif", "tiff"];
+
+async function convertImage(buf, opts) {
+  const sharp = tryRequire("sharp");
+  if (!sharp) return missing("sharp", "convert_asset");
+  opts = opts || {};
+
+  const to = String(opts.to || "").toLowerCase();
+  if (CONVERT_FORMATS.indexOf(to) === -1) {
+    return { error: "Unsupported target format: " + opts.to + ". Supported: " + CONVERT_FORMATS.join(", ") };
+  }
+
+  try {
+    // {animated:true} preserves multi-frame GIF/WebP through a resize or
+    // format change instead of silently collapsing it to the first frame.
+    let img = sharp(buf, { animated: true });
+    const meta = await img.metadata().catch(() => ({}));
+
+    const w = Number.isFinite(opts.width)  ? Math.min(Math.max(1, Math.round(opts.width)),  8192) : null;
+    const h = Number.isFinite(opts.height) ? Math.min(Math.max(1, Math.round(opts.height)), 8192) : null;
+    if (w || h) {
+      const fit = ["cover", "contain", "inside", "outside", "fill"].indexOf(opts.fit) !== -1 ? opts.fit : "inside";
+      img = img.resize({ width: w, height: h, fit, withoutEnlargement: !opts.allowUpscale });
+    }
+
+    const q = Number.isFinite(opts.quality) ? Math.min(100, Math.max(1, Math.round(opts.quality))) : 80;
+    let mime;
+    if (to === "webp")      { img = img.webp({ quality: q }); mime = "image/webp"; }
+    else if (to === "avif") { img = img.avif({ quality: q }); mime = "image/avif"; }
+    else if (to === "png")  { img = img.png({ compressionLevel: 9 }); mime = "image/png"; }
+    else if (to === "gif")  { img = img.gif(); mime = "image/gif"; }
+    else if (to === "tiff") { img = img.tiff({ quality: q }); mime = "image/tiff"; }
+    else                    { img = img.jpeg({ quality: q, mozjpeg: true }); mime = "image/jpeg"; }
+
+    const outBuf = await img.toBuffer();
+    return {
+      base64: outBuf.toString("base64"),
+      mimeType: mime,
+      byteLength: outBuf.length,
+      sourceFormat: meta.format || null,
+      sourceWidth: meta.width || null,
+      sourceHeight: meta.height || null,
+      sourceAnimated: !!(meta.pages && meta.pages > 1)
+    };
+  } catch (e) {
+    return { error: "sharp conversion failed: " + e.message };
+  }
+}
+
+module.exports = { pixelDiff, sharpPixel, sharpCrop, sharpMetadata, extractPalette, colorStats, ssimDiff, toleranceDiff, renderOverlay, imageDimensions, imageMetadata, convertImage, CONVERT_FORMATS };

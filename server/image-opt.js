@@ -3,7 +3,9 @@
  *
  * Activates only when:
  *   - sharp is installed (optional dep — gracefully degrades if not)
- *   - the response is image/jpeg, image/png, image/webp, or image/avif
+ *   - the response is image/jpeg, image/png, image/webp, image/avif,
+ *     image/gif, image/heic, or image/heif (heic/heif source decode needs
+ *     this sharp build to have libheif — falls through to raw serving if not)
  *   - the request supplies at least one of: ?w=, ?h=, ?fmt=, ?q=
  *
  * Otherwise the original bytes pass through unchanged.
@@ -11,9 +13,12 @@
  * Query params:
  *   w  — target width  (≥ 1, ≤ 8192). Aspect preserved unless h also set.
  *   h  — target height (≥ 1, ≤ 8192).
- *   fmt — webp | avif | jpeg | png. Defaults to webp if Accept allows.
- *   q  — quality 1..100 (default 80 for lossy, ignored for png).
+ *   fmt — webp | avif | jpeg | png | gif. Defaults to webp if Accept allows.
+ *   q  — quality 1..100 (default 80 for lossy, ignored for png/gif).
  *   fit — cover | contain | inside | outside | fill (default: inside).
+ *
+ * A multi-frame GIF/WebP source stays animated through a resize or format
+ * change (sharp's {animated:true}) instead of collapsing to one frame.
  *
  * 24h immutable cache — Vary: Accept so the CDN keeps separate webp/avif
  * variants per Accept header.
@@ -34,8 +39,15 @@ function getSharp() {
   return _sharp;
 }
 
-const IMAGE_EXTS = /\.(jpe?g|png|webp|avif)$/i;
-const SUPPORTED_FMT = ["webp", "avif", "jpeg", "png"];
+// gif/heic/heif added — previously only jpeg/png/webp/avif ever got the
+// ?w=/?fmt= treatment, so a GIF sprite or a HEIC asset (common from
+// iOS-originated content) was always served raw at full size regardless
+// of what the client requested. heic/heif decode depends on this sharp
+// build having libheif compiled in — if it doesn't, the encode below
+// throws and maybeServeOptimized falls through to raw serving, same as
+// any other encoder failure already handled here.
+const IMAGE_EXTS = /\.(jpe?g|png|webp|avif|gif|heic|heif)$/i;
+const SUPPORTED_FMT = ["webp", "avif", "jpeg", "png", "gif"];
 
 // Tiny in-process LRU so back-to-back requests for the same variant
 // don't re-encode. Capped at ~64MB to keep RAM bounded on heavy use.
@@ -108,11 +120,15 @@ async function maybeServeOptimized(filePath, req, res) {
   if (cached) { buf = cached.buf; mime = cached.mime; }
   else {
     try {
-      let pipeline = sharp(filePath);
+      // {animated:true} carries a multi-frame GIF/WebP source's frames
+      // through the resize/re-encode instead of silently collapsing it to
+      // a static first frame — harmless no-op for a single-frame source.
+      let pipeline = sharp(filePath, { animated: true });
       if (w || h) pipeline = pipeline.resize({ width: w || null, height: h || null, fit, withoutEnlargement: true });
       if (fmt === "webp") { pipeline = pipeline.webp({ quality: q }); mime = "image/webp"; }
       else if (fmt === "avif") { pipeline = pipeline.avif({ quality: q }); mime = "image/avif"; }
       else if (fmt === "png")  { pipeline = pipeline.png({ compressionLevel: 9 }); mime = "image/png"; }
+      else if (fmt === "gif")  { pipeline = pipeline.gif(); mime = "image/gif"; }
       else                     { pipeline = pipeline.jpeg({ quality: q, mozjpeg: true }); mime = "image/jpeg"; }
       buf = await pipeline.toBuffer();
       _cachePut(key, buf, mime);

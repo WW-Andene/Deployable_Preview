@@ -15,6 +15,7 @@ const dv = require("../core");
 const { decode, KNOWN: DECODE_MODES } = require("../../codec/decode");
 const { convert, FORMATS } = require("../../codec/convert");
 const { detectLanguage, sniffFile, inferJsonSchema } = require("../../codec/classify");
+const enrich = require("../../mcp-enrichments");
 
 // ── decode ────────────────────────────────────────────────────────────────
 
@@ -124,6 +125,55 @@ dv.defineTool({
     } catch (e) {
       return dv.failCode("SNIFF_FAILED", e.message);
     }
+  }
+});
+
+// ── convert_asset ────────────────────────────────────────────────────────
+
+dv.defineTool({
+  name: "convert_asset",
+  category: "codec",
+  description:
+    "Convert/resize a binary image asset. Takes any base64-encoded image sharp can decode " +
+    "(jpeg/png/webp/avif/gif/tiff/svg, plus heic/heif if this sharp build has libheif) and " +
+    "re-encodes it to jpeg/png/webp/avif/gif/tiff, optionally resized. Multi-frame GIF/WebP " +
+    "input stays animated through the conversion instead of collapsing to one frame. " +
+    "Use this on bytes already in hand (e.g. from web_fetch's downloadAsset) — for on-the-fly " +
+    "conversion of a deployed preview's own image files, the ?w=/?h=/?fmt= query params on the " +
+    "preview URL itself do the same thing without a round trip through this tool.",
+  requires: [{ kind: "library", name: "sharp" }],
+  schema: {
+    type: "object",
+    properties: {
+      base64: { type: "string", description: "Base64-encoded source image bytes" },
+      to: { type: "string", enum: ["jpeg", "png", "webp", "avif", "gif", "tiff"], description: "Target format" },
+      width: { type: "number", description: "Target width (max 8192). Aspect preserved unless height also set." },
+      height: { type: "number", description: "Target height (max 8192)." },
+      fit: { type: "string", enum: ["cover", "contain", "inside", "outside", "fill"], description: "Resize fit mode (default: inside)" },
+      quality: { type: "number", description: "1-100, default 80. Ignored for png/gif." },
+      allowUpscale: { type: "boolean", description: "Allow the output to be larger than the source (default: false — upscaling degrades quality with no real benefit)" }
+    },
+    required: ["base64", "to"]
+  },
+  async handler(args) {
+    let buf;
+    try { buf = Buffer.from(String(args.base64).replace(/\s+/g, ""), "base64"); }
+    catch (e) { return dv.failCode("BAD_ARGS", "Could not decode base64: " + e.message); }
+    if (!buf.length) return dv.failCode("BAD_ARGS", "Empty buffer after base64 decode");
+
+    const result = await enrich.convertImage(buf, {
+      to: args.to, width: args.width, height: args.height,
+      fit: args.fit, quality: args.quality, allowUpscale: args.allowUpscale
+    });
+    if (result.error) return dv.failFromBrowser(result);
+    return dv.imageWithJson(result.base64, result.mimeType, {
+      mimeType: result.mimeType,
+      byteLength: result.byteLength,
+      sourceFormat: result.sourceFormat,
+      sourceWidth: result.sourceWidth,
+      sourceHeight: result.sourceHeight,
+      sourceAnimated: result.sourceAnimated
+    });
   }
 });
 
