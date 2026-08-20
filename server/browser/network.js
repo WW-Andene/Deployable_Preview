@@ -4,6 +4,24 @@ const path = require("path");
 const { isBlockedHost } = require("../web-fetch");
 const enrich = require("../mcp-enrichments");
 
+// ── Per-host politeness throttle for arbitrary-URL navigation ──────────────
+// browseUrl has no built-in pacing, and the new dv_workflow `parallel` batch
+// mode makes it trivial to fire several concurrent navigations at the same
+// third-party host — the kind of burst that gets an IP rate-limited or WAF-
+// flagged for reasons that then look identical to a real block. This is a
+// minimum spacing between navigations to the same hostname, tracked
+// in-process. Off by default (existing single-call behavior is unaffected);
+// callers pass minRequestIntervalMs to opt in.
+const _hostLastNav = new Map();
+async function throttleHost(hostname, minIntervalMs) {
+  const ms = Number(minIntervalMs);
+  if (!Number.isFinite(ms) || ms <= 0 || !hostname) return;
+  const last = _hostLastNav.get(hostname) || 0;
+  const wait = last + ms - Date.now();
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  _hostLastNav.set(hostname, Date.now());
+}
+
 // ── Network request capture for a preview ─────────────────────────────────
 
 /**
@@ -431,6 +449,7 @@ async function browseUrl(opts) {
     }
 
     // Navigate
+    if (opts.minRequestIntervalMs) await throttleHost(parsed.hostname, opts.minRequestIntervalMs);
     const navWaitUntil = opts.waitUntil || (session.waitUntilIdle() === "networkidle2" ? "networkidle2" : "networkidle");
     const navStart = Date.now();
     try {

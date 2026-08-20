@@ -106,6 +106,33 @@ dv.defineTool({
 
 // ── helpers ───────────────────────────────────────────────────────────────
 
+// Collapse requests that hit the same path (query string stripped) + method
+// into groups, so a poll/pagination pattern (50 near-identical XHRs to
+// /api/items?page=1, ?page=2, ...) reads as one line instead of 50 — this
+// is exactly the signal that points at "here's the API endpoint behind the
+// widget", which is the whole reason captureRequests/har_capture exist.
+// Purely additive: existing `requests`/`entries`/`top` fields are untouched.
+function groupSimilarRequests(list) {
+  const groups = new Map();
+  for (const r of list) {
+    const url = r.url || (r.request && r.request.url) || "";
+    const method = r.method || (r.request && r.request.method) || "GET";
+    let path = url;
+    try { const u = new URL(url); path = u.origin + u.pathname; } catch (_) {}
+    const key = method + " " + path;
+    if (!groups.has(key)) groups.set(key, { method, path, count: 0, sampleUrl: url, statuses: new Set() });
+    const g = groups.get(key);
+    g.count++;
+    const status = r.status || (r.response && r.response.status) || null;
+    if (status != null) g.statuses.add(status);
+  }
+  return Array.from(groups.values())
+    .filter((g) => g.count > 1)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 20)
+    .map((g) => ({ method: g.method, path: g.path, count: g.count, sampleUrl: g.sampleUrl, statuses: Array.from(g.statuses) }));
+}
+
 function summarizeNetwork(result, args) {
   const list = Array.isArray(result.requests) ? result.requests.slice() :
                Array.isArray(result.entries)  ? result.entries.slice()  : null;
@@ -133,7 +160,8 @@ function summarizeNetwork(result, args) {
     shown: filtered.length,
     byType: result.requestsByType || null,
     truncated: !!(result.truncated || result.requestsTruncated),
-    duration: result.duration || null
+    duration: result.duration || null,
+    similarGroups: groupSimilarRequests(filtered)
   };
 
   if (args && args.summaryOnly) {
@@ -209,7 +237,8 @@ async function runWebFetch(args) {
     fullPageScreenshot: args.fullPageScreenshot,
     stealth: args.stealth,
     ocrText: args.ocrText,
-    ocrLang: args.ocrLang
+    ocrLang: args.ocrLang,
+    minRequestIntervalMs: args.minRequestIntervalMs
   });
   if (browseResult.error) return browseResult;
 
@@ -396,7 +425,8 @@ dv.defineTool({
       fullPageScreenshot: { type: "boolean", description: "Capture the full scrollable page instead of just the viewport." },
       stealth: { type: "boolean", description: "On by default when jsRender is used — patches common headless tells (navigator.webdriver, empty plugins list). Pass false to disable." },
       ocrText: { type: "boolean", description: "Run OCR (tesseract.js) on the rendered page and return recognized text — the only way to read text baked into canvas/WebGL/images that has no DOM representation for `selector`/`getRawHtml` to find. Implies jsRender." },
-      ocrLang: { type: "string", description: "tesseract.js language code for ocrText (default 'eng')." }
+      ocrLang: { type: "string", description: "tesseract.js language code for ocrText (default 'eng')." },
+      minRequestIntervalMs: { type: "number", description: "Minimum spacing (ms) between navigations to the same hostname, tracked across calls in this process. Off by default. Set this when firing several jsRender fetches at the same third-party host (e.g. via dv_workflow's parallel batches) to avoid a self-inflicted rate-limit/WAF flag that would look identical to a real block." }
     },
     required: ["url"]
   },
