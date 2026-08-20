@@ -84,6 +84,46 @@ function fail(msg) { log('  ✗ ' + msg, 'e'); tc++; ec++; }
 function info(msg) { log('  · ' + msg, 'dim'); }
 function skip(msg) { log('  ⊘ ' + msg, 'w'); tc++; wc++; }
 
+// ── Generic health checks — run against whatever's currently in `doc`,
+// independent of app-specific tab structure. Catches a category of bugs
+// (broken images, missing accessible labels, failed resource loads) the
+// named-tab phases below never look for at all. ──
+function checkResourceHealth(doc, context) {
+  const imgs = [...doc.querySelectorAll('img[src]')];
+  const broken = imgs.filter(img => !img.complete || img.naturalWidth === 0);
+  if (broken.length) fail(broken.length + ' broken image(s) in ' + context + ': ' + broken.slice(0, 3).map(i => i.src.split('/').pop()).join(', '));
+  else if (imgs.length) pass(imgs.length + ' image(s) loaded OK in ' + context);
+
+  const noAlt = imgs.filter(img => !img.hasAttribute('alt'));
+  if (noAlt.length) skip(noAlt.length + ' image(s) missing alt text in ' + context);
+
+  const fields = [...doc.querySelectorAll('input:not([type=hidden]), textarea, select')];
+  const unlabeled = fields.filter(el => {
+    const hasLabel = el.labels && el.labels.length > 0;
+    const hasAria = el.hasAttribute('aria-label') || el.hasAttribute('aria-labelledby');
+    return !hasLabel && !hasAria && !el.placeholder && !el.title;
+  });
+  if (unlabeled.length) skip(unlabeled.length + ' form field(s) with no accessible label in ' + context);
+}
+
+// Best-effort — a 0-byte transferSize also happens for cache hits, so this
+// is reported as a soft signal (skip), never a hard fail, to avoid false
+// positives tanking the pass/fail verdict.
+function checkNetworkHealth(win, context) {
+  try {
+    const entries = win.performance.getEntriesByType('resource');
+    const failed = entries.filter(e =>
+      e.transferSize === 0 && e.decodedBodySize === 0 && e.duration > 0 &&
+      !e.name.startsWith('data:') && !e.name.startsWith('blob:')
+    );
+    if (failed.length) {
+      skip(failed.length + ' resource(s) may have failed to load in ' + context +
+        ' (0 bytes transferred — could be a genuine 404/CORS failure or just a cache hit): ' +
+        failed.slice(0, 3).map(e => e.name.split('/').pop()).join(', '));
+    }
+  } catch (e) { /* performance API unavailable in this context — skip silently */ }
+}
+
 // ── Click every button in a panel, check for errors ──
 async function testAllButtons(panel, context, exclude = []) {
   const buttons = [...panel.querySelectorAll('button')];
@@ -259,6 +299,8 @@ async function runFullTest() {
   else pass('App rendered (' + rLen + ' chars)');
   clearErrs();
   checkErrs('init');
+  checkResourceHealth(doc, 'Initial Load');
+  checkNetworkHealth(win, 'Initial Load');
   progress(10);
 
   // ── Phase 2: Tab Navigation + Content Check ──
@@ -462,6 +504,24 @@ async function runFullTest() {
   goToTab(doc, 'tracker', 'Tracker');
   await sleep(500);
   pass('Final state: back on Tracker');
+  progress(97);
+
+  // ── Phase 5: General Sweep ──
+  // Runs against whatever's on screen right now, independent of the
+  // hardcoded tab list above. Exists so this harness stays useful on a
+  // build whose UI doesn't match tracker/events/calculator/etc. — a new
+  // tab, a renamed section, or a different app entirely — instead of
+  // silently skipping most of the test via goToTab's "no button" path.
+  log('', '');
+  log('── Phase 5: General Sweep ──', 's');
+  S.textContent = 'Phase 5: General sweep...';
+  clearErrs();
+  checkResourceHealth(doc, 'General');
+  checkNetworkHealth(win, 'General');
+  checkErrs('General sweep');
+  await testAllButtons(doc.body, 'General', ['clear', 'reset', 'delete', 'remove', 'logout', 'sign out', 'export', 'import', 'restore']);
+  await testAllInputs(doc.body, 'General');
+  await testAllSelects(doc.body, 'General');
   progress(100);
 
   finish();
@@ -479,6 +539,8 @@ async function runQuickTest() {
   const root = doc.getElementById('root');
   if ((root?.innerHTML?.length || 0) < 100) fail('Root empty');
   else pass('App rendered');
+  checkResourceHealth(doc, 'Initial Load');
+  checkNetworkHealth(win, 'Initial Load');
 
   const tabs = [
     ['tracker', 'Tracker'], ['events', 'Events'], ['calculator', 'Calc'],
