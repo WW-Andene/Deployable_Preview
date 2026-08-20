@@ -40,26 +40,94 @@ let _userStopped = false;
 let _reconnectAttempts = 0;
 let _reconnectTimer = null;
 
+// Past this many consecutive failed reconnect attempts (~30min of backoff,
+// since the delay caps at 60s), stop retrying automatically — a network
+// that's been down that long needs a human to look at it, and looping
+// forever in the background burns spawn attempts/log noise for no benefit.
+// A manual start() (or the next successful auto-reconnect, should the
+// network recover and something external retriggers start()) clears this.
+const MAX_RECONNECT_ATTEMPTS = 30;
+
 function scheduleReconnect(port) {
   if (_userStopped || _reconnectTimer) return;
+  stopHealthCheck();
+  if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    state.reconnecting = false;
+    state.error = "Tunnel reconnect gave up after " + MAX_RECONNECT_ATTEMPTS + " attempts — call tunnel.start() manually once the network/provider issue is resolved.";
+    warn(state.error);
+    return;
+  }
   _reconnectAttempts++;
   state.reconnecting = true;
   state.reconnectAttempts = _reconnectAttempts;
   const delay = Math.min(5000 * Math.pow(2, _reconnectAttempts - 1), 60000);
-  warn("Tunnel dropped unexpectedly — reconnecting in " + Math.round(delay / 1000) + "s (attempt " + _reconnectAttempts + ")...");
+  warn("Tunnel dropped unexpectedly — reconnecting in " + Math.round(delay / 1000) + "s (attempt " + _reconnectAttempts + "/" + MAX_RECONNECT_ATTEMPTS + ")...");
   _reconnectTimer = setTimeout(() => {
     _reconnectTimer = null;
     if (_userStopped) return;
-    start(port).then(() => {
-      _reconnectAttempts = 0;
-      state.reconnecting = false;
-      state.reconnectAttempts = 0;
-    }).catch(() => {
+    start(port).catch(() => {
       // start() already recorded state.error — keep retrying with backoff
       // rather than leaving the tunnel down indefinitely.
       scheduleReconnect(port);
     });
   }, delay);
+}
+
+// ── Active health check ──────────────────────────────────────────────────
+// The exit/close handlers below only catch the tunnel *process* dying —
+// they miss the case where the process is still alive but has silently
+// stopped forwarding traffic (provider-side issue, half-open connection).
+// A periodic outbound request through the tunnel URL itself catches that
+// class of failure too. Any HTTP response at all (even a 404) proves the
+// round trip works; only a timeout/connection error counts as a failure.
+const HEALTH_CHECK_INTERVAL_MS = 45000;
+const HEALTH_CHECK_TIMEOUT_MS = 8000;
+const HEALTH_CHECK_FAIL_THRESHOLD = 2; // consecutive failures before acting
+
+let _healthTimer = null;
+let _healthFailStreak = 0;
+
+function pingTunnel(url) {
+  return new Promise((resolve) => {
+    let done = false;
+    let req;
+    try {
+      req = https.get(url, { timeout: HEALTH_CHECK_TIMEOUT_MS, headers: { "User-Agent": "DeployView-tunnel-healthcheck" } }, (res) => {
+        if (done) return; done = true;
+        res.resume();
+        resolve(true);
+      });
+    } catch (_) { resolve(false); return; }
+    req.on("timeout", () => { if (done) return; done = true; req.destroy(); resolve(false); });
+    req.on("error", () => { if (done) return; done = true; resolve(false); });
+  });
+}
+
+function stopHealthCheck() {
+  if (_healthTimer) { clearInterval(_healthTimer); _healthTimer = null; }
+  _healthFailStreak = 0;
+}
+
+function startHealthCheck(port) {
+  stopHealthCheck();
+  _healthTimer = setInterval(async () => {
+    if (!state.running || !state.url) return;
+    const ok = await pingTunnel(state.url);
+    if (ok) { _healthFailStreak = 0; return; }
+    _healthFailStreak++;
+    if (_healthFailStreak < HEALTH_CHECK_FAIL_THRESHOLD) {
+      warn("Tunnel health check failed (" + _healthFailStreak + "/" + HEALTH_CHECK_FAIL_THRESHOLD + ")");
+      return;
+    }
+    warn("Tunnel appears dead (process alive but not responding) — forcing reconnect");
+    stopHealthCheck();
+    const p = port;
+    cleanup();
+    state.running = false;
+    state.url = null;
+    scheduleReconnect(p);
+  }, HEALTH_CHECK_INTERVAL_MS);
+  if (typeof _healthTimer.unref === "function") _healthTimer.unref();
 }
 
 const ROOT    = path.join(__dirname, "..");
@@ -395,6 +463,7 @@ function start(port) {
 
   _userStopped = false;
   if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+  stopHealthCheck();
 
   cleanup();
   state = { running: false, url: null, provider: null, error: null, reconnecting: false, reconnectAttempts: _reconnectAttempts };
@@ -415,12 +484,14 @@ function start(port) {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      state = { running: true, url, provider, error: null };
+      _reconnectAttempts = 0;
+      state = { running: true, url, provider, error: null, reconnecting: false, reconnectAttempts: 0 };
       // F-C028: don't print the full tunnel URL \u2014 anyone reading server logs
       // would instantly own the /api surface. Print a SHA prefix so the
       // operator can recognise their own tunnel without leaking it.
       const tag = crypto.createHash("sha256").update(url).digest("hex").slice(0, 8);
       log("\u2713 " + provider + " tunnel active (id " + tag + ") \u2014 see Settings for full URL");
+      startHealthCheck(port);
       resolve({ url });
     }
 
@@ -488,6 +559,7 @@ function stop() {
   _userStopped = true; // a deliberate stop — auto-reconnect must not fight this
   if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
   _reconnectAttempts = 0;
+  stopHealthCheck();
   cleanup();
   state = { running: false, url: null, provider: null, error: null, reconnecting: false, reconnectAttempts: 0 };
   log("Tunnel stopped.");
@@ -497,8 +569,13 @@ function status() { return { ...state }; }
 
 // ── Graceful shutdown hooks ───────────────────────────────────────────────────
 
-process.on("exit",    cleanup);
-process.on("SIGINT",  cleanup);
-process.on("SIGTERM", cleanup);
+function shutdownCleanup() {
+  stopHealthCheck();
+  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+  cleanup();
+}
+process.on("exit",    shutdownCleanup);
+process.on("SIGINT",  shutdownCleanup);
+process.on("SIGTERM", shutdownCleanup);
 
 module.exports = { start, stop, status };
