@@ -186,7 +186,7 @@ dv.defineTool({
 async function runWebFetch(args) {
   args = args || {};
   const useBrowser = !!(args.jsRender || args.captureRequests || args.waitForSelector ||
-                         (Array.isArray(args.actions) && args.actions.length) || args.screenshot);
+                         (Array.isArray(args.actions) && args.actions.length) || args.screenshot || args.ocrText);
   if (!useBrowser) return webFetch(args);
 
   const browseResult = await browser.browseUrl({
@@ -206,7 +206,10 @@ async function runWebFetch(args) {
     actions: args.actions,
     screenshot: args.screenshot,
     screenshotSelector: args.screenshotSelector,
-    fullPageScreenshot: args.fullPageScreenshot
+    fullPageScreenshot: args.fullPageScreenshot,
+    stealth: args.stealth,
+    ocrText: args.ocrText,
+    ocrLang: args.ocrLang
   });
   if (browseResult.error) return browseResult;
 
@@ -239,6 +242,8 @@ async function runWebFetch(args) {
   } else if (browseResult.screenshotError) {
     result.screenshotError = browseResult.screenshotError;
   }
+  if (browseResult.ocrText !== undefined) result.ocrText = browseResult.ocrText;
+  if (browseResult.ocrError) result.ocrError = browseResult.ocrError;
   return result;
 }
 
@@ -311,6 +316,8 @@ function formatWebFetchResult(result) {
   }
   if (result.screenshotBase64) parts.push("\n[Screenshot captured — returned as image content]");
   else if (result.screenshotError) parts.push("\n[Screenshot failed: " + result.screenshotError + "]");
+  if (result.ocrText !== undefined) parts.push("\n--- OCR text ---\n" + result.ocrText);
+  else if (result.ocrError) parts.push("\n[OCR failed: " + result.ocrError + "]");
   return parts.join("\n");
 }
 
@@ -326,7 +333,9 @@ dv.defineTool({
     "Set waitForSelector to block until a specific element exists before capturing, instead of guessing a fixed waitMs — use this for lazy-loaded widgets/tables. Implies jsRender.",
     "Set actions:[{action,selector,value}] to run a short interaction sequence (click/hover/type/select/scroll/key/wait/waitForSelector) before capture — e.g. selecting a dropdown option or dismissing a cookie banner on a third-party site. Implies jsRender.",
     "Set screenshot:true to get a PNG of the rendered page (or a selector via screenshotSelector) for visual verification. Implies jsRender.",
-    "Note: jsRender only defeats JS-based bot checks (Cloudflare interstitials, etc). Pure network/WAF blocks (e.g. Reddit's IP-level firewall, some CloudFront 403s) cannot be bypassed by any combination of these options — no amount of spoofing changes that; use an official API or a mirror source instead."
+    "Set ocrText:true to OCR the rendered page (tesseract.js, no external service) — the only way to read text baked into canvas/WebGL/images with no DOM representation. Implies jsRender.",
+    "stealth defaults to true whenever jsRender is used: patches common headless tells (navigator.webdriver, empty plugin list) with no external dependency. Pass stealth:false to disable.",
+    "Note: jsRender/stealth only defeat JS-based bot checks (Cloudflare interstitials, etc) and naive automation flags. Pure network/WAF blocks (e.g. Reddit's IP-level firewall, some CloudFront 403s) and real fingerprinting/CAPTCHAs cannot be bypassed by any combination of these options — that needs an official API, a paid proxy/anti-bot vendor, or a mirror source instead."
   ].join("\n"),
   requires: [],
   schema: {
@@ -384,7 +393,10 @@ dv.defineTool({
       },
       screenshot: { type: "boolean", description: "Capture a PNG of the rendered page after actions/waits. Implies jsRender." },
       screenshotSelector: { type: "string", description: "Screenshot only this element instead of the full viewport." },
-      fullPageScreenshot: { type: "boolean", description: "Capture the full scrollable page instead of just the viewport." }
+      fullPageScreenshot: { type: "boolean", description: "Capture the full scrollable page instead of just the viewport." },
+      stealth: { type: "boolean", description: "On by default when jsRender is used — patches common headless tells (navigator.webdriver, empty plugins list). Pass false to disable." },
+      ocrText: { type: "boolean", description: "Run OCR (tesseract.js) on the rendered page and return recognized text — the only way to read text baked into canvas/WebGL/images that has no DOM representation for `selector`/`getRawHtml` to find. Implies jsRender." },
+      ocrLang: { type: "string", description: "tesseract.js language code for ocrText (default 'eng')." }
     },
     required: ["url"]
   },

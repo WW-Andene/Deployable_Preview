@@ -2,6 +2,7 @@ const session = require("../dv/session");
 const fs = require("fs");
 const path = require("path");
 const { isBlockedHost } = require("../web-fetch");
+const enrich = require("../mcp-enrichments");
 
 // ── Network request capture for a preview ─────────────────────────────────
 
@@ -191,6 +192,41 @@ async function captureDownload(opts) {
   }
 }
 
+// ── Basic anti-detection init script ────────────────────────────────────────
+// No external service or dependency — just patches the handful of headless
+// "tells" that trip naive bot checks (navigator.webdriver, empty plugins
+// list, a missing chrome object). Does nothing against real fingerprinting
+// or WAF/IP-level blocks — see browseUrl's doc comment.
+const STEALTH_INIT_SCRIPT = `(() => {
+  try { Object.defineProperty(navigator, 'webdriver', { get: () => undefined }); } catch (_) {}
+  try {
+    if (!window.chrome) window.chrome = { runtime: {} };
+  } catch (_) {}
+  try {
+    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+  } catch (_) {}
+  try {
+    const origQuery = window.navigator.permissions && window.navigator.permissions.query;
+    if (origQuery) {
+      window.navigator.permissions.query = (params) =>
+        params && params.name === 'notifications'
+          ? Promise.resolve({ state: Notification.permission })
+          : origQuery(params);
+    }
+  } catch (_) {}
+})();`;
+
+async function applyStealth(page) {
+  try {
+    if (typeof page.addInitScript === "function") {
+      await page.addInitScript(STEALTH_INIT_SCRIPT);       // Playwright
+    } else if (typeof page.evaluateOnNewDocument === "function") {
+      await page.evaluateOnNewDocument(STEALTH_INIT_SCRIPT); // Puppeteer
+    }
+  } catch (_) { /* best-effort — never block navigation on this */ }
+}
+
 // ── Minimal action runner for arbitrary-URL interaction sequences ──────────
 
 /**
@@ -308,6 +344,10 @@ async function browseUrl(opts) {
 
   try {
     await session.setViewport(page, width, height);
+
+    // On by default — cheap, no external dependency, strictly reduces
+    // false-positive bot flags. Pass stealth:false to skip it.
+    if (opts.stealth !== false) await applyStealth(page);
 
     // Set custom user-agent if provided
     if (opts.userAgent) {
@@ -468,7 +508,7 @@ async function browseUrl(opts) {
       }
     }
 
-    if (opts.screenshot) {
+    if (opts.screenshot || opts.ocrText) {
       try {
         let buf;
         if (opts.screenshotSelector) {
@@ -477,10 +517,26 @@ async function browseUrl(opts) {
         } else {
           buf = await page.screenshot({ type: "png", fullPage: !!opts.fullPageScreenshot });
         }
-        result.screenshotBase64 = buf.toString("base64");
-        result.screenshotMimeType = "image/png";
+        if (opts.screenshot) {
+          result.screenshotBase64 = buf.toString("base64");
+          result.screenshotMimeType = "image/png";
+        }
+        if (opts.ocrText) {
+          // Reads text baked into canvas/WebGL/image content that has no
+          // DOM representation — extractText/getRawHtml can't see it because
+          // there's nothing in the markup to select. No external service:
+          // runs through the already-installed tesseract.js library.
+          if (!enrich.have("tesseract.js")) {
+            result.ocrError = "tesseract.js not installed. Run: npm install tesseract.js";
+          } else {
+            const ocr = await enrich.runOCR(buf, { lang: opts.ocrLang });
+            if (ocr && ocr.error) result.ocrError = ocr.error;
+            else result.ocrText = ocr && ocr.text;
+          }
+        }
       } catch (e) {
-        result.screenshotError = e.message;
+        if (opts.screenshot) result.screenshotError = e.message;
+        if (opts.ocrText) result.ocrError = e.message;
       }
     }
 
