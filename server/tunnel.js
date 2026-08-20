@@ -26,7 +26,41 @@ const crypto = require("crypto");
 // ── State ─────────────────────────────────────────────────────────────────────
 
 let proc  = null;
-let state = { running: false, url: null, provider: null, error: null };
+let state = { running: false, url: null, provider: null, error: null, reconnecting: false, reconnectAttempts: 0 };
+
+// ── Auto-reconnect ──────────────────────────────────────────────────────────
+// The tunnel process can die on its own — a free trycloudflare.com/loca.lt
+// tunnel getting recycled, a network blip, the provider restarting — and
+// nothing was watching for that. Once it dropped, whatever was reachable
+// through that URL (remote browser access, a webhook, anything routed
+// through it) stayed unreachable until someone noticed and manually
+// restarted the tunnel. This makes an *unexpected* drop (not a deliberate
+// stop()) self-heal with exponential backoff instead.
+let _userStopped = false;
+let _reconnectAttempts = 0;
+let _reconnectTimer = null;
+
+function scheduleReconnect(port) {
+  if (_userStopped || _reconnectTimer) return;
+  _reconnectAttempts++;
+  state.reconnecting = true;
+  state.reconnectAttempts = _reconnectAttempts;
+  const delay = Math.min(5000 * Math.pow(2, _reconnectAttempts - 1), 60000);
+  warn("Tunnel dropped unexpectedly — reconnecting in " + Math.round(delay / 1000) + "s (attempt " + _reconnectAttempts + ")...");
+  _reconnectTimer = setTimeout(() => {
+    _reconnectTimer = null;
+    if (_userStopped) return;
+    start(port).then(() => {
+      _reconnectAttempts = 0;
+      state.reconnecting = false;
+      state.reconnectAttempts = 0;
+    }).catch(() => {
+      // start() already recorded state.error — keep retrying with backoff
+      // rather than leaving the tunnel down indefinitely.
+      scheduleReconnect(port);
+    });
+  }, delay);
+}
 
 const ROOT    = path.join(__dirname, "..");
 const BIN_DIR = path.join(ROOT, ".tunnel-bin");
@@ -173,6 +207,8 @@ function tryCloudflared(cfBin, port, onUrl, onFail) {
     } else {
       state.running = false;
       state.url = null;
+      warn("cloudflared exited unexpectedly (code=" + code + " signal=" + signal + ")");
+      scheduleReconnect(port);
     }
   });
 }
@@ -333,7 +369,11 @@ function tryLocaltunnelApi(port, onUrl, onFail) {
         return;
       }
       proc = { kill: () => { try { tunnel.close(); } catch (_) {} } };
-      tunnel.on("close", () => { state.running = false; state.url = null; proc = null; });
+      tunnel.on("close", () => {
+        state.running = false; state.url = null; proc = null;
+        warn("localtunnel connection closed unexpectedly");
+        scheduleReconnect(port);
+      });
       tunnel.on("error", (err) => { warn("localtunnel error: " + err.message); });
       onUrl(tunnel.url, "localtunnel");
     })
@@ -353,8 +393,11 @@ function start(port) {
   if (state.running) return Promise.resolve({ url: state.url });
   if (_pendingStart) return _pendingStart;
 
+  _userStopped = false;
+  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+
   cleanup();
-  state = { running: false, url: null, provider: null, error: null };
+  state = { running: false, url: null, provider: null, error: null, reconnecting: false, reconnectAttempts: _reconnectAttempts };
 
   _pendingStart = new Promise((resolve, reject) => {
     let settled = false;
@@ -442,8 +485,11 @@ function start(port) {
 function stop() {
   // If a start is mid-flight, clear it so the next start() call doesn't reuse it.
   _pendingStart = null;
+  _userStopped = true; // a deliberate stop — auto-reconnect must not fight this
+  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+  _reconnectAttempts = 0;
   cleanup();
-  state = { running: false, url: null, provider: null, error: null };
+  state = { running: false, url: null, provider: null, error: null, reconnecting: false, reconnectAttempts: 0 };
   log("Tunnel stopped.");
 }
 
