@@ -54,6 +54,17 @@ function isBlockedHost(hostname) {
   return BLOCKED_HOST_RE.test(h);
 }
 
+// ── Outbound proxy rotation (modulable egress IP) ───────────────────────────
+// Lets callers route requests through a forward proxy instead of the box's
+// own IP — useful when a target's WAF/CDN has IP-reputation-blocked us
+// (see dv/tools/network.js's note on IP-level firewalls). Configured via
+// opts.proxy / opts.proxyList on webFetch(), or the WEB_FETCH_PROXIES env
+// var (comma-separated list) as a process-wide default pool.
+const ENV_PROXY_LIST = (process.env.WEB_FETCH_PROXIES || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 module.exports = {
   MAX_RESPONSE_BYTES,
   MAX_RESPONSE_BYTES_HARD,
@@ -73,5 +84,6 @@ module.exports = {
   DEFAULT_ACCEPT,
   DEFAULT_ACCEPT_LANGUAGE,
   BLOCKED_HOST_RE,
-  isBlockedHost
+  isBlockedHost,
+  ENV_PROXY_LIST
 };

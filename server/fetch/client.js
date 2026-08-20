@@ -16,6 +16,8 @@
 
 const http  = require("http");
 const https = require("https");
+const tls   = require("tls");
+const net   = require("net");
 const { URL } = require("url");
 const zlib  = require("zlib");
 
@@ -32,7 +34,8 @@ const {
   DEFAULT_USER_AGENT,
   DEFAULT_ACCEPT,
   DEFAULT_ACCEPT_LANGUAGE,
-  isBlockedHost
+  isBlockedHost,
+  ENV_PROXY_LIST
 } = require("./constants");
 
 const {
@@ -119,7 +122,108 @@ function webFetch(opts) {
       }
     }
 
-    doFetch(parsed, method, reqHeaders, body, timeout, maxRedirects, maxSize, retries, opts, resolve);
+    const proxy = pickProxy(opts);
+    doFetch(parsed, method, reqHeaders, body, timeout, maxRedirects, maxSize, retries, opts, resolve, proxy);
+  });
+}
+
+// ── Outbound proxy selection (modulable egress IP) ──────────────────────────
+// opts.proxy: single proxy URL, e.g. "http://user:pass@host:port" — used as-is.
+// opts.proxyList: array of proxy URLs — rotated round-robin (or random with
+// opts.proxyRotation:"random") across calls sharing that same array reference.
+// Falls back to the WEB_FETCH_PROXIES env pool when neither is given.
+let envProxyCursor = 0;
+function pickProxy(opts) {
+  if (opts.proxy) return parseProxyUrl(opts.proxy);
+  const list = (Array.isArray(opts.proxyList) && opts.proxyList.length) ? opts.proxyList : ENV_PROXY_LIST;
+  if (!list.length) return null;
+  const idx = opts.proxyRotation === "random"
+    ? Math.floor(Math.random() * list.length)
+    : (envProxyCursor++ % list.length);
+  return parseProxyUrl(list[idx]);
+}
+
+function parseProxyUrl(raw) {
+  try {
+    const u = new URL(raw);
+    return {
+      protocol: u.protocol,
+      hostname: u.hostname,
+      port: u.port || (u.protocol === "https:" ? 443 : 80),
+      auth: (u.username || u.password) ? (decodeURIComponent(u.username) + ":" + decodeURIComponent(u.password)) : null
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+// Custom Agent whose createConnection hands back a socket that's already
+// talking to the target through `proxy` — for http:// targets that's a
+// plain socket to the proxy (request path is set to absolute-form by the
+// caller); for https:// targets it's a CONNECT-tunneled + TLS-wrapped
+// socket. Either way, everything above (redirects/retries/streaming) sees
+// an ordinary connected socket and doesn't need to know a proxy exists.
+function makeProxyAgent(proxy, targetUrl, transport) {
+  const AgentBase = transport === https ? https.Agent : http.Agent;
+  const agent = new AgentBase({ keepAlive: false });
+  agent.createConnection = (options, callback) => {
+    if (targetUrl.protocol === "http:") {
+      const socket = net.connect(proxy.port, proxy.hostname);
+      socket.once("error", (e) => callback(e));
+      socket.once("connect", () => callback(null, socket));
+      return;
+    }
+    connectTunnel(proxy, targetUrl, (err, rawSocket) => {
+      if (err) return callback(err);
+      const tlsSocket = tls.connect({
+        socket: rawSocket,
+        servername: targetUrl.hostname,
+        ALPNProtocols: ["http/1.1"]
+      });
+      tlsSocket.once("error", (e) => callback(e));
+      tlsSocket.once("secureConnect", () => callback(null, tlsSocket));
+    });
+  };
+  return agent;
+}
+
+// Issues an HTTP CONNECT to `proxy` for `targetUrl:port` and hands back the
+// raw tunneled socket once the proxy answers 200.
+function connectTunnel(proxy, targetUrl, callback) {
+  const targetPort = targetUrl.port || 443;
+  const socket = net.connect(proxy.port, proxy.hostname);
+  let settled = false;
+  const finish = (err, sock) => { if (!settled) { settled = true; callback(err, sock); } };
+
+  socket.once("error", (e) => finish(e));
+
+  socket.once("connect", () => {
+    const authHeader = proxy.auth ? ("Proxy-Authorization: Basic " + Buffer.from(proxy.auth).toString("base64") + "\r\n") : "";
+    socket.write(
+      "CONNECT " + targetUrl.hostname + ":" + targetPort + " HTTP/1.1\r\n" +
+      "Host: " + targetUrl.hostname + ":" + targetPort + "\r\n" +
+      authHeader +
+      "Connection: keep-alive\r\n\r\n"
+    );
+
+    let buf = Buffer.alloc(0);
+    const onData = (chunk) => {
+      buf = Buffer.concat([buf, chunk]);
+      const headerEnd = buf.indexOf("\r\n\r\n");
+      if (headerEnd === -1) return; // wait for more
+      socket.removeListener("data", onData);
+      const statusLine = buf.slice(0, buf.indexOf("\r\n")).toString("latin1");
+      const statusMatch = statusLine.match(/^HTTP\/\d\.\d (\d+)/);
+      const status = statusMatch ? parseInt(statusMatch[1], 10) : 0;
+      if (status !== 200) {
+        socket.destroy();
+        return finish(new Error("Proxy CONNECT failed: " + statusLine.trim()));
+      }
+      const rest = buf.slice(headerEnd + 4);
+      if (rest.length) socket.unshift(rest); // any bytes the proxy sent early belong to the tunnel
+      finish(null, socket);
+    };
+    socket.on("data", onData);
   });
 }
 
@@ -156,7 +260,7 @@ function encodeFormData(obj) {
   return parts.join("&");
 }
 
-function doFetch(parsedUrl, method, headers, body, timeout, redirectsLeft, maxSize, retriesLeft, opts, resolve) {
+function doFetch(parsedUrl, method, headers, body, timeout, redirectsLeft, maxSize, retriesLeft, opts, resolve, proxy) {
   const transport = parsedUrl.protocol === "https:" ? https : http;
 
   const reqHeaders = { ...headers };
@@ -166,6 +270,8 @@ function doFetch(parsedUrl, method, headers, body, timeout, redirectsLeft, maxSi
   }
 
   // F-C012: same lookup that's used for the actual TCP connect — TOCTOU-safe.
+  // Skipped when routing through a proxy: the proxy resolves the target,
+  // not us, so there's no local DNS answer to vet here.
   const dns = require("dns");
   const safeLookup = function(hostname, options, cb) {
     if (typeof options === "function") { cb = options; options = {}; }
@@ -181,6 +287,14 @@ function doFetch(parsedUrl, method, headers, body, timeout, redirectsLeft, maxSi
     });
   };
 
+  const retry = (reason, delayMs) => {
+    if (retriesLeft <= 0) return false;
+    setTimeout(() => {
+      doFetch(parsedUrl, method, headers, body, timeout, redirectsLeft, maxSize, retriesLeft - 1, opts, resolve, proxy);
+    }, Math.min(Math.max(delayMs || 1000, 500), 15000));
+    return true;
+  };
+
   const reqOpts = {
     hostname: parsedUrl.hostname,
     port: parsedUrl.port,
@@ -191,13 +305,14 @@ function doFetch(parsedUrl, method, headers, body, timeout, redirectsLeft, maxSi
     lookup: safeLookup
   };
 
-  const retry = (reason, delayMs) => {
-    if (retriesLeft <= 0) return false;
-    setTimeout(() => {
-      doFetch(parsedUrl, method, headers, body, timeout, redirectsLeft, maxSize, retriesLeft - 1, opts, resolve);
-    }, Math.min(Math.max(delayMs || 1000, 500), 15000));
-    return true;
-  };
+  // Route through a forward proxy for a modulable outbound IP (see
+  // pickProxy above). The agent owns the actual socket — everything below
+  // (redirects, retries, decompression) stays untouched either way.
+  if (proxy) {
+    delete reqOpts.lookup; // DNS is resolved by the proxy, not us
+    reqOpts.agent = makeProxyAgent(proxy, parsedUrl, transport);
+    if (parsedUrl.protocol === "http:") reqOpts.path = parsedUrl.href; // absolute-form for a plain forward proxy
+  }
 
   const req = transport.request(reqOpts, (res) => {
     // Handle redirects
@@ -216,7 +331,7 @@ function doFetch(parsedUrl, method, headers, body, timeout, redirectsLeft, maxSi
         if (method !== "GET" && method !== "HEAD") { nextMethod = "GET"; nextBody = null; }
       }
       res.resume();
-      return doFetch(redirectUrl, nextMethod, headers, nextBody, timeout, redirectsLeft - 1, maxSize, retriesLeft, opts, resolve);
+      return doFetch(redirectUrl, nextMethod, headers, nextBody, timeout, redirectsLeft - 1, maxSize, retriesLeft, opts, resolve, proxy);
     }
 
     // Retry on 429 / 502 / 503 / 504 if retries remain
