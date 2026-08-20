@@ -20,6 +20,35 @@ function log(m, c = '') {
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Adaptive replacement for "click something, then blindly sleep(2000) hoping
+// the re-render finished" — resolves as soon as the DOM under `root` has
+// gone quiet for `quietMs`, instead of always paying the full fixed delay.
+// A React re-render is typically done in well under 300ms; the old fixed
+// 1500-3000ms waits were both slower than necessary on the common case AND
+// not actually safer on a genuinely slow render, since `timeoutMs` here is
+// a ceiling, not the wait time — a render that finishes early returns
+// early, one that's still running past the old fixed value keeps waiting
+// up to `timeoutMs` instead of getting cut off exactly where the fixed
+// sleep would have. Falls back to a flat `quietMs` wait if MutationObserver
+// isn't available for some reason.
+function waitForStable(winCtx, root, timeoutMs = 2500, quietMs = 150) {
+  return new Promise((resolve) => {
+    let settleTimer = null, hardTimer = null, obs = null;
+    const finish = () => {
+      try { obs && obs.disconnect(); } catch (e) {}
+      clearTimeout(settleTimer); clearTimeout(hardTimer);
+      resolve();
+    };
+    try {
+      const MO = (winCtx && winCtx.MutationObserver) || window.MutationObserver;
+      obs = new MO(() => { clearTimeout(settleTimer); settleTimer = setTimeout(finish, quietMs); });
+      obs.observe(root, { childList: true, subtree: true, attributes: true, characterData: true });
+    } catch (e) { settleTimer = setTimeout(finish, quietMs); return; }
+    settleTimer = setTimeout(finish, quietMs); // nothing mutated at all — don't wait the full ceiling
+    hardTimer = setTimeout(finish, timeoutMs);
+  });
+}
 function progress(pct) { PB.style.width = pct + '%'; }
 
 function copyLog() {
@@ -52,10 +81,10 @@ function goToTab(doc, tabId, label) {
 }
 
 // ── Test runner ──
-let win, doc, errs, warns;
+let win, doc, errs, warns, netFails;
 
 function hookConsole() {
-  errs = []; warns = [];
+  errs = []; warns = []; netFails = [];
   const origE = win.console.error, origW = win.console.warn;
   win.console.error = function (...a) {
     const m = a.map(x => typeof x === 'string' ? x : (x?.message || x?.stack || String(x))).join(' ');
@@ -67,9 +96,47 @@ function hookConsole() {
   };
   win.addEventListener('error', e => errs.push('Uncaught: ' + e.message + ' @ ' + e.filename + ':' + e.lineno));
   win.addEventListener('unhandledrejection', e => errs.push('UnhandledPromise: ' + (e.reason?.message || e.reason)));
+
+  // A failed API call very often does NOT throw or log — the app just
+  // silently gets a 404/500/network error and, unless it explicitly
+  // handles it, shows stale or empty data with zero console signal.
+  // checkErrs alone would never catch that. Patch fetch/XHR to record
+  // every non-2xx (or network-error) response during the run.
+  try {
+    if (win.fetch) {
+      const origFetch = win.fetch;
+      win.fetch = function (input, init) {
+        const url = (input && input.url) || input;
+        const method = (init && init.method) || 'GET';
+        return origFetch.call(win, input, init).then((res) => {
+          if (!res.ok) netFails.push({ url: String(url), status: res.status, method });
+          return res;
+        }, (e) => {
+          netFails.push({ url: String(url), status: 0, method, error: e && e.message });
+          throw e;
+        });
+      };
+    }
+    if (win.XMLHttpRequest) {
+      const XP = win.XMLHttpRequest.prototype;
+      const origOpen = XP.open, origSend = XP.send;
+      XP.open = function (method, url, ...rest) {
+        this.__testMethod = method; this.__testUrl = url;
+        return origOpen.call(this, method, url, ...rest);
+      };
+      XP.send = function (...args) {
+        this.addEventListener('loadend', () => {
+          if (this.status === 0 || this.status >= 400) {
+            netFails.push({ url: this.__testUrl, status: this.status, method: this.__testMethod });
+          }
+        });
+        return origSend.apply(this, args);
+      };
+    }
+  } catch (e) { /* fetch/XHR patching failed — network-failure detection just won't run this session */ }
 }
 
-function clearErrs() { errs.length = 0; warns.length = 0; }
+function clearErrs() { errs.length = 0; warns.length = 0; netFails.length = 0; }
 
 function checkErrs(context) {
   if (errs.length > 0) {
@@ -77,6 +144,12 @@ function checkErrs(context) {
   }
   const rw = warns.filter(w => !w.includes('React does not recognize') && !w.includes('componentWill') && !w.includes('NaN'));
   rw.slice(0, 3).forEach(w => { log('  WARN [' + context + ']: ' + w.substring(0, 250), 'w'); wc++; });
+  if (netFails.length > 0) {
+    netFails.forEach(f => {
+      log('  HTTP FAIL [' + context + ']: ' + f.method + ' ' + f.url + ' → ' + (f.status || 'network error') + (f.error ? ' (' + f.error + ')' : ''), 'e');
+      ec++;
+    });
+  }
 }
 
 function pass(msg) { log('  ✓ ' + msg, 'ok'); tc++; pc++; }
@@ -141,7 +214,7 @@ async function testAllButtons(panel, context, exclude = []) {
 
     clearErrs();
     try { btn.click(); } catch (e) { fail(context + ' button "' + txt + '" threw: ' + e.message); continue; }
-    await sleep(300);
+    await waitForStable(win, doc.body, 400, 80);
 
     if (errs.length > 0) {
       fail(context + ' button "' + txt + '" caused error');
@@ -176,7 +249,7 @@ async function testAllInputs(panel, context) {
     } else {
       setNativeValue(inp, 'test');
     }
-    await sleep(200);
+    await waitForStable(win, doc.body, 300, 60);
     if (errs.length > 0) {
       const label = inp.getAttribute('aria-label') || inp.placeholder || inp.type;
       fail(context + ' input "' + label + '" caused error');
@@ -202,7 +275,7 @@ async function testAllSelects(panel, context) {
     if (opts.length > 1) {
       sel.value = opts[1].value;
       sel.dispatchEvent(new Event('change', { bubbles: true }));
-      await sleep(200);
+      await waitForStable(win, doc.body, 300, 60);
       if (errs.length > 0) {
         fail(context + ' select caused error');
         checkErrs(context + ':select');
@@ -219,12 +292,12 @@ async function testAllSelects(panel, context) {
   for (const ks of kuroSelects) {
     clearErrs();
     ks.click();
-    await sleep(300);
+    await waitForStable(win, doc.body, 400, 80);
     // Try clicking the second option
     const options = [...doc.querySelectorAll('[role="option"]')];
     if (options.length > 1) {
       options[1].click();
-      await sleep(300);
+      await waitForStable(win, doc.body, 400, 80);
       if (errs.length > 0) {
         fail(context + ' KuroSelect caused error');
         checkErrs(context + ':kuroselect');
@@ -246,7 +319,7 @@ async function testToggles(panel, context) {
   for (const tog of toggles) {
     clearErrs();
     tog.click();
-    await sleep(300);
+    await waitForStable(win, doc.body, 400, 80);
     if (errs.length > 0) {
       fail(context + ' toggle caused error');
       checkErrs(context + ':toggle');
@@ -268,11 +341,13 @@ async function initApp() {
   S.textContent = 'Loading app...';
   iframe.src = PREVIEW_URL;
   await new Promise(r => { iframe.onload = r; setTimeout(r, 15000); });
-  await sleep(3000);
   try { win = iframe.contentWindow; doc = iframe.contentDocument; } catch (e) {
     log('FATAL: Cannot access iframe — ' + e.message, 'e'); ec++; return false;
   }
   if (!doc || !doc.body) { log('FATAL: No document', 'e'); ec++; return false; }
+  // Wait for hydration/first-render to settle instead of a blind 3s —
+  // most builds finish well under that; a slow one still gets up to 4s.
+  await waitForStable(win, doc.body, 4000);
   hookConsole();
   return true;
 }
@@ -317,7 +392,7 @@ async function runFullTest() {
     S.textContent = 'Phase 2: ' + label + ' tab...';
     clearErrs();
     if (!goToTab(doc, id, label)) { skip('No "' + label + '" button'); continue; }
-    await sleep(2000);
+    await waitForStable(win, doc.body, 2500);
     const panel = findPanel(doc, id);
     const pLen = panel?.innerHTML?.length || 0;
     checkErrs(label + ' render');
@@ -333,7 +408,7 @@ async function runFullTest() {
   // 3a. Tracker
   S.textContent = 'Phase 3: Tracker interactions...';
   if (goToTab(doc, 'tracker', 'Tracker')) {
-    await sleep(1500);
+    await waitForStable(win, doc.body, 2000);
     const panel = findPanel(doc, 'tracker');
     if (panel) {
       // Test category tabs (character/weapon/standard)
@@ -353,7 +428,7 @@ async function runFullTest() {
   // 3b. Events
   S.textContent = 'Phase 3: Events interactions...';
   if (goToTab(doc, 'events', 'Events')) {
-    await sleep(1500);
+    await waitForStable(win, doc.body, 2000);
     const panel = findPanel(doc, 'events');
     if (panel) {
       await testAllButtons(panel, 'Events');
@@ -364,7 +439,7 @@ async function runFullTest() {
   // 3c. Calculator
   S.textContent = 'Phase 3: Calculator interactions...';
   if (goToTab(doc, 'calculator', 'Calc')) {
-    await sleep(2000);
+    await waitForStable(win, doc.body, 2500);
     const panel = findPanel(doc, 'calculator');
     if (panel) {
       await testAllInputs(panel, 'Calculator');
@@ -381,7 +456,7 @@ async function runFullTest() {
   // 3d. Planner
   S.textContent = 'Phase 3: Planner interactions...';
   if (goToTab(doc, 'planner', 'Plan')) {
-    await sleep(1500);
+    await waitForStable(win, doc.body, 2000);
     const panel = findPanel(doc, 'planner');
     if (panel) {
       await testAllInputs(panel, 'Planner');
@@ -394,7 +469,7 @@ async function runFullTest() {
   // 3e. Analytics/Stats
   S.textContent = 'Phase 3: Stats interactions...';
   if (goToTab(doc, 'analytics', 'Stats')) {
-    await sleep(2000);
+    await waitForStable(win, doc.body, 2500);
     const panel = findPanel(doc, 'analytics');
     if (panel) {
       await testAllButtons(panel, 'Stats', ['submit', 'leaderboard']);
@@ -406,7 +481,7 @@ async function runFullTest() {
   // 3f. Collection
   S.textContent = 'Phase 3: Collection interactions...';
   if (goToTab(doc, 'gathering', 'Collection')) {
-    await sleep(2000);
+    await waitForStable(win, doc.body, 2500);
     const panel = findPanel(doc, 'gathering');
     if (panel) {
       // Test search
@@ -438,7 +513,7 @@ async function runFullTest() {
   // 3g. Teams
   S.textContent = 'Phase 3: Teams interactions...';
   if (goToTab(doc, 'teams', 'Teams')) {
-    await sleep(2000);
+    await waitForStable(win, doc.body, 2500);
     const panel = findPanel(doc, 'teams');
     if (panel) {
       // Test team tabs
@@ -474,7 +549,7 @@ async function runFullTest() {
   // 3h. Profile
   S.textContent = 'Phase 3: Profile interactions...';
   if (goToTab(doc, 'profile', 'Profile')) {
-    await sleep(2000);
+    await waitForStable(win, doc.body, 2500);
     const panel = findPanel(doc, 'profile');
     if (panel) {
       await testAllInputs(panel, 'Profile');
@@ -496,14 +571,61 @@ async function runFullTest() {
     goToTab(doc, id, label);
     await sleep(200);
   }
-  await sleep(1000);
+  await waitForStable(win, doc.body, 1500);
   if (errs.length > 0) { fail('Rapid tab switch caused errors'); checkErrs('rapid-switch'); }
   else pass('Rapid tab switching (8 tabs in 1.6s) — no errors');
 
   // Return to tracker
   goToTab(doc, 'tracker', 'Tracker');
-  await sleep(500);
+  await waitForStable(win, doc.body, 800);
   pass('Final state: back on Tracker');
+  progress(93);
+
+  // ── Phase 4b: Persistence ──
+  // Nothing before this point ever reloads the app — every check so far
+  // only proves state is correct in the *live* React tree, not that it
+  // was actually written to durable storage. A component that renders
+  // correctly from in-memory state but never persists it would pass every
+  // phase above and still lose user data on refresh. Snapshot localStorage,
+  // force a real reload (not a same-value src reassignment, which some
+  // browsers no-op), then diff.
+  log('', '');
+  log('── Phase 4b: Persistence ──', 's');
+  S.textContent = 'Phase 4b: Persistence (reload)...';
+  try {
+    const before = {};
+    for (let i = 0; i < win.localStorage.length; i++) {
+      const k = win.localStorage.key(i);
+      before[k] = win.localStorage.getItem(k);
+    }
+    const keyCount = Object.keys(before).length;
+    if (keyCount === 0) {
+      skip('Persistence: no localStorage keys found — app may not persist state, or uses a different mechanism (IndexedDB, cookies, server-side)');
+    } else {
+      const appIframe = document.getElementById('app');
+      await new Promise((resolve) => {
+        appIframe.onload = resolve;
+        appIframe.contentWindow.location.reload();
+        setTimeout(resolve, 10000);
+      });
+      win = appIframe.contentWindow; doc = appIframe.contentDocument;
+      if (!doc || !doc.body) {
+        fail('Persistence: could not access app after reload');
+      } else {
+        await waitForStable(win, doc.body, 4000);
+        hookConsole(); // fresh window after reload — re-install the hooks
+        let lost = [];
+        for (const k of Object.keys(before)) {
+          if (win.localStorage.getItem(k) !== before[k]) lost.push(k);
+        }
+        if (lost.length === 0) pass('Persistence: all ' + keyCount + ' localStorage key(s) survived reload');
+        else fail('Persistence: ' + lost.length + '/' + keyCount + ' key(s) lost or changed after reload: ' + lost.slice(0, 5).join(', '));
+        checkErrs('post-reload');
+      }
+    }
+  } catch (e) {
+    skip('Persistence check could not run: ' + e.message);
+  }
   progress(97);
 
   // ── Phase 5: General Sweep ──
@@ -552,7 +674,7 @@ async function runQuickTest() {
     const [id, label] = tabs[i];
     clearErrs();
     goToTab(doc, id, label);
-    await sleep(1000);
+    await waitForStable(win, doc.body, 1500);
     checkErrs(label);
     const p = findPanel(doc, id);
     if (!p || (p.innerHTML?.length || 0) < 50) fail(label + ' empty');
