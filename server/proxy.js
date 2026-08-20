@@ -2,6 +2,13 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 
+// Reused keep-alive connections to backend server-mode processes instead of
+// a fresh TCP handshake (SYN/SYN-ACK/ACK) per proxied request. Every asset
+// on an SSR page — JS chunks, CSS, images — was paying that latency
+// individually; a shared pool means only the first request per backend
+// pays it, the rest reuse an open socket.
+const backendAgent = new http.Agent({ keepAlive: true, maxSockets: 64, maxFreeSockets: 16 });
+
 // Escape user-controlled values before splicing into HTML responses.
 // File names, error messages, etc. would otherwise be reflected
 // raw — a build that produces `<img src=x onerror=…>.html` would
@@ -23,7 +30,8 @@ function proxyTo(port, req, res, stripPrefix) {
   }
   const opts = {
     hostname: "127.0.0.1", port, path: targetPath, method: req.method,
-    headers: { ...req.headers, host: "127.0.0.1:" + port }
+    headers: { ...req.headers, host: "127.0.0.1:" + port },
+    agent: backendAgent
   };
   const isHtml = !path.extname(targetPath) || targetPath.endsWith(".html") || targetPath === "/";
   const proxyReq = http.request(opts, (proxyRes) => {
@@ -35,6 +43,14 @@ function proxyTo(port, req, res, stripPrefix) {
       proxyRes.setEncoding("utf8");
       proxyRes.on("data", (chunk) => { body += chunk; });
       proxyRes.on("end", () => {
+        // Root-absolute asset references baked into server-rendered HTML
+        // (Next.js's `/_next/static/...`, or any framework doing the same)
+        // resolve against the domain root, not the current preview's
+        // subpath — the fetch/XHR shim below only catches JS-initiated
+        // requests, not <script src>/<link href>/<img src> in the markup
+        // itself. Rewrite those to carry the preview prefix too, mirroring
+        // what serveIndex() already does for static-mode previews.
+        body = body.replace(/(src|href|content)="\/(?!\/)/g, '$1="' + stripPrefix + '/');
         const fetchShim = `<script>(function(){var B=window.fetch,P='${stripPrefix}';window.fetch=function(u,o){if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith('//'))u=P+u;return B.call(this,u,o);};var X=XMLHttpRequest.prototype.open,O=X;XMLHttpRequest.prototype.open=function(m,u){if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith('//'))u=P+u;return O.call(this,m,u);};})();<\/script>`;
         // J3: inject the runtime-error collector. Posts back to
         // /api/preview-errors/<owner>/<repo>/<slug> with keepalive so
@@ -66,6 +82,44 @@ function proxyTo(port, req, res, stripPrefix) {
     res.end('<!DOCTYPE html><html><head><meta charset="utf-8"><title>502 - Server Not Responding</title><style>body{background:#090a10;color:#e6e1d5;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}div{text-align:center;max-width:400px}h1{color:#d4a030;font-size:20px}p{color:#9e9890;font-size:14px;margin:12px 0}button{background:#d4a030;color:#090a10;border:none;padding:10px 24px;border-radius:5px;cursor:pointer;font-size:14px;font-weight:600}button:hover{background:#eab840}</style></head><body><div><h1>502 - Server Not Responding</h1><p>' + escHtml(e.message || "") + '</p><button onclick="location.reload()">Retry</button><p style="font-size:12px;color:#6a665e;margin-top:24px">The preview server may still be starting up.</p></div></body></html>');
   });
   req.pipe(proxyReq);
+}
+
+// Proxy a WebSocket upgrade request to a server-mode backend. Node's http
+// module already speaks the upgrade handshake — the trick is forwarding
+// the raw socket bytes in both directions after the 101 response, since
+// nothing else in proxy.js touches raw sockets.
+function proxyUpgrade(req, socket, head, port, stripPrefix) {
+  let targetPath = req.url;
+  if (stripPrefix && targetPath.startsWith(stripPrefix)) {
+    targetPath = targetPath.slice(stripPrefix.length) || "/";
+  }
+  const proxyReq = http.request({
+    hostname: "127.0.0.1", port, path: targetPath, method: req.method,
+    headers: { ...req.headers, host: "127.0.0.1:" + port }
+  });
+  proxyReq.on("upgrade", (proxyRes, proxySocket, proxyHead) => {
+    let statusLine = "HTTP/1.1 " + proxyRes.statusCode + " " + (proxyRes.statusMessage || "Switching Protocols") + "\r\n";
+    for (const k of Object.keys(proxyRes.headers)) {
+      const v = proxyRes.headers[k];
+      statusLine += k + ": " + (Array.isArray(v) ? v.join(", ") : v) + "\r\n";
+    }
+    statusLine += "\r\n";
+    try {
+      socket.write(statusLine);
+      // Any bytes each side sent immediately alongside the handshake (rare,
+      // but the spec allows it) — forward them to the *other* now-upgraded
+      // socket, not back to the same side they arrived on.
+      if (proxyHead && proxyHead.length) socket.write(proxyHead);
+      if (head && head.length) proxySocket.write(head);
+      proxySocket.pipe(socket);
+      socket.pipe(proxySocket);
+    } catch (_) {
+      try { socket.destroy(); } catch (__) {}
+    }
+  });
+  proxyReq.on("error", () => { try { socket.destroy(); } catch (_) {} });
+  socket.on("error", () => { try { proxyReq.destroy(); } catch (_) {} });
+  proxyReq.end();
 }
 
 // F-K002: hide sensitive paths from the file browser. .env / lock-files /
@@ -146,4 +200,4 @@ return new B(p,o);};window.Blob.prototype=B.prototype;
   res.send(html);
 }
 
-module.exports = { proxyTo, serveIndex };
+module.exports = { proxyTo, serveIndex, proxyUpgrade };

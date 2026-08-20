@@ -334,6 +334,7 @@ if (certPath && keyPath) {
       console.log("  🔒 DeployView HTTPS running on https://localhost:" + HTTPS_PORT);
       console.log("    MCP HTTPS:     https://localhost:" + HTTPS_PORT + "/mcp  (for Claude web)");
     });
+    attachUpgradeProxy(httpsServer);
   } catch (e) {
     console.error("  ⚠ Failed to start HTTPS server: " + e.message);
     console.error("    Check HTTPS_CERT and HTTPS_KEY environment variables.");
@@ -342,6 +343,27 @@ if (certPath && keyPath) {
 
 // I3: kick off the periodic preview health monitor + scheduled rebuilds.
 try { require("./monitor").start(); } catch (e) { console.warn("[monitor] start failed:", e.message); }
+
+// WebSocket upgrade requests never go through Express routing — they have
+// to be caught on the raw HTTP server's 'upgrade' event. Server-mode
+// previews (e.g. an app with its own realtime features) had no path to a
+// WebSocket at all before this; proxy.js's HTTP handling only ever saw
+// GET/POST/etc.
+function attachUpgradeProxy(server) {
+  server.on("upgrade", (req, socket, head) => {
+    const m = (req.url || "").match(/^\/preview\/([^/]+)\/([^/]+)\/([^/]+)/);
+    if (!m) { socket.destroy(); return; }
+    const [, owner, repo, slug] = m;
+    const { keyFromSlug } = require("./build");
+    const { runningServers } = require("./process");
+    const { proxyUpgrade } = require("./proxy");
+    const key = keyFromSlug(owner, repo, slug);
+    const srv = runningServers[key];
+    if (!srv || srv.status !== "running") { socket.destroy(); return; }
+    const stripPrefix = "/preview/" + owner + "/" + repo + "/" + slug;
+    proxyUpgrade(req, socket, head, srv.port, stripPrefix);
+  });
+}
 
 httpServer = app.listen(PORT, () => {
   console.log("");
@@ -438,3 +460,4 @@ httpServer = app.listen(PORT, () => {
     if (queued || skipped) console.log("  Auto-build: " + queued + " queued, " + skipped + " skipped (already ready)");
   }
 });
+attachUpgradeProxy(httpServer);
