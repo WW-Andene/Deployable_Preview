@@ -184,7 +184,8 @@ dv.defineTool({
 
 async function runWebFetch(args) {
   args = args || {};
-  const useBrowser = !!(args.jsRender || args.captureRequests);
+  const useBrowser = !!(args.jsRender || args.captureRequests || args.waitForSelector ||
+                         (Array.isArray(args.actions) && args.actions.length) || args.screenshot);
   if (!useBrowser) return webFetch(args);
 
   const browseResult = await browser.browseUrl({
@@ -198,7 +199,13 @@ async function runWebFetch(args) {
     userAgent: args.userAgent || (args.headers && (args.headers["User-Agent"] || args.headers["user-agent"])),
     returnHtml: true,
     captureConsole: true,
-    maxRequests: args.captureRequests ? (args.maxRequests || 500) : 1
+    maxRequests: args.captureRequests ? (args.maxRequests || 500) : 1,
+    waitForSelector: args.waitForSelector,
+    waitForSelectorTimeout: args.waitForSelectorTimeout,
+    actions: args.actions,
+    screenshot: args.screenshot,
+    screenshotSelector: args.screenshotSelector,
+    fullPageScreenshot: args.fullPageScreenshot
   });
   if (browseResult.error) return browseResult;
 
@@ -221,6 +228,15 @@ async function runWebFetch(args) {
     result.requestsTruncated = browseResult.truncated;
     result.consoleLogs = browseResult.consoleLogs;
     result.browseErrors = browseResult.errors;
+  }
+  if (browseResult.errors && browseResult.errors.length && !result.browseErrors) {
+    result.browseErrors = browseResult.errors;
+  }
+  if (browseResult.screenshotBase64) {
+    result.screenshotBase64 = browseResult.screenshotBase64;
+    result.screenshotMimeType = browseResult.screenshotMimeType;
+  } else if (browseResult.screenshotError) {
+    result.screenshotError = browseResult.screenshotError;
   }
   return result;
 }
@@ -259,6 +275,11 @@ function formatWebFetchResult(result) {
   else if (result.html) { parts.push("\n" + result.html); }
   else if (result.text) { parts.push("\n" + result.text); }
   else if (result.body) { parts.push("\n" + result.body); }
+
+  if (result.rawHtml !== undefined) {
+    parts.push("\n--- Raw HTML ---");
+    parts.push(result.rawHtml);
+  }
   else if (result.base64) {
     parts.push("\n[Binary content, " + result.byteLength + " bytes]");
     parts.push(result.base64.slice(0, 2000) + (result.base64.length > 2000 ? "..." : ""));
@@ -281,6 +302,14 @@ function formatWebFetchResult(result) {
       parts.push("By category: " + Object.keys(result.requestsByType).sort().map((k) => k + "=" + result.requestsByType[k]).join(", "));
     }
   }
+  if (result.browseErrors && result.browseErrors.length) {
+    parts.push("\n--- Browse warnings (" + result.browseErrors.length + ") ---");
+    for (const e of result.browseErrors.slice(0, 20)) {
+      parts.push("- [" + e.type + "]" + (e.selector ? " " + e.selector + ":" : "") + " " + e.message);
+    }
+  }
+  if (result.screenshotBase64) parts.push("\n[Screenshot captured — returned as image content]");
+  else if (result.screenshotError) parts.push("\n[Screenshot failed: " + result.screenshotError + "]");
   return parts.join("\n");
 }
 
@@ -288,10 +317,15 @@ dv.defineTool({
   name: "web_fetch",
   category: "network",
   description: [
-    "Universal URL fetcher and scraper. Handles HTML, JSON, RSS/Atom, XML sitemaps, text, binary content.",
+    "Universal URL fetcher and scraper — works on ANY public URL, not just deployed previews. Handles HTML, JSON, RSS/Atom, XML sitemaps, text, binary content.",
     "Supports gzip/deflate/brotli/zstd, charset detection, cookies, custom headers, retries on 429/503.",
     "Set jsRender:true to render JavaScript in a headless browser (for SPAs).",
-    "Set captureRequests:true to also return every network request the page makes — implies jsRender."
+    "Set captureRequests:true to also return every network request the page makes — implies jsRender. Use this to find the underlying API endpoint behind a scraped widget and call it directly instead of parsing rendered text.",
+    "Set getRawHtml:true for the actual markup (outerHTML), including hidden <script> JSON blobs like __NEXT_DATA__ — combine with `selector` to scope it to one element instead of the whole page. Implies jsRender.",
+    "Set waitForSelector to block until a specific element exists before capturing, instead of guessing a fixed waitMs — use this for lazy-loaded widgets/tables. Implies jsRender.",
+    "Set actions:[{action,selector,value}] to run a short interaction sequence (click/hover/type/select/scroll/key/wait/waitForSelector) before capture — e.g. selecting a dropdown option or dismissing a cookie banner on a third-party site. Implies jsRender.",
+    "Set screenshot:true to get a PNG of the rendered page (or a selector via screenshotSelector) for visual verification. Implies jsRender.",
+    "Note: jsRender only defeats JS-based bot checks (Cloudflare interstitials, etc). Pure network/WAF blocks (e.g. Reddit's IP-level firewall, some CloudFront 403s) cannot be bypassed by any combination of these options — no amount of spoofing changes that; use an official API or a mirror source instead."
   ].join("\n"),
   requires: [],
   schema: {
@@ -329,14 +363,38 @@ dv.defineTool({
       requestFilter: { type: "object" },
       maxRequests: { type: "number" },
       width: { type: "number" },
-      height: { type: "number" }
+      height: { type: "number" },
+      getRawHtml: { type: "boolean", description: "Return actual markup (outerHTML), not visible-text-only. Scope with `selector`. Implies jsRender." },
+      waitForSelector: { type: "string", description: "Block until this CSS selector exists before capturing. Implies jsRender." },
+      waitForSelectorTimeout: { type: "number", description: "Max ms to wait for waitForSelector (default 10000, max 60000)." },
+      actions: {
+        type: "array",
+        description: "Interaction sequence run before capture. Each: {action, selector?, value?, timeout?}. actions: click, hover, type, select, scroll, key, wait, waitForSelector. Implies jsRender.",
+        items: {
+          type: "object",
+          properties: {
+            action: { type: "string", enum: ["click", "hover", "type", "select", "scroll", "key", "wait", "waitForSelector"] },
+            selector: { type: "string" },
+            value: {},
+            timeout: { type: "number" }
+          },
+          required: ["action"]
+        }
+      },
+      screenshot: { type: "boolean", description: "Capture a PNG of the rendered page after actions/waits. Implies jsRender." },
+      screenshotSelector: { type: "string", description: "Screenshot only this element instead of the full viewport." },
+      fullPageScreenshot: { type: "boolean", description: "Capture the full scrollable page instead of just the viewport." }
     },
     required: ["url"]
   },
   async handler(args) {
     const result = await runWebFetch(args);
     if (result.error) return dv.failFromBrowser(result);
-    return dv.text(formatWebFetchResult(result));
+    const text = formatWebFetchResult(result);
+    if (result.screenshotBase64) {
+      return dv.imageWithJson(result.screenshotBase64, result.screenshotMimeType, { summary: text });
+    }
+    return dv.text(text);
   }
 });
 

@@ -191,6 +191,51 @@ async function captureDownload(opts) {
   }
 }
 
+// ── Minimal action runner for arbitrary-URL interaction sequences ──────────
+
+/**
+ * Run a small pre-capture interaction sequence on an arbitrary page.
+ * Deliberately narrower than browser/interact.js (which is preview-session
+ * scoped) — covers the handful of actions needed to reveal lazy content on
+ * a third-party site (dropdown selection, "load more" clicks, scrolling
+ * into view) before we screenshot/scrape it.
+ * @param {object} act - { action, selector, value, timeout }
+ */
+async function runSimpleAction(page, act) {
+  const selector = act && act.selector;
+  const value = act && act.value;
+  const timeout = Number.isFinite(Number(act && act.timeout)) ? Number(act.timeout) : 10000;
+  switch (act && act.action) {
+    case "click":
+      await page.click(selector, { timeout });
+      break;
+    case "hover":
+      await page.hover(selector, { timeout });
+      break;
+    case "type":
+      await page.fill(selector, String(value == null ? "" : value), { timeout });
+      break;
+    case "select":
+      await page.selectOption(selector, String(value == null ? "" : value), { timeout });
+      break;
+    case "scroll":
+      await page.evaluate((y) => window.scrollBy(0, y || 0), Number(value) || 0);
+      break;
+    case "key":
+      if (selector) await page.focus(selector, { timeout }).catch(() => {});
+      await page.keyboard.press(String(value || "Enter"));
+      break;
+    case "wait":
+      await new Promise((r) => setTimeout(r, Math.max(0, Math.min(Number(value) || 0, 30000))));
+      break;
+    case "waitForSelector":
+      await page.waitForSelector(selector, { timeout });
+      break;
+    default:
+      throw new Error("Unsupported action: " + (act && act.action));
+  }
+}
+
 // ── Arbitrary URL browsing with network request capture ─────────────────────
 
 /**
@@ -359,6 +404,30 @@ async function browseUrl(opts) {
       errors.push({ type: "navigation", message: navErr.message });
     }
 
+    // Conditional wait: block until a selector actually appears instead of
+    // guessing a fixed timeout. Runs before the interaction sequence so
+    // actions can target content that loads in after initial navigation.
+    if (opts.waitForSelector) {
+      const wfsTimeout = Math.min(Math.max(parseInt(opts.waitForSelectorTimeout, 10) || 10000, 0), 60000);
+      try {
+        await page.waitForSelector(opts.waitForSelector, { timeout: wfsTimeout });
+      } catch (e) {
+        errors.push({ type: "waitForSelector", message: "Timed out waiting for " + opts.waitForSelector + ": " + e.message });
+      }
+    }
+
+    // Optional interaction sequence (click a dropdown, scroll a lazy list,
+    // dismiss a cookie banner, etc.) before we capture HTML/screenshot.
+    if (Array.isArray(opts.actions) && opts.actions.length) {
+      for (const act of opts.actions.slice(0, 25)) {
+        try {
+          await runSimpleAction(page, act);
+        } catch (e) {
+          errors.push({ type: "action", action: act && act.action, selector: act && act.selector, message: e.message });
+        }
+      }
+    }
+
     // Extra wait for delayed loads (animations, lazy-loaded media, Spine init, etc.)
     if (waitMs > 0) {
       await new Promise((r) => setTimeout(r, waitMs));
@@ -396,6 +465,22 @@ async function browseUrl(opts) {
       } catch (e) {
         result.html = "";
         result.htmlError = e.message;
+      }
+    }
+
+    if (opts.screenshot) {
+      try {
+        let buf;
+        if (opts.screenshotSelector) {
+          const el = await page.$(opts.screenshotSelector);
+          buf = el ? await el.screenshot({ type: "png" }) : await page.screenshot({ type: "png", fullPage: !!opts.fullPageScreenshot });
+        } else {
+          buf = await page.screenshot({ type: "png", fullPage: !!opts.fullPageScreenshot });
+        }
+        result.screenshotBase64 = buf.toString("base64");
+        result.screenshotMimeType = "image/png";
+      } catch (e) {
+        result.screenshotError = e.message;
       }
     }
 

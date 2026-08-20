@@ -41,6 +41,9 @@ function extractFromHtml(rawHtml, opts, baseUrl) {
   if (opts.extractText || opts.selector) {
     out.text = extractText(html, opts.selector, maxTextLen);
   }
+  if (opts.getRawHtml) {
+    out.rawHtml = extractRawHtml(rawHtml, opts.selector, maxTextLen);
+  }
   if (opts.extractLinks)    out.links    = extractLinks(html, baseUrl);
   if (opts.extractMeta)     out.meta     = extractMeta(html);
   if (opts.extractImages)   out.images   = extractImages(html, baseUrl);
@@ -105,6 +108,25 @@ function extractText(html, selector, maxTextLen) {
   content = content.trim();
 
   const limit = maxTextLen || DEFAULT_MAX_TEXT_CHARS;
+  if (content.length > limit) {
+    content = content.slice(0, limit) + "\n\n[... truncated at " + limit + " characters]";
+  }
+  return content;
+}
+
+/**
+ * Return the actual markup (not stripped/visible-text-only) for the page,
+ * or for a selector's matched element(s) when `selector` is given. This is
+ * the escape hatch for embedded JSON (`<script id="__NEXT_DATA__">`) and
+ * for attributes/structure that extractText's tag-stripping destroys.
+ */
+function extractRawHtml(html, selector, maxLen) {
+  let content = html;
+  if (selector) {
+    const matches = matchSelector(html, selector);
+    content = matches.length ? matches.join("\n\n<!-- next match -->\n\n") : "";
+  }
+  const limit = maxLen || DEFAULT_MAX_TEXT_CHARS;
   if (content.length > limit) {
     content = content.slice(0, limit) + "\n\n[... truncated at " + limit + " characters]";
   }
