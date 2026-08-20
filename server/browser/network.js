@@ -285,6 +285,55 @@ async function runSimpleAction(page, act) {
     case "waitForSelector":
       await page.waitForSelector(selector, { timeout });
       break;
+    case "downloadAsset": {
+      // Fetches an asset's bytes from *inside* the page's JS realm, not the
+      // server. That's the only place a blob: URL (createObjectURL output —
+      // no server-side fetch can ever reach it) or a <canvas> element's
+      // rendered pixels (no URL exists at all) can be read. Also handles a
+      // plain <img>/<video>/<audio>/<a> selector by resolving its src/href,
+      // or a literal blob:/data:/http(s) URL passed directly as `value`.
+      const literalUrl = (value != null && /^(blob:|data:|https?:)/i.test(String(value))) ? String(value) : null;
+      const asset = await page.evaluate(async (args) => {
+        const { sel, literal } = args;
+        function toBase64(buf) {
+          let binary = "";
+          const bytes = new Uint8Array(buf);
+          const chunk = 0x8000;
+          for (let i = 0; i < bytes.length; i += chunk) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+          }
+          return btoa(binary);
+        }
+        let url = literal;
+        if (!url && sel) {
+          const el = document.querySelector(sel);
+          if (!el) return { error: "element not found: " + sel };
+          if (el.tagName === "CANVAS") {
+            try {
+              const dataUrl = el.toDataURL();
+              const res = await fetch(dataUrl);
+              const buf = await res.arrayBuffer();
+              if (buf.byteLength > 15 * 1024 * 1024) return { error: "asset too large (" + buf.byteLength + " bytes) — downloadAsset caps at 15MB to stay within MCP response limits" };
+              return { source: sel + " (canvas.toDataURL)", mimeType: "image/png", byteLength: buf.byteLength, base64: toBase64(buf) };
+            } catch (e) {
+              return { error: "canvas.toDataURL failed (likely tainted by cross-origin content): " + (e && e.message) };
+            }
+          }
+          url = el.currentSrc || el.src || el.href || null;
+        }
+        if (!url) return { error: "no URL resolved — selector had no src/href/currentSrc, and no literal blob:/data:/http(s) value given" };
+        try {
+          const res = await fetch(url);
+          const buf = await res.arrayBuffer();
+          if (buf.byteLength > 15 * 1024 * 1024) return { error: "asset too large (" + buf.byteLength + " bytes) — downloadAsset caps at 15MB to stay within MCP response limits", source: url };
+          return { source: url, mimeType: res.headers.get("content-type") || "", byteLength: buf.byteLength, base64: toBase64(buf) };
+        } catch (e) {
+          return { error: "fetch failed: " + (e && e.message) };
+        }
+      }, { sel: selector || null, literal: literalUrl });
+      if (asset && asset.error) throw new Error(asset.error);
+      return asset;
+    }
     default:
       throw new Error("Unsupported action: " + (act && act.action));
   }
@@ -477,10 +526,12 @@ async function browseUrl(opts) {
 
     // Optional interaction sequence (click a dropdown, scroll a lazy list,
     // dismiss a cookie banner, etc.) before we capture HTML/screenshot.
+    const downloads = [];
     if (Array.isArray(opts.actions) && opts.actions.length) {
       for (const act of opts.actions.slice(0, 25)) {
         try {
-          await runSimpleAction(page, act);
+          const ret = await runSimpleAction(page, act);
+          if (ret && act.action === "downloadAsset") downloads.push(ret);
         } catch (e) {
           errors.push({ type: "action", action: act && act.action, selector: act && act.selector, message: e.message });
         }
@@ -515,7 +566,8 @@ async function browseUrl(opts) {
       consoleLogs,
       errors,
       truncated,
-      droppedCount: _droppedBrowse                    // F-NEW-A002
+      droppedCount: _droppedBrowse,                   // F-NEW-A002
+      downloads: downloads.length ? downloads : undefined
     };
 
     if (opts.returnHtml) {

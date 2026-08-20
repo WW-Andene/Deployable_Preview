@@ -273,6 +273,7 @@ async function runWebFetch(args) {
   }
   if (browseResult.ocrText !== undefined) result.ocrText = browseResult.ocrText;
   if (browseResult.ocrError) result.ocrError = browseResult.ocrError;
+  if (browseResult.downloads && browseResult.downloads.length) result.downloads = browseResult.downloads;
   return result;
 }
 
@@ -347,6 +348,12 @@ function formatWebFetchResult(result) {
   else if (result.screenshotError) parts.push("\n[Screenshot failed: " + result.screenshotError + "]");
   if (result.ocrText !== undefined) parts.push("\n--- OCR text ---\n" + result.ocrText);
   else if (result.ocrError) parts.push("\n[OCR failed: " + result.ocrError + "]");
+  if (result.downloads && result.downloads.length) {
+    parts.push("\n--- Downloaded assets (" + result.downloads.length + ") ---");
+    for (const d of result.downloads) parts.push("• " + d.source + "  [" + (d.mimeType || "?") + ", " + d.byteLength + " bytes]");
+    parts.push("\nBase64 payloads (JSON):");
+    parts.push(JSON.stringify(result.downloads, null, 2));
+  }
   return parts.join("\n");
 }
 
@@ -363,6 +370,7 @@ dv.defineTool({
     "Set actions:[{action,selector,value}] to run a short interaction sequence (click/hover/type/select/scroll/key/wait/waitForSelector) before capture — e.g. selecting a dropdown option or dismissing a cookie banner on a third-party site. Implies jsRender.",
     "Set screenshot:true to get a PNG of the rendered page (or a selector via screenshotSelector) for visual verification. Implies jsRender.",
     "Set ocrText:true to OCR the rendered page (tesseract.js, no external service) — the only way to read text baked into canvas/WebGL/images with no DOM representation. Implies jsRender.",
+    "Use actions:[{action:'downloadAsset', selector or value}] to download a client-side-rendered asset's actual bytes as base64 — regular lazy-loaded images/JSON/fonts are just a URL captureRequests reveals, then a normal web_fetch call away, but blob: URLs (URL.createObjectURL — never reachable by a server-side fetch, only from inside the page) and <canvas> pixel buffers (toDataURL, lossless — unlike a screenshot) need this. 15MB cap per asset.",
     "stealth defaults to true whenever jsRender is used: patches common headless tells (navigator.webdriver, empty plugin list) with no external dependency. Pass stealth:false to disable.",
     "Note: jsRender/stealth only defeat JS-based bot checks (Cloudflare interstitials, etc) and naive automation flags. Pure network/WAF blocks (e.g. Reddit's IP-level firewall, some CloudFront 403s) and real fingerprinting/CAPTCHAs cannot be bypassed by any combination of these options — that needs an official API, a paid proxy/anti-bot vendor, or a mirror source instead."
   ].join("\n"),
@@ -408,11 +416,11 @@ dv.defineTool({
       waitForSelectorTimeout: { type: "number", description: "Max ms to wait for waitForSelector (default 10000, max 60000)." },
       actions: {
         type: "array",
-        description: "Interaction sequence run before capture. Each: {action, selector?, value?, timeout?}. actions: click, hover, type, select, scroll, key, wait, waitForSelector. Implies jsRender.",
+        description: "Interaction sequence run before capture. Each: {action, selector?, value?, timeout?}. actions: click, hover, type, select, scroll, key, wait, waitForSelector, downloadAsset. `downloadAsset` fetches the actual bytes of an asset from inside the page's JS realm and returns them as base64 in the result's `downloads` array — the only way to get a blob: URL (createObjectURL — no server-side fetch can ever reach it) or a <canvas>'s rendered pixels (toDataURL — lossless, unlike a JPEG/PNG screenshot). Pass `selector` (an <img>/<video>/<audio>/<a>/<canvas> element) or a literal blob:/data:/http(s) URL as `value`. Implies jsRender.",
         items: {
           type: "object",
           properties: {
-            action: { type: "string", enum: ["click", "hover", "type", "select", "scroll", "key", "wait", "waitForSelector"] },
+            action: { type: "string", enum: ["click", "hover", "type", "select", "scroll", "key", "wait", "waitForSelector", "downloadAsset"] },
             selector: { type: "string" },
             value: {},
             timeout: { type: "number" }
