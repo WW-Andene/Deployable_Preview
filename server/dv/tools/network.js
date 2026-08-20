@@ -10,6 +10,7 @@
 const dv = require("../core");
 const browser = require("../../browser");
 const { webFetch, extractFromHtml } = require("../../web-fetch");
+const webFetchCache = require("./web-fetch-cache");
 
 const OWNER = { type: "string" };
 const REPO  = { type: "string" };
@@ -435,13 +436,32 @@ dv.defineTool({
       stealth: { type: "boolean", description: "On by default when jsRender is used — patches common headless tells (navigator.webdriver, empty plugins list). Pass false to disable." },
       ocrText: { type: "boolean", description: "Run OCR (tesseract.js) on the rendered page and return recognized text — the only way to read text baked into canvas/WebGL/images that has no DOM representation for `selector`/`getRawHtml` to find. Implies jsRender." },
       ocrLang: { type: "string", description: "tesseract.js language code for ocrText (default 'eng')." },
-      minRequestIntervalMs: { type: "number", description: "Minimum spacing (ms) between navigations to the same hostname, tracked across calls in this process. Off by default. Set this when firing several jsRender fetches at the same third-party host (e.g. via dv_workflow's parallel batches) to avoid a self-inflicted rate-limit/WAF flag that would look identical to a real block." }
+      minRequestIntervalMs: { type: "number", description: "Minimum spacing (ms) between navigations to the same hostname, tracked across calls in this process. Off by default. Set this when firing several jsRender fetches at the same third-party host (e.g. via dv_workflow's parallel batches) to avoid a self-inflicted rate-limit/WAF flag that would look identical to a real block." },
+      cache: { type: "boolean", description: "Cache the result to disk (workspace/web-fetch-cache/) keyed by URL + options, and serve repeat calls from disk instead of re-fetching/re-rendering. Default true — useful for big pages/JSON you keep re-reading while iterating. Skipped automatically for calls with downloadAsset actions. Set false to always hit the network." },
+      cacheTtlMs: { type: "number", description: "How long a cached result stays valid, in ms. Default 900000 (15 min)." },
+      forceRefresh: { type: "boolean", description: "Bypass any existing cache entry for this exact call and re-fetch, overwriting it. Use when you know the page changed." }
     },
     required: ["url"]
   },
   async handler(args) {
+    const hasDownloadAsset = Array.isArray(args.actions) && args.actions.some((a) => a && a.action === "downloadAsset");
+    const cacheEnabled = args.cache !== false && !hasDownloadAsset;
+    const cacheKey = cacheEnabled ? webFetchCache.cacheKeyFor(args) : null;
+
+    if (cacheKey && !args.forceRefresh) {
+      const cached = webFetchCache.get(cacheKey);
+      if (cached) {
+        const text = formatWebFetchResult(cached) + "\n\n[Served from web_fetch disk cache]";
+        if (cached.screenshotBase64) {
+          return dv.imageWithJson(cached.screenshotBase64, cached.screenshotMimeType, { summary: text });
+        }
+        return dv.text(text);
+      }
+    }
+
     const result = await runWebFetch(args);
     if (result.error) return dv.failFromBrowser(result);
+    if (cacheKey) webFetchCache.put(cacheKey, result, args.cacheTtlMs);
     const text = formatWebFetchResult(result);
     if (result.screenshotBase64) {
       return dv.imageWithJson(result.screenshotBase64, result.screenshotMimeType, { summary: text });
