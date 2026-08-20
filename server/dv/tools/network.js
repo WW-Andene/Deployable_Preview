@@ -164,6 +164,7 @@ dv.defineTool({
   category: "network",
   description: "Fetch robots.txt for the preview origin and parse it with robots-parser. Returns crawl-delay, sitemaps, and whether a given URL is allowed for a user agent.",
   requires: [{ kind: "browser" }, { kind: "library", name: "robots-parser" }],
+  cache: { ttlMs: 300000 }, // robots.txt is effectively static — cache 5min
   schema: {
     type: "object",
     properties: {

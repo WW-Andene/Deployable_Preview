@@ -168,6 +168,7 @@ dv.defineTool({
   category: "audit",
   description: "Compute CSS specificity for a selector (A,B,C,D tuple) via the specificity package. Useful for debugging override conflicts.",
   requires: [{ kind: "library", name: "specificity" }],
+  cache: { ttlMs: 60000 }, // pure function of `selector` — safe to cache
   schema: {
     type: "object",
     properties: { selector: { type: "string" } },

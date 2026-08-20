@@ -137,6 +137,7 @@ dv.defineTool({
   category: "content",
   description: "Parse a raw JavaScript stack trace into structured frames (function, file, line, col) using error-stack-parser.",
   requires: [{ kind: "library", name: "error-stack-parser" }],
+  cache: { ttlMs: 60000 }, // pure function of `stack` — safe to cache
   schema: {
     type: "object",
     properties: { stack: { type: "string" } },
@@ -156,6 +157,7 @@ dv.defineTool({
   category: "content",
   description: "Resolve a minified JS line/col back to the original source using a supplied source-map JSON.",
   requires: [{ kind: "library", name: "source-map" }],
+  cache: { ttlMs: 60000 }, // pure function of its args — safe to cache
   schema: {
     type: "object",
     properties: {
@@ -183,6 +185,7 @@ dv.defineTool({
   category: "content",
   description: "Parse a Content-Security-Policy header and report directives + common issues (unsafe-inline / unsafe-eval / missing default-src).",
   requires: [],  // inline CSP parser — no library needed
+  cache: { ttlMs: 60000 }, // pure function of `header` — safe to cache
   schema: {
     type: "object",
     properties: { header: { type: "string" } },
@@ -202,6 +205,7 @@ dv.defineTool({
   category: "content",
   description: "Scan JS library fingerprints for known vulnerabilities using retire.js. Pass an array of { path, url, content } entries — e.g. gathered from capture_requests.",
   requires: [{ kind: "library", name: "retire" }],
+  cache: { ttlMs: 60000 }, // pure function of `fingerprints` — safe to cache
   schema: {
     type: "object",
     properties: {
