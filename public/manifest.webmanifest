@@ -1,0 +1,21 @@
+{
+  "name": "DeployView",
+  "short_name": "DeployView",
+  "description": "Self-hosted preview platform + MCP toolbox for Claude",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#090a10",
+  "theme_color": "#d4a030",
+  "categories": ["developer", "productivity"],
+  "lang": "en",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "name": "deployview",
+  "version": "1.1.0",
+  "description": "Build, serve, and preview your app from GitHub — replaces Vercel/Netlify/Screenfly",
+  "main": "server/index.js",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/WW-Andene/Deployable_Preview.git"
+  },
+  "homepage": "https://github.com/WW-Andene/Deployable_Preview",
+  "keywords": [
+    "deploy",
+    "preview",
+    "github",
+    "ci",
+    "cd",
+    "build",
+    "vercel",
+    "netlify",
+    "mcp",
+    "claude",
+    "ai"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "start:http": "node server/index.js --no-mcp",
+    "mcp": "node server/mcp.js",
+    "start:mcp": "node server/index.js",
+    "test": "node --test test/*.test.js",
+    "audit:json": "npm audit --json || true",
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "compression": "^1.7.4",
+    "localtunnel": "^2.0.2",
+    "@babel/code-frame": "^7.26.0"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.40.0",
+    "puppeteer-core": "^24.0.0",
+    "@ngrok/ngrok": "^1.4.0",
+    "pixelmatch": "^6.0.0",
+    "pngjs": "^7.0.0",
+    "sharp": "^0.33.5",
+    "axe-core": "^4.10.2",
+    "tesseract.js": "^5.1.1",
+    "lighthouse": "^12.2.1",
+    "css-tree": "^3.0.1",
+    "colorthief": "^2.4.0",
+    "get-image-colors": "^4.0.1",
+    "ssim.js": "^3.5.0",
+    "looks-same": "^9.0.1",
+    "cheerio": "^1.0.0",
+    "css-select": "^5.1.0",
+    "specificity": "^1.0.0",
+    "web-vitals": "^4.2.4",
+    "gzip-size": "^7.0.0",
+    "diff": "^7.0.0",
+    "natural": "^8.0.1",
+    "linkinator": "^6.1.2",
+    "image-size": "^1.1.1",
+    "exifreader": "^4.23.7",
+    "retire": "^5.2.3",
+    "set-cookie-parser": "^2.7.1",
+    "tough-cookie": "^5.0.0",
+    "error-stack-parser": "^2.1.4",
+    "source-map": "^0.7.4",
+    "v8-to-istanbul": "^9.3.0",
+    "canvas": "^2.11.2",
+    "robots-parser": "^3.0.1",
+    "jsdom": "^29.1.0"
+  },
+  "overrides": {
+    "path-to-regexp": "0.1.13",
+    "@babel/code-frame": "^7.26.0"
+  }
+}

@@ -1,0 +1,581 @@
+/**
+ * server/tunnel.js — HTTPS tunnel manager for DeployView
+ *
+ * Tries providers in order, falling back automatically on any failure:
+ *   1. cloudflared  — preferred (no account needed, very reliable)
+ *                     auto-downloads the binary if not on PATH
+ *   2. ngrok        — requires NGROK_AUTHTOKEN env var; auto-installs @ngrok/ngrok
+ *   3. localtunnel  — JS API via npm package (in dependencies, always present)
+ *                     sends Bypass-Tunnel-Reminder header to skip loca.lt splash
+ *
+ * Public API:
+ *   tunnel.start(port)  → Promise<{ url: string }>
+ *   tunnel.stop()
+ *   tunnel.status()     → { running, url, provider, error }
+ */
+
+"use strict";
+
+const { spawn, execSync, spawnSync } = require("child_process");
+const path   = require("path");
+const fs     = require("fs");
+const https  = require("https");
+const os     = require("os");
+const crypto = require("crypto");
+
+// ── State ─────────────────────────────────────────────────────────────────────
+
+let proc  = null;
+let state = { running: false, url: null, provider: null, error: null, reconnecting: false, reconnectAttempts: 0 };
+
+// ── Auto-reconnect ──────────────────────────────────────────────────────────
+// The tunnel process can die on its own — a free trycloudflare.com/loca.lt
+// tunnel getting recycled, a network blip, the provider restarting — and
+// nothing was watching for that. Once it dropped, whatever was reachable
+// through that URL (remote browser access, a webhook, anything routed
+// through it) stayed unreachable until someone noticed and manually
+// restarted the tunnel. This makes an *unexpected* drop (not a deliberate
+// stop()) self-heal with exponential backoff instead.
+let _userStopped = false;
+let _reconnectAttempts = 0;
+let _reconnectTimer = null;
+
+// Past this many consecutive failed reconnect attempts (~30min of backoff,
+// since the delay caps at 60s), stop retrying automatically — a network
+// that's been down that long needs a human to look at it, and looping
+// forever in the background burns spawn attempts/log noise for no benefit.
+// A manual start() (or the next successful auto-reconnect, should the
+// network recover and something external retriggers start()) clears this.
+const MAX_RECONNECT_ATTEMPTS = 30;
+
+function scheduleReconnect(port) {
+  if (_userStopped || _reconnectTimer) return;
+  stopHealthCheck();
+  if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    state.reconnecting = false;
+    state.error = "Tunnel reconnect gave up after " + MAX_RECONNECT_ATTEMPTS + " attempts — call tunnel.start() manually once the network/provider issue is resolved.";
+    warn(state.error);
+    return;
+  }
+  _reconnectAttempts++;
+  state.reconnecting = true;
+  state.reconnectAttempts = _reconnectAttempts;
+  const delay = Math.min(5000 * Math.pow(2, _reconnectAttempts - 1), 60000);
+  warn("Tunnel dropped unexpectedly — reconnecting in " + Math.round(delay / 1000) + "s (attempt " + _reconnectAttempts + "/" + MAX_RECONNECT_ATTEMPTS + ")...");
+  _reconnectTimer = setTimeout(() => {
+    _reconnectTimer = null;
+    if (_userStopped) return;
+    start(port).catch(() => {
+      // start() already recorded state.error — keep retrying with backoff
+      // rather than leaving the tunnel down indefinitely.
+      scheduleReconnect(port);
+    });
+  }, delay);
+}
+
+// ── Active health check ──────────────────────────────────────────────────
+// The exit/close handlers below only catch the tunnel *process* dying —
+// they miss the case where the process is still alive but has silently
+// stopped forwarding traffic (provider-side issue, half-open connection).
+// A periodic outbound request through the tunnel URL itself catches that
+// class of failure too. Any HTTP response at all (even a 404) proves the
+// round trip works; only a timeout/connection error counts as a failure.
+const HEALTH_CHECK_INTERVAL_MS = 45000;
+const HEALTH_CHECK_TIMEOUT_MS = 8000;
+const HEALTH_CHECK_FAIL_THRESHOLD = 2; // consecutive failures before acting
+
+let _healthTimer = null;
+let _healthFailStreak = 0;
+
+function pingTunnel(url) {
+  return new Promise((resolve) => {
+    let done = false;
+    let req;
+    try {
+      req = https.get(url, { timeout: HEALTH_CHECK_TIMEOUT_MS, headers: { "User-Agent": "DeployView-tunnel-healthcheck" } }, (res) => {
+        if (done) return; done = true;
+        res.resume();
+        resolve(true);
+      });
+    } catch (_) { resolve(false); return; }
+    req.on("timeout", () => { if (done) return; done = true; req.destroy(); resolve(false); });
+    req.on("error", () => { if (done) return; done = true; resolve(false); });
+  });
+}
+
+function stopHealthCheck() {
+  if (_healthTimer) { clearInterval(_healthTimer); _healthTimer = null; }
+  _healthFailStreak = 0;
+}
+
+function startHealthCheck(port) {
+  stopHealthCheck();
+  _healthTimer = setInterval(async () => {
+    if (!state.running || !state.url) return;
+    const ok = await pingTunnel(state.url);
+    if (ok) { _healthFailStreak = 0; return; }
+    _healthFailStreak++;
+    if (_healthFailStreak < HEALTH_CHECK_FAIL_THRESHOLD) {
+      warn("Tunnel health check failed (" + _healthFailStreak + "/" + HEALTH_CHECK_FAIL_THRESHOLD + ")");
+      return;
+    }
+    warn("Tunnel appears dead (process alive but not responding) — forcing reconnect");
+    stopHealthCheck();
+    const p = port;
+    cleanup();
+    state.running = false;
+    state.url = null;
+    scheduleReconnect(p);
+  }, HEALTH_CHECK_INTERVAL_MS);
+  if (typeof _healthTimer.unref === "function") _healthTimer.unref();
+}
+
+const ROOT    = path.join(__dirname, "..");
+const BIN_DIR = path.join(ROOT, ".tunnel-bin");
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function tag(msg)  { return "  [tunnel] " + msg; }
+function log(msg)  { console.log(tag(msg)); }
+function warn(msg) { console.warn(tag(msg)); }
+
+function cleanup() {
+  if (proc) {
+    try { proc.kill("SIGKILL"); } catch (_) {}
+    proc = null;
+  }
+}
+
+function which(cmd) {
+  try {
+    const out = execSync(
+      process.platform === "win32"
+        ? "where " + cmd + " 2>nul"
+        : "which " + cmd + " 2>/dev/null",
+      { stdio: ["ignore", "pipe", "ignore"], timeout: 3000 }
+    ).toString().trim();
+    return out || null;
+  } catch (_) { return null; }
+}
+
+// ── cloudflared binary resolution + auto-download ─────────────────────────────
+
+function cloudflaredBinName() {
+  const p = os.platform(), a = os.arch();
+  if (p === "linux") {
+    if (a === "arm64") return "cloudflared-linux-arm64";
+    if (a === "arm")   return "cloudflared-linux-arm";
+    return "cloudflared-linux-amd64";
+  }
+  if (p === "darwin") return a === "arm64" ? "cloudflared-darwin-arm64" : "cloudflared-darwin-amd64";
+  if (p === "win32")  return a === "arm64" ? "cloudflared-windows-arm64.exe" : "cloudflared-windows-amd64.exe";
+  return null;
+}
+
+function downloadCloudflared(destPath) {
+  return new Promise((resolve, reject) => {
+    const name = path.basename(destPath);
+    const url  = "https://github.com/cloudflare/cloudflared/releases/latest/download/" + name;
+    log("Downloading cloudflared from GitHub releases...");
+
+    if (!fs.existsSync(BIN_DIR)) fs.mkdirSync(BIN_DIR, { recursive: true });
+
+    const tmpPath = destPath + ".tmp";
+    const file    = fs.createWriteStream(tmpPath);
+
+    file.on("error", (err) => {
+      try { fs.unlinkSync(tmpPath); } catch (_) {}
+      reject(err);
+    });
+
+    function get(urlStr) {
+      https.get(urlStr, (res) => {
+        if (res.statusCode === 301 || res.statusCode === 302) {
+          file.close();
+          get(res.headers.location);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          file.close();
+          try { fs.unlinkSync(tmpPath); } catch (_) {}
+          reject(new Error("HTTP " + res.statusCode + " downloading cloudflared"));
+          return;
+        }
+        res.pipe(file);
+        file.on("finish", () => {
+          file.close(() => {
+            try {
+              fs.renameSync(tmpPath, destPath);
+              fs.chmodSync(destPath, 0o755);
+              log("cloudflared downloaded to " + destPath);
+              resolve(destPath);
+            } catch (e) { reject(e); }
+          });
+        });
+      }).on("error", (err) => {
+        file.close();
+        try { fs.unlinkSync(tmpPath); } catch (_) {}
+        reject(err);
+      });
+    }
+
+    get(url);
+  });
+}
+
+async function ensureCloudflared() {
+  // 1. System PATH
+  const system = which("cloudflared");
+  if (system) return system;
+
+  const binName = cloudflaredBinName();
+  if (!binName) return null;   // unsupported platform
+
+  const binPath = path.join(BIN_DIR, binName);
+
+  // 2. Previously cached download
+  if (fs.existsSync(binPath)) {
+    try { fs.chmodSync(binPath, 0o755); } catch (_) {}
+    return binPath;
+  }
+
+  // 3. Download fresh
+  try {
+    return await downloadCloudflared(binPath);
+  } catch (e) {
+    warn("Could not download cloudflared: " + e.message);
+    return null;
+  }
+}
+
+// ── cloudflared tunnel starter ────────────────────────────────────────────────
+
+function tryCloudflared(cfBin, port, onUrl, onFail) {
+  log("Using cloudflared: " + cfBin);
+
+  const child = spawn(cfBin, ["tunnel", "--url", "http://localhost:" + port], {
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+
+  proc = child;
+  let urlFound = false;
+
+  function checkForUrl(data) {
+    if (urlFound) return;
+    const m = data.toString().match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
+    if (m) { urlFound = true; onUrl(m[0], "cloudflared"); }
+  }
+
+  child.stdout.on("data", checkForUrl);
+  child.stderr.on("data", checkForUrl);
+  child.on("error", (err) => { if (!urlFound) onFail(err); });
+  child.on("exit", (code, signal) => {
+    if (!urlFound) {
+      onFail(new Error("cloudflared exited (code=" + code + " signal=" + signal + ") before emitting URL"));
+    } else {
+      state.running = false;
+      state.url = null;
+      warn("cloudflared exited unexpectedly (code=" + code + " signal=" + signal + ")");
+      scheduleReconnect(port);
+    }
+  });
+}
+
+// ── ngrok ─────────────────────────────────────────────────────────────────────
+
+function installNgrok() {
+  log("Installing @ngrok/ngrok from npm...");
+  const r = spawnSync("npm", ["install", "@ngrok/ngrok", "--save-optional"], {
+    cwd: ROOT, stdio: "inherit", timeout: 90000,
+    shell: process.platform === "win32"
+  });
+  if (r.status !== 0) {
+    warn("npm install @ngrok/ngrok failed (exit " + r.status + ")");
+    return false;
+  }
+  log("@ngrok/ngrok installed.");
+  return true;
+}
+
+function loadNgrok() {
+  const candidates = [
+    path.join(ROOT, "node_modules", "@ngrok", "ngrok"),
+    path.join(ROOT, "..", "node_modules", "@ngrok", "ngrok"),
+    "@ngrok/ngrok",
+  ];
+  for (const c of candidates) {
+    try { return require(c); } catch (_) {}
+  }
+  return null;
+}
+
+function tryNgrok(port, onUrl, onFail) {
+  // Check config secrets first, then env var
+  let token = process.env.NGROK_AUTHTOKEN;
+  try { const { getSecret } = require("./config"); token = getSecret("NGROK_AUTHTOKEN", "NGROK_AUTHTOKEN") || token; } catch (_) {}
+  if (!token) {
+    onFail(new Error("NGROK_AUTHTOKEN not set — add it in Settings or set env var"));
+    return;
+  }
+
+  let ngrok = loadNgrok();
+  if (!ngrok) {
+    warn("@ngrok/ngrok not found — attempting automatic install...");
+    if (installNgrok()) ngrok = loadNgrok();
+  }
+  if (!ngrok) {
+    onFail(new Error("@ngrok/ngrok could not be loaded"));
+    return;
+  }
+
+  ngrok.connect({ addr: port, authtoken: token })
+    .then((listener) => {
+      if (!listener) { onFail(new Error("ngrok returned no listener")); return; }
+      // @ngrok/ngrok returns a Listener object; extract the URL string
+      let url = typeof listener === "string" ? listener
+        : (typeof listener.url === "function" ? listener.url() : listener.url);
+      if (!url || typeof url !== "string") {
+        onFail(new Error("ngrok returned unexpected type: " + typeof listener));
+        return;
+      }
+      proc = {
+        kill: () => {
+          try {
+            if (typeof listener.close === "function") {
+              // close() returns a Promise in recent @ngrok/ngrok versions.
+              // Catch async rejection too — ERR_NGROK_333 (tunnel already
+              // closed) is a noisy non-error we want to swallow.
+              const p = listener.close();
+              if (p && typeof p.catch === "function") p.catch(() => {});
+            } else {
+              ngrok.disconnect(url);
+            }
+          } catch (_) {}
+          try { ngrok.kill(); } catch (_) {}
+        }
+      };
+      onUrl(url, "ngrok");
+    })
+    .catch((err) => onFail(err));
+}
+
+// ── localtunnel resolution ────────────────────────────────────────────────────
+
+function loadLocaltunnel() {
+  // Wipe stale cache first (MODULE_NOT_FOUND errors are cached by Node)
+  Object.keys(require.cache)
+    .filter((k) => k.includes("localtunnel"))
+    .forEach((k) => { delete require.cache[k]; });
+
+  const candidates = [
+    path.join(ROOT, "node_modules", "localtunnel"),
+    path.join(ROOT, "..", "node_modules", "localtunnel"),
+    path.join(ROOT, "..", "..", "node_modules", "localtunnel"),
+    "localtunnel",
+  ];
+
+  // Dynamic: npm global root
+  try {
+    const r = spawnSync("npm", ["root", "-g"], {
+      encoding: "utf8", timeout: 5000, shell: process.platform === "win32"
+    });
+    if (r.stdout && r.stdout.trim()) {
+      candidates.push(path.join(r.stdout.trim(), "localtunnel"));
+    }
+  } catch (_) {}
+
+  for (const candidate of candidates) {
+    try {
+      const mod = require(candidate);
+      // Handle CJS export (function) and ESM interop ({ default: fn })
+      const fn = typeof mod === "function"
+        ? mod
+        : (mod && typeof mod.default === "function") ? mod.default
+        : null;
+      if (fn) return fn;
+    } catch (_) {}
+  }
+
+  return null;
+}
+
+function installLocaltunnel() {
+  log("Installing localtunnel from npm...");
+  const r = spawnSync("npm", ["install", "localtunnel@latest", "--save"], {
+    cwd: ROOT, stdio: "inherit", timeout: 90000,
+    shell: process.platform === "win32"
+  });
+  if (r.status !== 0) {
+    warn("npm install localtunnel failed (exit " + r.status + ")");
+    warn("  Manual fix: npm install localtunnel  (run in project root)");
+    return false;
+  }
+  log("localtunnel installed.");
+  return true;
+}
+
+function tryLocaltunnelApi(port, onUrl, onFail) {
+  let lt = loadLocaltunnel();
+
+  if (!lt) {
+    warn("localtunnel not found — attempting automatic install...");
+    if (installLocaltunnel()) lt = loadLocaltunnel();
+  }
+
+  if (!lt) {
+    onFail(new Error(
+      "localtunnel could not be loaded.\n" +
+      "  Fix: cd " + ROOT + " && npm install localtunnel"
+    ));
+    return;
+  }
+
+  lt({ port, request_header: { 'Bypass-Tunnel-Reminder': 'true' } })
+    .then((tunnel) => {
+      if (!tunnel || !tunnel.url) {
+        onFail(new Error("localtunnel connected but returned no URL"));
+        return;
+      }
+      proc = { kill: () => { try { tunnel.close(); } catch (_) {} } };
+      tunnel.on("close", () => {
+        state.running = false; state.url = null; proc = null;
+        warn("localtunnel connection closed unexpectedly");
+        scheduleReconnect(port);
+      });
+      tunnel.on("error", (err) => { warn("localtunnel error: " + err.message); });
+      onUrl(tunnel.url, "localtunnel");
+    })
+    .catch((err) => onFail(err));
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+// In-flight start dedupe — two parallel POST /tunnel/start calls used to
+// race, both initialise ngrok, and the loser would crash the winner with
+// ERR_NGROK_333 (tunnel already closed) on subsequent stop. Hold a single
+// pending promise and return it to every concurrent caller.
+let _pendingStart = null;
+
+function start(port) {
+  port = port || parseInt(process.env.PORT, 10) || 3000;
+  if (state.running) return Promise.resolve({ url: state.url });
+  if (_pendingStart) return _pendingStart;
+
+  _userStopped = false;
+  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+  stopHealthCheck();
+
+  cleanup();
+  state = { running: false, url: null, provider: null, error: null, reconnecting: false, reconnectAttempts: _reconnectAttempts };
+
+  _pendingStart = new Promise((resolve, reject) => {
+    let settled = false;
+
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      const msg = "Timed out after 120s waiting for tunnel URL";
+      state.error = msg;
+      reject(new Error(msg));
+    }, 120 * 1000);
+
+    function onUrl(url, provider) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      _reconnectAttempts = 0;
+      state = { running: true, url, provider, error: null, reconnecting: false, reconnectAttempts: 0 };
+      // F-C028: don't print the full tunnel URL \u2014 anyone reading server logs
+      // would instantly own the /api surface. Print a SHA prefix so the
+      // operator can recognise their own tunnel without leaking it.
+      const tag = crypto.createHash("sha256").update(url).digest("hex").slice(0, 8);
+      log("\u2713 " + provider + " tunnel active (id " + tag + ") \u2014 see Settings for full URL");
+      startHealthCheck(port);
+      resolve({ url });
+    }
+
+    function onLocaltunnelFail(cfErr, ngrokErr, ltErr) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      const msg = [
+        "All tunnel providers failed.",
+        "  cloudflared: " + (cfErr    ? cfErr.message    : "unavailable"),
+        "  ngrok:       " + (ngrokErr ? ngrokErr.message : "unavailable"),
+        "  localtunnel: " + (ltErr    ? ltErr.message    : "failed"),
+        "",
+        "  Manual fixes:",
+        "    brew install cloudflared           (macOS)",
+        "    pkg install cloudflared            (Termux)",
+        "    NGROK_AUTHTOKEN=<token> npm start  (ngrok — get token at ngrok.com)",
+        "    npm install localtunnel            (any platform)"
+      ].join("\n");
+      state.error = msg;
+      reject(new Error(msg));
+    }
+
+    function onNgrokFail(cfErr, ngrokErr) {
+      warn("ngrok unavailable" + (ngrokErr ? " (" + ngrokErr.message + ")" : "") + " \u2014 falling back to localtunnel...");
+      tryLocaltunnelApi(port, onUrl, (ltErr) => onLocaltunnelFail(cfErr, ngrokErr, ltErr));
+    }
+
+    function onCloudflaredFail(cfErr) {
+      warn("cloudflared unavailable" + (cfErr ? " (" + cfErr.message + ")" : "") + " \u2014 falling back to ngrok...");
+      tryNgrok(port, onUrl, (ngrokErr) => onNgrokFail(cfErr, ngrokErr));
+    }
+
+    // Check if user set a preferred provider in config
+    let preferred = null;
+    try { preferred = require("./config").getConfig().preferences.tunnel; } catch (_) {}
+
+    log("Starting HTTPS tunnel on port " + port + (preferred ? " (preferred: " + preferred + ")" : "") + "...");
+
+    if (preferred === "ngrok") {
+      tryNgrok(port, onUrl, (ngrokErr) => {
+        warn("ngrok failed: " + ngrokErr.message);
+        onLocaltunnelFail(null, ngrokErr, null);
+      });
+    } else if (preferred === "localtunnel") {
+      tryLocaltunnelApi(port, onUrl, (ltErr) => onLocaltunnelFail(null, null, ltErr));
+    } else {
+      // Default: cloudflared -> ngrok -> localtunnel
+      ensureCloudflared()
+        .then((cfBin) => {
+          if (!cfBin) { onCloudflaredFail(new Error("not available for this platform/arch")); return; }
+          tryCloudflared(cfBin, port, onUrl, onCloudflaredFail);
+        })
+        .catch(onCloudflaredFail);
+    }
+  });
+  // Clear the in-flight slot when this attempt resolves either way.
+  _pendingStart.finally(() => { _pendingStart = null; });
+  return _pendingStart;
+}
+
+function stop() {
+  // If a start is mid-flight, clear it so the next start() call doesn't reuse it.
+  _pendingStart = null;
+  _userStopped = true; // a deliberate stop — auto-reconnect must not fight this
+  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+  _reconnectAttempts = 0;
+  stopHealthCheck();
+  cleanup();
+  state = { running: false, url: null, provider: null, error: null, reconnecting: false, reconnectAttempts: 0 };
+  log("Tunnel stopped.");
+}
+
+function status() { return { ...state }; }
+
+// ── Graceful shutdown hooks ───────────────────────────────────────────────────
+
+function shutdownCleanup() {
+  stopHealthCheck();
+  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+  cleanup();
+}
+process.on("exit",    shutdownCleanup);
+process.on("SIGINT",  shutdownCleanup);
+process.on("SIGTERM", shutdownCleanup);
+
+module.exports = { start, stop, status };

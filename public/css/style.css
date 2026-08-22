@@ -1,0 +1,3692 @@
+/* ═══════════════════════════════════════════════════
+   DeployView — Design System v3
+   ──────────────────────────────────────────────────
+   §BRIEF (per Art Direction Engine 4.7):
+
+   SUBJECT:        Self-hosted preview-deployment platform + MCP toolbox
+                   for Claude. Operator-class developer tool.
+   AUDIENCE:       Mid/senior developers, devops, indie devs running on
+                   desktop AND Termux/mobile. Daily multi-hour usage.
+   EMOTIONAL TARGET: The focused calm of a precision instrument panel —
+                   terminal authority without aggression.
+   VALUES:         Respects your intelligence. Surfaces structure. Stays
+                   out of the way until you need it.
+   VISUAL CONCEPT: Carved from obsidian, lit by amber.
+   ──────────────────────────────────────────────────
+   PALETTE (hue base 250 / accent hue 75 — desaturated amber):
+     bg          oklch(13%  0.012 250) — deep blue-void
+     surface 1   oklch(17%  0.012 245) — card level
+     surface 2   oklch(20%  0.012 240) — elevated
+     surface 3   oklch(23%  0.010 235) — overlay
+     text-1      oklch(91%  0.012 75)  — warm chromatic near-white
+     text-2      oklch(64%  0.013 75)  — secondary
+     text-3      oklch(46%  0.012 75)  — muted (still chromatic)
+     accent      oklch(73%  0.135 75)  — desaturated amber, signature
+     err         oklch(60%  0.165 28)  — calibrated to warm temp
+     ok          oklch(64%  0.118 165) — calibrated cool-warm split
+     run         oklch(63%  0.115 245) — monochromatic temp shift
+   TYPOGRAPHY: Space Grotesk (display, geometric+quirky) +
+               JetBrains Mono (code/labels, monospace identity).
+               Scale 1.20 Minor Third, base 14px.
+               Weights: 400 body, 500 labels, 600 sections, 700 titles.
+   SHAPE:      buttons 5px / cards 8px / inputs 5px / modals 12px /
+               pills 100px. Mostly squared with pill-shaped status badges
+               for distinctive contrast.
+   DEPTH:      Tonal surface elevation + palette-hued shadows.
+               Top-center light source. No glass. Faint amber radial
+               wash at page top establishes signature glow.
+   MOTION:     Snappy + physical. Micro 100ms, enter 180ms, exit 120ms.
+               Per-property transitions only.
+   IDENTITY:   The amber accent on near-black void; small-caps
+               JetBrains Mono labels; pill-shaped status badges.
+   PROPORTIONS: 7px spacing base (instant non-default).
+   ═══════════════════════════════════════════════════ */
+
+/* Both Space Grotesk and JetBrains Mono are already loaded via <link> in
+   index.html (preconnect + display=swap). The @import here only covered
+   Space Grotesk and was a redundant render-blocking request. Removed. */
+
+/* ══════════════════════════════════════════════════
+   §1 — DESIGN TOKENS (Variables)
+   ══════════════════════════════════════════════════ */
+:root {
+  --sp: 7px; /* non-standard base — instant distinctiveness */
+
+  /* §1.0 — Hue primitives (drive every chromatic decision) */
+  --hue-base: 250;     /* deep blue-void, sets bg + surface temp */
+  --hue-text: 75;      /* warm amber-leaning text family */
+  --hue-accent: 75;    /* signature amber */
+  --hue-err: 28;       /* warm error */
+  --hue-warn: 55;      /* orange warning — hotter than accent (75), cooler than err (28) */
+  --hue-ok: 165;       /* cool-warm split for success */
+  --hue-run: 245;      /* monochromatic blue for "running" semantic */
+
+  /* §1.1 — Five-Layer Palette in OKLCH (with hex fallbacks).
+     Each surface layer shifts BOTH lightness AND hue ~5°: pure
+     lightness shifts feel flat, hue shifts create perceived depth. */
+  --bg:         #090a10; /* fallback */
+  --bg:         oklch(13% 0.012 var(--hue-base));
+  --bg-deep:    #050608;
+  --bg-deep:    oklch(8%  0.012 var(--hue-base));
+  --sf1:        #101218;
+  --sf1:        oklch(17% 0.012 calc(var(--hue-base) - 5));
+  --sf2:        #171a24;
+  --sf2:        oklch(20% 0.012 calc(var(--hue-base) - 10));
+  --sf3:        #1e2230;
+  --sf3:        oklch(23% 0.010 calc(var(--hue-base) - 15));
+  --tx1:        #e6e1d5;
+  --tx1:        oklch(91% 0.012 var(--hue-text));
+  --tx2:        #9e9890;
+  --tx2:        oklch(64% 0.013 var(--hue-text));
+  --tx3:        #6a665e;
+  --tx3:        oklch(46% 0.012 var(--hue-text));
+  --overlay:    rgba(5,5,8,.75);
+  --overlay:    oklch(8% 0.012 var(--hue-base) / 0.75);
+  --accent:     #d4a030;
+  --accent:     oklch(73% 0.135 var(--hue-accent));
+  --accent-h:   #eab840;
+  --accent-h:   oklch(80% 0.150 var(--hue-accent));
+  --accent-dim: rgba(212,160,48,.10);
+  --accent-dim: oklch(73% 0.135 var(--hue-accent) / 0.10);
+  --accent-mid: rgba(212,160,48,.22);
+  --accent-mid: oklch(73% 0.135 var(--hue-accent) / 0.22);
+  --accent-glow:rgba(212,160,48,.06);
+  --accent-glow:oklch(73% 0.135 var(--hue-accent) / 0.06);
+  --accent-glow-strong: rgba(212,160,48,.10);
+  --accent-glow-strong: oklch(73% 0.135 var(--hue-accent) / 0.10);
+  --accent-bg-faint:    rgba(212,160,48,.03);
+  --accent-bg-faint:    oklch(73% 0.135 var(--hue-accent) / 0.03);
+  --warn:       #d07820;
+  --warn:       oklch(65% 0.155 var(--hue-warn)); /* orange — distinct from amber accent */
+  --warn-dim:   rgba(208,120,32,.10);
+  --warn-dim:   oklch(65% 0.155 var(--hue-warn) / 0.10);
+  --err:        #c45040;
+  --err:        oklch(60% 0.165 var(--hue-err));
+  --err-dim:    rgba(196,80,64,.10);
+  --err-dim:    oklch(60% 0.165 var(--hue-err) / 0.10);
+  --err-border: rgba(196,80,64,.20);
+  --err-border: oklch(60% 0.165 var(--hue-err) / 0.20);
+  --err-bg-h:   rgba(196,80,64,.18);
+  --err-bg-h:   oklch(60% 0.165 var(--hue-err) / 0.18);
+  --ok:         #38a878;
+  --ok:         oklch(64% 0.118 var(--hue-ok));
+  --ok-dim:     rgba(56,168,120,.10);
+  --ok-dim:     oklch(64% 0.118 var(--hue-ok) / 0.10);
+  --ok-border:  rgba(56,168,120,.20);
+  --ok-border:  oklch(64% 0.118 var(--hue-ok) / 0.20);
+  --ok-bg-h:    rgba(56,168,120,.15);
+  --ok-bg-h:    oklch(64% 0.118 var(--hue-ok) / 0.15);
+  --run:        #4888c8;
+  --run:        oklch(63% 0.115 var(--hue-run));
+  --run-dim:    rgba(72,136,200,.10);
+  --run-dim:    oklch(63% 0.115 var(--hue-run) / 0.10);
+  --run-bg-h:   rgba(72,136,200,.15);
+  --run-bg-h:   oklch(63% 0.115 var(--hue-run) / 0.15);
+  --stop:       #605c56;
+  --stop:       oklch(45% 0.010 var(--hue-text));
+  --bg-deep-overlay: rgba(9,10,16,.85);
+  --bg-deep-overlay: oklch(8% 0.012 var(--hue-base) / 0.85);
+
+  /* Active/pressed accent — slightly darker than --accent for tactile press feedback */
+  --accent-active: #c09028;
+  --accent-active: oklch(67% 0.135 var(--hue-accent));
+  /* Heavier separator/border (2x of default --border-h) */
+  --border-heavy: rgba(230,225,213,.12);
+  --border-heavy: oklch(91% 0.012 var(--hue-text) / 0.12);
+  /* Shadow base color — palette-hued, never pure black. Already used by every shadow token. */
+  --shadow-base: rgba(8,8,20,.35);
+  --shadow-base: oklch(8% 0.020 var(--hue-base) / 0.35);
+  --border:     rgba(230,225,213,.05);
+  --border:     oklch(91% 0.012 var(--hue-text) / 0.05);
+  --border-h:   rgba(230,225,213,.10);
+  --border-h:   oklch(91% 0.012 var(--hue-text) / 0.10);
+  --border-accent: rgba(212,160,48,.20);
+  --border-accent: oklch(73% 0.135 var(--hue-accent) / 0.20);
+  --border-err: rgba(196,80,64,.25);
+  --border-err: oklch(60% 0.165 var(--hue-err) / 0.25);
+  --border-focus:rgba(212,160,48,.35);
+  --border-focus:oklch(73% 0.135 var(--hue-accent) / 0.35);
+
+  /* Palette-hued shadows (never pure black) */
+  --shadow-inset: inset 0 1px 3px oklch(8% 0.020 var(--hue-base) / 0.35);
+  --shadow-sm:    0 1px 3px oklch(8% 0.020 var(--hue-base) / 0.30), 0 0 1px oklch(8% 0.020 var(--hue-base) / 0.15);
+  --shadow-md:    0 4px 12px oklch(8% 0.020 var(--hue-base) / 0.30), 0 1px 3px oklch(8% 0.020 var(--hue-base) / 0.15);
+  --shadow-lg:    0 8px 24px oklch(8% 0.020 var(--hue-base) / 0.35), 0 2px 6px oklch(8% 0.020 var(--hue-base) / 0.15);
+  --shadow-xl:    0 16px 48px oklch(8% 0.020 var(--hue-base) / 0.45), 0 4px 12px oklch(8% 0.020 var(--hue-base) / 0.20);
+  --shadow-drop:  0 12px 40px oklch(8% 0.020 var(--hue-base) / 0.50), 0 0 1px var(--border-h);
+  --shadow-modal: 0 24px 64px oklch(8% 0.020 var(--hue-base) / 0.55), 0 0 1px var(--border-h);
+
+  /* Radius scale — per-component variation per Brief shape language */
+  --r-btn: 5px;
+  --r-card: 8px;
+  --r-input: 5px;
+  --r-modal: 12px;
+  --r-pill: 100px;
+  --r-badge: 3px;       /* tight squared status badges */
+
+  /* Motion — snappy + physical. Named easing curves per §EASING. */
+  --ease-fast:     cubic-bezier(0.25, 0.46, 0.45, 0.94);  /* default UI responses */
+  --ease-physical: cubic-bezier(0.22, 0.61, 0.36, 1.0);   /* object lift, card hover */
+  --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1.0);   /* delight, overshoot */
+  --ease-dramatic: cubic-bezier(0.77, 0, 0.175, 1);       /* slow builds, modal entrance */
+  --ease-enter:    cubic-bezier(0, 0, 0.2, 1);            /* element appearing */
+  --ease-exit:     cubic-bezier(0.4, 0, 1, 1);            /* element leaving */
+  --dur-micro:     100ms;   /* button bg, toggle, color change */
+  --dur-enter:     180ms;   /* card hover, element entrance */
+  --dur-exit:      120ms;   /* element leave — always faster than entrance */
+  --dur-page:      300ms;   /* view transitions */
+  --dur-delight:   400ms;   /* signature delight moments */
+
+  /* Type scale (Minor Third 1.2, base 14px) */
+  --font-ui: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --text-xs:  9px;
+  --text-sm:  11px;
+  --text-base: 13px;
+  --text-md:  14px;
+  --text-lg:  16px;
+  --text-xl:  20px;
+  --text-2xl: 24px;
+  --text-3xl: 28px;
+
+  /* Spacing scale (multiples of --sp) */
+  --sp-xs:  calc(var(--sp) * 0.5);  /* 3.5px */
+  --sp-sm:  var(--sp);               /* 7px */
+  --sp-md:  calc(var(--sp) * 2);     /* 14px */
+  --sp-lg:  calc(var(--sp) * 3);     /* 21px */
+  --sp-xl:  calc(var(--sp) * 4);     /* 28px */
+  --sp-2xl: calc(var(--sp) * 6);     /* 42px */
+
+  /* Modal width scale (B3 — used by .modal + .modal-sm/md/lg/xl) */
+  --modal-w-sm: 380px;   /* share / errors / confirm */
+  --modal-w-md: 560px;   /* history / diff / log */
+  --modal-w-lg: 720px;   /* edit / APK / advanced */
+  --modal-w-xl: 920px;   /* full-page composers */
+
+  /* Z-index scale — single source of truth so layered overlays don't collide */
+  --z-base:    0;
+  --z-fab:     50;
+  --z-topbar:  100;
+  --z-popover: 200;
+  --z-modal:   500;
+  --z-toast:   900;
+  --z-palette: 1000;
+}
+
+/* ══════════════════════════════════════════════════
+   §2 — RESET + BODY
+   ══════════════════════════════════════════════════ */
+*{box-sizing:border-box;margin:0;padding:0}
+
+body {
+  background: var(--bg);
+  color: var(--tx1);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Auto-adjusts detail when fonts have an optical-size axis. Harmless
+     no-op when they don't (Space Grotesk doesn't, JetBrains Mono
+     doesn't) but the rule is forward-compatible. */
+  font-optical-sizing: auto;
+  /* Common ligatures + tabular numerics across the entire UI — slashed
+     zero distinguishes 0/O in monospace areas. */
+  font-variant-ligatures: common-ligatures;
+  text-rendering: optimizeLegibility;
+}
+/* §ATMOSPHERE — Layered ambient environment.
+   ::before = top-center amber radial wash (the Brief's light source).
+   ::after  = barely-visible CRT scanlines that signature the "terminal"
+              concept without becoming a gimmick. Both pointer-events:none. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 0%, var(--accent-bg-faint), transparent 70%),
+    radial-gradient(ellipse 40% 30% at 50% 100%, oklch(8% 0.020 var(--hue-base) / 0.35), transparent 70%);
+  z-index: 0;
+}
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    oklch(0% 0 0 / 0.025) 2px,
+    oklch(0% 0 0 / 0.025) 3px
+  );
+  z-index: 0;
+  mix-blend-mode: multiply;
+  opacity: 0.6;
+}
+#app { position: relative; z-index: 1; }
+
+/* Skip-to-content link — visually hidden until focused so keyboard
+   users can jump past the topbar without seeing it on every page. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: auto;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  z-index: 100;
+}
+.skip-link:focus {
+  left: 8px; top: 8px;
+  width: auto; height: auto;
+  padding: 6px 12px;
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+  border-radius: 4px;
+  text-decoration: none;
+  outline: 2px solid var(--bg);
+}
+
+/* ══════════════════════════════════════════════════
+   §3 — BASE ELEMENTS (input, select, textarea, button)
+   ══════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════
+   §3.1 — INPUTS — every state explicit per §INPUTS
+   ──────────────────────────────────────────────────
+   Personality: "Carved" — inset into the surface (palette-hued inset
+   shadow) with a 1.5px border. Focused state pushes the field forward
+   with a multi-layer accent ring (the field "lights up").
+
+   States covered: rest · hover · focus · filled · disabled · error.
+   ══════════════════════════════════════════════════ */
+
+input, select, textarea {
+  /* Rest: carved into bg, palette-hued inset, mono for technical UI */
+  background: var(--bg);
+  border: 1.5px solid var(--border-h);
+  color: var(--tx1);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  padding: calc(var(--sp) * 1.5) calc(var(--sp) * 2);
+  border-radius: var(--r-input);
+  outline: none;
+  width: 100%;
+  box-shadow: var(--shadow-inset);
+  transition: border-color var(--dur-micro) var(--ease-fast),
+              box-shadow var(--dur-micro) var(--ease-fast),
+              background-color var(--dur-micro) var(--ease-fast);
+}
+textarea {
+  resize: vertical;
+  min-height: 60px;
+  font-family: var(--font-mono);
+  line-height: 1.55;
+}
+
+/* Hover — border brightens slightly, signaling interactivity */
+input:hover, select:hover, textarea:hover {
+  border-color: var(--border-h);
+  background: oklch(13% 0.012 var(--hue-base) / 1.0);  /* same as bg but explicit so transition has a target */
+}
+
+/* Focus — multi-layer accent ring + faint glow. The field lights up.
+   Inset shadow stays so the carved feel survives the focus state. */
+input:focus, select:focus, textarea:focus {
+  border-color: var(--border-focus);
+  box-shadow:
+    var(--shadow-inset),
+    0 0 0 3px var(--accent-dim),
+    0 0 20px var(--accent-glow);
+}
+
+/* Filled — non-empty input gets a subtle bg lift so empty vs filled
+   is distinguishable at a glance per §INPUTS. Uses :not(:placeholder-
+   shown) which fires only on inputs that have content. */
+input:not(:placeholder-shown):not(:focus),
+textarea:not(:placeholder-shown):not(:focus) {
+  background: oklch(15% 0.012 var(--hue-base) / 1.0);  /* +2% L from bg */
+  border-color: var(--border-h);
+}
+
+/* Disabled — desaturated, readable but unavailable. */
+input:disabled, select:disabled, textarea:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: var(--sf2);
+  color: var(--tx3);
+  box-shadow: none;
+  border-color: var(--border);
+}
+
+/* Placeholder — derives from input surface hue family, not pure gray.
+   Slightly italicized to distinguish ghost text from real content. */
+input::placeholder, textarea::placeholder {
+  color: var(--tx3);
+  font-style: italic;
+  opacity: 0.85;
+}
+
+/* Error — calibrated err palette, asymmetric border accent.
+   Matches .bd / .error-message identity language. */
+input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="true"],
+input.error, select.error, textarea.error {
+  border-color: var(--border-err);
+  border-left-width: 3px;          /* §ERRORS — accent left border */
+  box-shadow: var(--shadow-inset), 0 0 0 2px var(--err-dim);
+}
+input[aria-invalid="true"]:focus, textarea[aria-invalid="true"]:focus {
+  box-shadow:
+    var(--shadow-inset),
+    0 0 0 3px oklch(60% 0.165 var(--hue-err) / 0.20),
+    0 0 20px oklch(60% 0.165 var(--hue-err) / 0.10);
+}
+
+/* ── Buttons — physical objects ── */
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border-radius: var(--r-btn);
+  border: none;
+  cursor: pointer;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  transition: background var(--dur-micro) var(--ease-fast), transform var(--dur-micro) var(--ease-fast), box-shadow var(--dur-micro) var(--ease-fast);
+}
+/* ══════════════════════════════════════════════════
+   §3.5 — BUTTONS — every state explicit per §BUTTONS
+   ──────────────────────────────────────────────────
+   Each variant specifies all 6 states: rest, hover, active, focus,
+   disabled, loading. Hover-in is faster (--dur-micro 100ms) than
+   hover-out (--dur-enter 180ms) so objects "settle back" rather than
+   snap. Active is instant (50ms) for tactile press feedback.
+   Press physics: hover lifts -1px, active sinks +1px scale 0.97.
+
+   Variants:
+   - .bp / .btn-primary    amber filled CTA (1 per page max)
+   - .btn-secondary        accent-bordered, no fill (Save/Apply)
+   - .bg / .btn-ghost      transparent → surface on hover
+   - .bd / .btn-danger     calibrated err palette, accent left border
+   - .btn-icon             square 32×32, surface hover
+   - .bs / .btn-sm         compact size modifier (orthogonal to variant)
+   ══════════════════════════════════════════════════ */
+
+button:active { transform: translateY(1px) scale(0.97); transition-duration: 50ms; }
+
+/* ── Primary — amber filled CTA, the one chromatic action per page ── */
+.bp, .btn-primary {
+  /* Rest */
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+  padding: 8px 18px;
+  box-shadow: var(--shadow-sm), inset 0 1px 0 oklch(80% 0.150 var(--hue-accent) / 0.4);
+  min-width: 120px;
+}
+.bp:hover, .btn-primary:hover {
+  /* Hover — lighten + lift + glow */
+  background: var(--accent-h);
+  box-shadow: var(--shadow-md), 0 0 20px var(--accent-mid), inset 0 1px 0 oklch(85% 0.150 var(--hue-accent) / 0.5);
+  transform: translateY(-1px);
+}
+.bp:active, .btn-primary:active {
+  /* Active — darken + sink, shadow shrinks */
+  background: var(--accent-active);
+  box-shadow: 0 1px 2px var(--shadow-base);
+  transform: translateY(1px) scale(0.97);
+  transition-duration: 50ms;
+}
+.bp:focus-visible, .btn-primary:focus-visible {
+  /* Focus — double ring (bg gap + accent halo) per §FOCUS */
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--accent),
+    0 0 14px var(--accent-glow);
+}
+.bp:disabled, .bp[disabled],
+.btn-primary:disabled, .btn-primary[disabled] {
+  background: oklch(73% 0.135 var(--hue-accent) / 0.4);
+  color: oklch(13% 0.012 var(--hue-base) / 0.7);
+  box-shadow: none;
+  transform: none;
+  cursor: not-allowed;
+}
+.bp[aria-busy="true"], .btn-primary[aria-busy="true"] {
+  /* Loading — width preserved, content muted, no transform on hover */
+  background: var(--accent-active);
+  color: oklch(13% 0.012 var(--hue-base) / 0.6);
+  cursor: progress;
+  pointer-events: none;
+}
+
+/* ── Secondary — accent-bordered, no fill. For non-primary CTAs ── */
+.btn-secondary {
+  /* Rest */
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--border-accent);
+  padding: 7px 14px;
+  font-weight: 500;
+  min-width: 96px;
+}
+.btn-secondary:hover {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
+  transform: translateY(-1px);
+}
+.btn-secondary:active {
+  background: var(--accent-mid);
+  transform: translateY(1px) scale(0.97);
+  transition-duration: 50ms;
+}
+.btn-secondary:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--border-focus), 0 0 14px var(--accent-glow);
+}
+.btn-secondary:disabled, .btn-secondary[disabled] {
+  color: oklch(73% 0.135 var(--hue-accent) / 0.5);
+  border-color: var(--border);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ── Ghost — transparent → surface on hover. Most common variant ── */
+.bg, .btn-ghost {
+  background: transparent;
+  color: var(--tx2);
+  border: 1px solid var(--border);
+  padding: 7px 14px;
+}
+.bg:hover, .btn-ghost:hover {
+  background: var(--sf2);
+  color: var(--tx1);
+  border-color: var(--border-h);
+}
+.bg:active, .btn-ghost:active {
+  background: var(--sf3);
+  transform: translateY(1px) scale(0.97);
+  transition-duration: 50ms;
+}
+.bg:focus-visible, .btn-ghost:focus-visible {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--accent-dim), 0 0 12px var(--accent-glow);
+}
+.bg:disabled, .bg[disabled],
+.btn-ghost:disabled, .btn-ghost[disabled] {
+  color: var(--tx3);
+  border-color: var(--border);
+  cursor: not-allowed;
+  transform: none;
+  background: transparent;
+}
+
+/* ── Danger — calibrated err palette, asymmetric border accent ── */
+.bd, .btn-danger {
+  background: var(--err-dim);
+  color: var(--err);
+  border: 1px solid var(--err-border);
+  border-left-width: 3px;     /* §ERRORS — accent left border identity */
+  padding: 7px 14px 7px 12px; /* compensate for the heavier left border */
+}
+.bd:hover, .btn-danger:hover {
+  background: var(--err-bg-h);
+  border-color: var(--err);
+  box-shadow: 0 0 12px oklch(60% 0.165 var(--hue-err) / 0.20);
+  transform: translateY(-1px);
+}
+.bd:active, .btn-danger:active {
+  background: oklch(60% 0.165 var(--hue-err) / 0.30);
+  transform: translateY(1px) scale(0.97);
+  transition-duration: 50ms;
+}
+.bd:focus-visible, .btn-danger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px oklch(60% 0.165 var(--hue-err) / 0.35), 0 0 14px oklch(60% 0.165 var(--hue-err) / 0.20);
+}
+.bd:disabled, .bd[disabled],
+.btn-danger:disabled, .btn-danger[disabled] {
+  color: oklch(60% 0.165 var(--hue-err) / 0.5);
+  background: oklch(60% 0.165 var(--hue-err) / 0.05);
+  border-color: oklch(60% 0.165 var(--hue-err) / 0.15);
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ── Icon-only — 32×32 square, neutral surface hover ── */
+.btn-icon {
+  background: transparent;
+  color: var(--tx2);
+  border: 1px solid transparent;
+  padding: 6px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: var(--r-btn);
+}
+.btn-icon:hover {
+  background: var(--sf2);
+  color: var(--tx1);
+  border-color: var(--border);
+}
+.btn-icon:active {
+  background: var(--sf3);
+  transform: translateY(1px) scale(0.94);
+  transition-duration: 50ms;
+}
+.btn-icon:focus-visible {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+/* ── Size modifier — orthogonal to variant ── */
+.bs, .btn-sm { padding: 6px 10px; font-size: 12px; min-width: 0; }
+
+/* ══════════════════════════════════════════════════
+   §4 — COMPONENT CLASSES
+   ══════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════
+   §4.1 — CARDS — material surfaces with hover physics
+   ──────────────────────────────────────────────────
+   §CARDS — Cards have material, weight, and behavior. Three variants:
+   - .card           default surface (most cards on the dashboard)
+   - .card-featured  larger, accent-bordered, used for the "main" item
+                     on a page (e.g. the active repo's main panel)
+   - .card-data      denser (smaller padding, tighter rhythm) — used
+                     where information density matters more than air
+   All variants share rest/hover/focus-within state vocabulary.
+   ══════════════════════════════════════════════════ */
+
+.card {
+  /* Rest: tonal surface 1, subtle border, palette-derived shadow */
+  position: relative;
+  /* No overflow:hidden — would clip the action-menu popover that
+     extends below the last branch row. The .card::before stripe
+     rounds its own left corners to match the card. */
+  background: var(--sf1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  padding: calc(var(--sp) * 2.5);   /* 17.5px */
+  margin-bottom: calc(var(--sp) * 2); /* 14px */
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--dur-enter) var(--ease-physical),
+              box-shadow var(--dur-enter) var(--ease-physical),
+              border-color var(--dur-enter) var(--ease-fast),
+              background-color var(--dur-enter) var(--ease-fast);
+}
+/* Card signal stripe — accent gradient on the left edge, fades in on
+   hover. The stripe is the recurring brand motif (chevron prompt)
+   manifesting as a vertical accent line. */
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 3px;
+  /* Round left corners to match the card — the card no longer
+     clips overflow, so the stripe must self-round. */
+  border-radius: var(--r-card) 0 0 var(--r-card);
+  background: linear-gradient(180deg, var(--accent), transparent 80%);
+  opacity: 0;
+  transition: opacity var(--dur-enter) var(--ease-physical);
+}
+.card:hover {
+  /* Hover: physical lift + shadow grows + border brightens */
+  transform: translateY(-2px);
+  border-color: var(--border-h);
+  box-shadow: var(--shadow-lg);
+}
+.card:hover::before {
+  opacity: 1;
+}
+.card:focus-within {
+  /* Focus-within: card contains an active interactive element. Same
+     subtle accent border the resting card gets via stripe, but no lift
+     so the user's keyboard cursor doesn't jiggle while typing. */
+  border-color: var(--border-accent);
+  box-shadow: var(--shadow-sm), 0 0 0 1px var(--accent-dim);
+}
+
+/* §CARDS variants — different cards should look distinct from each
+   other. Featured cards span more visual weight; data cards compress. */
+.card-featured {
+  /* Slightly elevated surface + accent-edged border on the left */
+  background: var(--sf2);
+  border-left: 3px solid var(--border-accent);
+  padding-left: calc(var(--sp) * 2.5 - 2px); /* offset for the heavier border */
+  box-shadow: var(--shadow-md);
+}
+.card-featured::before { display: none; }  /* the border-left replaces the stripe */
+.card-featured:hover {
+  border-left-color: var(--accent);
+  box-shadow: var(--shadow-lg), 0 0 24px var(--accent-glow);
+}
+
+.card-data {
+  /* Compressed for dense data — smaller padding, no margin between
+     stacked instances, no signature stripe (data cards don't lift). */
+  padding: var(--sp-md);   /* 14px instead of 17.5 */
+  margin-bottom: var(--sp-sm); /* 7px tight stack */
+}
+.card-data::before { display: none; }
+.card-data:hover {
+  /* Subtle bg shift only — data cards don't lift (they're a list, not
+     individual objects). */
+  transform: none;
+  background: var(--sf2);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── Spinner — accent colored ── */
+.spin {
+  width: 16px; height: 16px;
+  border: 2px solid var(--sf3);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ══════════════════════════════════════════════════
+   §3.6 — CHIPS — toggle pills, every state explicit
+   ──────────────────────────────────────────────────
+   Mono pill with rest, hover, active, focus, on, disabled.
+   The .on state combines 3 cues: accent border + accent fg/bg +
+   accent glow (per §NAVIGATION's "active items always combine 3
+   cues" rule). The double glow (outer + inset) is the chip
+   signature.
+   ══════════════════════════════════════════════════ */
+
+.chip {
+  /* Rest */
+  display: inline-flex;
+  align-items: center;
+  padding: calc(var(--sp) * 0.7) calc(var(--sp) * 2);
+  border-radius: var(--r-pill);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--tx2);
+  user-select: none;
+  letter-spacing: 0.02em;
+  transition: background-color var(--dur-micro) var(--ease-fast),
+              border-color var(--dur-micro) var(--ease-fast),
+              color var(--dur-micro) var(--ease-fast),
+              box-shadow var(--dur-micro) var(--ease-fast);
+}
+.chip:hover {
+  border-color: var(--border-h);
+  color: var(--tx1);
+  background: var(--sf1);
+}
+.chip:active {
+  background: var(--sf2);
+  transform: scale(0.97);
+  transition-duration: 50ms;
+}
+.chip:focus-visible {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--border-focus), 0 0 12px var(--accent-glow);
+}
+.chip.on {
+  /* Active — 3-cue combo: accent border + accent color + double glow */
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow), inset 0 0 8px var(--accent-glow);
+}
+.chip.on:hover {
+  background: var(--accent-mid);
+  box-shadow: 0 0 16px var(--accent-mid), inset 0 0 8px var(--accent-glow);
+}
+.chip[aria-disabled="true"], .chip.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ── Topbar — frosted glass ── */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(var(--sp) * 1.5) calc(var(--sp) * 2.5);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-deep-overlay);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  backdrop-filter: blur(16px) saturate(1.3);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  flex-wrap: wrap;
+  gap: calc(var(--sp) * 1.5);
+}
+
+/* ── Labels — uppercase mono ── */
+.label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--tx3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+
+/* ── Branch tag ── */
+.btag {
+  display: inline-block;
+  padding: 2px calc(var(--sp) * 1.2);
+  border-radius: var(--r-pill);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+/* ── Preview frames ── */
+.preview-frame {
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  background: var(--bg-deep);
+  display: inline-block;
+  flex-shrink: 0;
+}
+.preview-frame .frame-label {
+  padding: calc(var(--sp) * 1) calc(var(--sp) * 2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+  background: var(--sf1);
+  color: var(--tx2);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--sp) * 1.5);
+}
+.preview-frame .frame-body { position: relative; overflow: hidden; }
+.preview-frame iframe { border: none; display: block; }
+
+/* ── Log boxes ── */
+.log-box, .live-log {
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: var(--r-input);
+  padding: calc(var(--sp) * 1.5);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tx2);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 320px;
+  overflow-y: auto;
+  line-height: 1.7;
+  box-shadow: inset 0 2px 6px var(--shadow-base);
+}
+
+/* ── Status dots — signal lights ── */
+.status-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.status-building { background: var(--accent); box-shadow: 0 0 8px var(--accent-mid), 0 0 2px var(--accent); animation: pulse 1s infinite; }
+.status-ready    { background: var(--ok); box-shadow: 0 0 6px var(--ok-dim), 0 0 2px var(--ok); }
+.status-error    { background: var(--err); box-shadow: 0 0 4px var(--err-dim); }
+.status-idle     { background: var(--tx3); }
+.status-running  { background: var(--run); box-shadow: 0 0 8px var(--run-dim), 0 0 2px var(--run); animation: pulse 2.5s infinite; }
+.status-stopped  { background: var(--stop); }
+.status-queued   { background: var(--accent); opacity: 0.5; animation: pulse 2s infinite; }
+.status-cancelled { background: var(--stop); }
+/* APK modal shorthand dot classes */
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.dot.ok       { background: var(--ok); box-shadow: 0 0 6px var(--ok-dim); }
+.dot.building { background: var(--accent); box-shadow: 0 0 8px var(--accent-mid); animation: pulse 1s infinite; }
+.dot.err      { background: var(--err); box-shadow: 0 0 4px var(--err-dim); }
+.dot.idle     { background: var(--tx3); }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* ── Dropdown — floating panel ── */
+.add-branch-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  background: var(--sf2);
+  border: 1px solid var(--border-h);
+  border-radius: var(--r-card);
+  padding: var(--sp) 0;
+  min-width: 260px;
+  max-height: 340px;
+  overflow-y: auto;
+  box-shadow: var(--shadow-drop);
+  animation: dropIn var(--dur-enter) var(--ease-physical);
+}
+.dd-item {
+  padding: calc(var(--sp) * 1.2) calc(var(--sp) * 2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--tx2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--sp) * 1.5);
+  transition: background var(--dur-micro) var(--ease-fast), color var(--dur-micro) var(--ease-fast);
+}
+.dd-item:hover, .dd-item:focus-visible { background: var(--accent-dim); color: var(--accent); outline: none; }
+.dd-item.already { opacity: 0.25; pointer-events: none; color: var(--tx3); }
+
+/* ══════════════════════════════════════════════════
+   §4.5 — MODALS — overlay + frame + entrance choreography
+   ──────────────────────────────────────────────────
+   Per Foundation source — modals are 'functions that appear and
+   dissolve'. The bg blurs the world behind (focus blur from §DEPTH)
+   and brightens-down to push it into recession. The modal frame has
+   a top-edge highlight suggesting the top-center light source from
+   the Brief landing on it. Entrance uses --ease-physical for a
+   considered settle, not a snap.
+   ══════════════════════════════════════════════════ */
+
+.modal-bg {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  /* Focus-blur the content behind so the modal owns the user's
+     attention. brightness(0.7) recedes the dimmed world. */
+  -webkit-backdrop-filter: blur(6px) brightness(0.7);
+  backdrop-filter: blur(6px) brightness(0.7);
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--sp) * 3);
+  animation: fadeIn var(--dur-enter) var(--ease-fast);
+}
+.modal {
+  position: relative;
+  background: var(--sf1);
+  border: 1px solid var(--border-h);
+  border-radius: var(--r-modal);
+  padding: calc(var(--sp) * 3);
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-modal);
+  animation: modalIn var(--dur-enter) var(--ease-physical);
+}
+/* Top-edge highlight — the single-source-light (top-center) catching
+   the upper edge of the modal. 1px gradient running across the top.
+   Builds material reality without becoming glass-y. */
+.modal::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 8%; right: 8%;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent,
+    oklch(91% 0.012 var(--hue-text) / 0.20) 30%,
+    oklch(91% 0.012 var(--hue-text) / 0.20) 70%,
+    transparent);
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+/* B3 — Modal width variants. Add one of these to the .modal element
+   to opt into a standard size instead of bespoke max-width values:
+   .modal-sm   380px   confirm / share / errors-list
+   .modal-md   560px   history / log / standard forms
+   .modal-lg   720px   diff slider / edit / advanced composers
+   .modal-xl   920px   full-page editors
+
+   Existing .modal-share/history/diff/errors classes still apply
+   their per-modal extras (background colour, padding) but inherit
+   width from the size variant. */
+.modal-sm { max-width: var(--modal-w-sm); }
+.modal-md { max-width: var(--modal-w-md); }
+.modal-lg { max-width: var(--modal-w-lg); }
+.modal-xl { max-width: var(--modal-w-xl); }
+
+/* B3 — Structural skeleton. Optional but recommended for new modals:
+   <div class="modal modal-md">
+     <header class="modal-header">…</header>
+     <div class="modal-body">…</div>
+     <footer class="modal-footer">…</footer>
+   </div>
+
+   Header has the title (use .modal-title) and an optional close
+   button. Body scrolls; header/footer are sticky so they stay
+   visible on long lists.
+*/
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 0 14px;
+  margin: 0 0 14px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: calc(var(--sp) * -3); /* offset against parent .modal padding */
+  background: var(--sf1);
+  z-index: 1;
+}
+.modal-body {
+  /* Body scrolls within the modal's max-height. Default: no extra padding. */
+}
+.modal-footer {
+  display: flex;
+  gap: 8px;
+  padding: 14px 0 0;
+  margin: 14px 0 0;
+  border-top: 1px solid var(--border);
+  position: sticky;
+  bottom: calc(var(--sp) * -3);
+  background: var(--sf1);
+  z-index: 1;
+}
+.modal-footer.modal-footer-end { justify-content: flex-end; }
+
+/* ── Stagger — choreographed entrances ── */
+.stagger-in {
+  opacity: 0;
+  transform: translateY(8px);
+  animation: staggerEnter var(--dur-enter) var(--ease-physical) forwards;
+}
+.stagger-in:nth-child(1) { animation-delay: 0ms; }
+.stagger-in:nth-child(2) { animation-delay: 40ms; }
+.stagger-in:nth-child(3) { animation-delay: 80ms; }
+.stagger-in:nth-child(4) { animation-delay: 120ms; }
+.stagger-in:nth-child(n+5) { animation-delay: 150ms; }
+@keyframes staggerEnter { to { opacity: 1; transform: translateY(0); } }
+
+/* ── Dropdown input — styled via class ── */
+.dd-input {
+  padding: 6px 10px;
+  margin: 4px 6px;
+  font-size: 12px;
+  width: calc(100% - 12px);
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  color: var(--tx1);
+  font-family: var(--font-mono);
+  outline: none;
+  box-shadow: none;
+  transition: border-color var(--dur-micro) var(--ease-fast);
+}
+.dd-input:hover { border-color: var(--border-h); }
+.dd-input:focus { border-color: var(--border-focus); box-shadow: 0 0 0 2px var(--accent-dim); }
+.dd-input.accent-border { border-color: var(--border-accent); }
+.dd-input.run-border { border-color: var(--run-dim); }
+
+/* ── Scrollbar — subtle ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--sf3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--tx3); }
+
+/* ── Composition — Layout hierarchy ── */
+.repo-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: calc(var(--sp) * 2);
+  padding-bottom: calc(var(--sp) * 2);
+  border-bottom: 1px solid var(--border-accent);
+  margin-bottom: calc(var(--sp) * 2);
+}
+.repo-header h3 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.3;
+}
+.repo-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tx3);
+  margin-top: 4px;
+  letter-spacing: 0.01em;
+}
+
+/* Branch row — the core repeated element */
+.branch-row {
+  background: var(--bg);
+  border-radius: var(--r-input);
+  padding: calc(var(--sp) * 1.5) calc(var(--sp) * 2);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--sp) * 1.5);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp);
+  position: relative;
+  /* No overflow:hidden — would clip the absolutely-positioned
+     .action-menu popover (top:100%) inside the row. The bottom
+     loading bar self-rounds to match this row's corners. */
+  transition: border-color var(--dur-enter) var(--ease-fast), background var(--dur-enter) var(--ease-fast);
+  min-height: 44px; /* touch target */
+}
+.branch-row:hover {
+  background: var(--sf1);
+  border-color: var(--border-h);
+}
+.branch-row:focus-within {
+  border-color: var(--border-h);
+  background: var(--sf1);
+}
+
+/* Stats bar — quick at-a-glance info */
+.stats-bar {
+  display: flex;
+  gap: calc(var(--sp) * 3);
+  padding: calc(var(--sp) * 1.5) 0;
+  margin-bottom: calc(var(--sp) * 2);
+}
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: calc(var(--sp) * 0.6) calc(var(--sp) * 1.4);
+  border-radius: var(--r-card);
+  border: 1px solid transparent;
+  transition: background-color var(--dur-micro) var(--ease-fast),
+              border-color var(--dur-micro) var(--ease-fast);
+}
+/* Clickable status tiles act as filter chips. Hover hints; active
+   state shows the tile borrowed the accent. Static tiles (Repos,
+   Branches) keep their plain look. */
+.stat-item-clickable { cursor: pointer; }
+.stat-item-clickable:hover { background: var(--sf1); border-color: var(--border-h); }
+.stat-item-clickable:focus-visible {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+.stat-item-active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+.stat-num {
+  font-family: var(--font-ui);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--tx1);
+  font-variant-numeric: tabular-nums;
+}
+.stat-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--tx3);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* ── Touch targets ── */
+button { min-height: 32px; }
+.bs, .btn-sm { min-height: 28px; }
+
+/* §LOGO — DeployView brand lockup
+   Mark + wordmark. Mark renders via DV.iconEl("dvmark") in
+   currentColor, wordmark is split into "Deploy" (accent) + "View"
+   (text-2) so the brand reads as a two-tone signature. Pill shape
+   anchors it to the topbar; subtle accent glow ties it to the
+   atmosphere. Acts as a button (clickable home). */
+.dv-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;                              /* one --sp unit between mark and word */
+  padding: 4px 12px 4px 8px;
+  border-radius: var(--r-pill);
+  background: transparent;
+  border: 1px solid var(--border-h);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--tx2);
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: border-color var(--dur-micro) var(--ease-fast),
+              background-color var(--dur-micro) var(--ease-fast),
+              box-shadow var(--dur-micro) var(--ease-fast);
+}
+.dv-badge:hover {
+  border-color: var(--border-accent);
+  background: var(--accent-bg-faint);
+  box-shadow: 0 0 0 1px var(--accent-dim), 0 0 12px var(--accent-glow);
+}
+.dv-badge:hover .dv-badge-word-view { color: var(--tx1); }
+.dv-badge-mark {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent);                 /* mark always amber, never tones down */
+  filter: drop-shadow(0 0 4px var(--accent-glow));
+}
+.dv-badge-word { display: inline-flex; align-items: baseline; letter-spacing: -0.005em; }
+.dv-badge-word-deploy { color: var(--accent); font-weight: 700; }
+.dv-badge-word-view   { color: var(--tx2);    font-weight: 500; transition: color var(--dur-micro) var(--ease-fast); }
+
+/* ── Focus — keyboard accessibility ── */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--border-focus), 0 0 14px var(--accent-glow) !important;
+}
+button:focus-visible { box-shadow: 0 0 0 2px var(--border-focus), 0 0 14px var(--accent-glow) !important; }
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  border-color: var(--accent) !important;
+  box-shadow: var(--shadow-inset), 0 0 0 2px var(--border-focus), 0 0 14px var(--accent-glow) !important;
+}
+
+/* ── Button states ── */
+button:disabled, button[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+  filter: saturate(0.3);
+}
+/* :active states are now defined per-variant in §3.5 with full
+   per-property timing instead of shared overrides — keeps each
+   variant's press physics consistent with its own rest/hover. */
+
+/* ── Separators ── */
+.sep-heavy { border-bottom: 2px solid var(--border-heavy); }
+.sep-light { border-bottom: 1px solid var(--border); }
+.sep-accent { border-bottom: 1px solid var(--border-accent); }
+
+/* ── Loading — branded sweep bar ── */
+.dv-loading {
+  width: 100%;
+  height: 3px;
+  background: var(--sf2);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+.dv-loading::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -40%;
+  width: 40%; height: 100%;
+  background: linear-gradient(90deg, transparent, var(--accent), var(--accent-h), transparent);
+  border-radius: 2px;
+  animation: sweep 1.2s var(--ease-fast) infinite;
+}
+@keyframes sweep { to { left: 100%; } }
+
+/* Skeleton shimmer — for content placeholders */
+.skeleton {
+  background: linear-gradient(90deg, var(--sf1) 25%, var(--sf2) 50%, var(--sf1) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: var(--r-input);
+}
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* ── Signal stripe — amber accent bar ── */
+.signal-stripe {
+  position: relative;
+}
+.signal-stripe::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 3px;
+  background: var(--accent);
+  border-radius: 0 2px 2px 0;
+  box-shadow: 0 0 8px var(--accent-mid);
+  opacity: 0;
+  transition: opacity var(--dur-enter) var(--ease-physical);
+}
+.signal-stripe:hover::before,
+.signal-stripe.active::before { opacity: 1; }
+
+/* (.card stripe + state vocabulary moved to §4.1 above —
+   single source of truth.) */
+
+/* ── Error bar ── */
+.error-bar {
+  background: var(--err-dim);
+  border-left: 3px solid var(--err);
+  border-radius: 0 var(--r-input) var(--r-input) 0;
+  padding: calc(var(--sp) * 1.5) calc(var(--sp) * 2);
+  color: var(--tx1);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.error-bar::before {
+  content: '> ';
+  color: var(--err);
+  font-weight: 700;
+}
+
+/* ── Hover timing ── */
+.card, .dd-item, button, .chip {
+  transition-duration: var(--dur-enter);
+}
+.card:not(:hover), .dd-item:not(:hover), button:not(:active), .chip:not(:hover) {
+  transition-duration: calc(var(--dur-enter) * 1.3);
+}
+
+/* ══════════════════════════════════════════════════
+   §5 — LAYOUT UTILITIES
+   Replaces inline layout styles from JS views
+   ══════════════════════════════════════════════════ */
+
+/* ── Spacing gap/pad ── */
+.gap-xs  { gap: var(--sp-xs); }
+.gap-sm  { gap: var(--sp-sm); }
+.gap-md  { gap: var(--sp-md); }
+.gap-lg  { gap: var(--sp-lg); }
+.gap-xl  { gap: var(--sp-xl); }
+.gap-4   { gap: 4px; }
+.gap-6   { gap: 6px; }
+.gap-8   { gap: 8px; }
+.gap-10  { gap: 10px; }
+.gap-12  { gap: 12px; }
+.gap-16  { gap: 16px; }
+.gap-20  { gap: 20px; }
+.pad-sm  { padding: var(--sp-sm); }
+.pad-md  { padding: var(--sp-md); }
+.pad-lg  { padding: var(--sp-lg); }
+
+/* ── Containers ── */
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: calc(var(--sp) * 3) calc(var(--sp) * 2.5);
+}
+.container-sm {
+  max-width: 540px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+.container-xs {
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 100px 20px;
+  text-align: center;
+}
+
+/* ── Flexbox ── */
+.flex-row {
+  display: flex;
+  align-items: center;
+}
+.flex-col {
+  display: flex;
+  flex-direction: column;
+}
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.flex-wrap   { flex-wrap: wrap; }
+.flex-nowrap  { flex-wrap: nowrap; }
+.flex-1      { flex: 1; }
+.flex-shrink-0 { flex-shrink: 0; }
+.inline-flex { display: inline-flex; }
+.items-center { align-items: center; }
+.items-start  { align-items: flex-start; }
+.justify-center  { justify-content: center; }
+.justify-between { justify-content: space-between; }
+.ml-auto { margin-left: auto; }
+
+/* ── Position ── */
+.relative  { position: relative; }
+.absolute  { position: absolute; }
+.inset-0   { inset: 0; }
+
+/* ── Overflow ── */
+.overflow-hidden   { overflow: hidden; }
+.overflow-auto     { overflow: auto; }
+.overflow-x-auto   { overflow-x: auto; overflow-y: hidden; }
+.overflow-y-auto   { overflow-y: auto; }
+
+/* ── Sizing ── */
+.w-full  { width: 100%; }
+.h-full  { height: 100%; }
+.min-w-0 { min-width: 0; }
+
+/* ── Margin ── */
+.mb-0   { margin-bottom: 0; }
+.mb-4   { margin-bottom: 4px; }
+.mb-6   { margin-bottom: 6px; }
+.mb-8   { margin-bottom: 8px; }
+.mb-12  { margin-bottom: 12px; }
+.mb-14  { margin-bottom: 14px; }
+.mb-16  { margin-bottom: 16px; }
+.mb-18  { margin-bottom: 18px; }
+.mb-20  { margin-bottom: 20px; }
+.mb-22  { margin-bottom: 22px; }
+.mb-24  { margin-bottom: 24px; }
+.mb-32  { margin-bottom: 32px; }
+.mb-36  { margin-bottom: 36px; }
+.mt-4   { margin-top: 4px; }
+.mt-6   { margin-top: 6px; }
+.mt-8   { margin-top: 8px; }
+.mt-12  { margin-top: 12px; }
+.mt-14  { margin-top: 14px; }
+.mt-16  { margin-top: 16px; }
+.mt-24  { margin-top: 24px; }
+
+/* ── Padding helpers ── */
+.p-8-0   { padding: 8px 0; }
+.p-8-16  { padding: 8px 16px; }
+.p-10-14 { padding: 10px 14px; }
+.p-10-16 { padding: 10px 16px; }
+.p-10-28 { padding: 10px 28px; }
+.p-12-14 { padding: 12px 14px; }
+.p-16    { padding: 16px; }
+.pb-8    { padding-bottom: 8px; }
+
+/* ── Text alignment ── */
+.text-center { text-align: center; }
+.text-left   { text-align: left; }
+
+/* ══════════════════════════════════════════════════
+   §5b — TYPOGRAPHY UTILITIES
+   ══════════════════════════════════════════════════ */
+.font-mono { font-family: var(--font-mono); }
+.font-ui   { font-family: var(--font-ui); }
+
+.text-9   { font-size: 9px; }
+.text-10  { font-size: 10px; }
+.text-11  { font-size: 11px; }
+.text-12  { font-size: 12px; }
+.text-13  { font-size: 13px; }
+.text-14  { font-size: 14px; }
+.text-16  { font-size: 16px; }
+.text-20  { font-size: 20px; }
+.text-24  { font-size: 24px; }
+.text-28  { font-size: var(--text-3xl); }
+
+.font-bold     { font-weight: 700; }
+.font-semibold { font-weight: 600; }
+.font-medium   { font-weight: 500; }
+
+.tracking-tight  { letter-spacing: -0.04em; }
+.tracking-snug   { letter-spacing: -0.03em; }
+.tracking-normal { letter-spacing: -0.01em; }
+.tracking-wide   { letter-spacing: 0.05em; }
+.tracking-wider  { letter-spacing: 0.08em; }
+.tracking-mono   { letter-spacing: 0.01em; }
+
+.leading-tight   { line-height: 1.3; }
+.leading-normal  { line-height: 1.5; }
+.leading-relaxed { line-height: 1.7; }
+.leading-loose   { line-height: 1.8; }
+.leading-2       { line-height: 2; }
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pre-wrap {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.nowrap { white-space: nowrap; }
+
+/* ══════════════════════════════════════════════════
+   §5c — COLOR UTILITIES
+   ══════════════════════════════════════════════════ */
+.color-accent  { color: var(--accent); }
+.color-tx1     { color: var(--tx1); }
+.color-tx2     { color: var(--tx2); }
+.color-tx3     { color: var(--tx3); }
+.color-err     { color: var(--err); }
+.color-ok      { color: var(--ok); }
+.color-run     { color: var(--run); }
+
+.bg-sf1        { background: var(--sf1); }
+.bg-sf2        { background: var(--sf2); }
+.bg-bg         { background: var(--bg); }
+.bg-accent-dim { background: var(--accent-dim); }
+
+/* ══════════════════════════════════════════════════
+   §6 — VIEW-SPECIFIC COMPONENT CLASSES
+   ══════════════════════════════════════════════════ */
+
+/* ─── app.js: Loading view ─── */
+.loading-view {
+  text-align: center;
+  padding: 120px 20px;
+}
+.loading-spinner {
+  width: 28px;
+  height: 28px;
+  margin: 0 auto 16px;
+  border: 2px solid var(--sf3);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+.loading-text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tx3);
+  letter-spacing: 0.05em;
+}
+
+/* ─── topbar.js ─── */
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.btn-accent-highlight {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+.breadcrumb {
+  color: var(--tx3);
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+/* ─── setup.js: Setup / onboarding page ─── */
+.setup-page {
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 100px 20px;
+  text-align: center;
+}
+.brand-monogram {
+  font-size: var(--text-3xl);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 20px;
+  text-shadow: 0 0 30px var(--accent-glow);
+}
+.setup-title {
+  font-size: var(--text-3xl);
+  font-weight: 700;
+  margin-bottom: 6px;
+  letter-spacing: -0.04em;
+}
+.setup-subtitle {
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  margin-bottom: 36px;
+  line-height: 1.7;
+  letter-spacing: 0.01em;
+}
+.setup-error {
+  color: var(--err);
+  font-size: 13px;
+  font-family: var(--font-mono);
+  display: none;
+  margin-top: 8px;
+}
+.token-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.input-mono {
+  font-family: var(--font-mono);
+}
+.input-min-w {
+  min-width: 100px;
+}
+
+
+/* Branch row status left-border colors */
+.branch-row-ready    { border-left-color: var(--ok); }
+.branch-row-running  { border-left-color: var(--run); }
+.branch-row-building { border-left-color: var(--accent); }
+.branch-row-error    { border-left-color: var(--err); }
+.branch-row-idle     { border-left-color: var(--border); }
+.branch-row-stopped  { border-left-color: var(--stop); }
+
+/* Branch tag status colors */
+.btag-ready    { background: var(--ok-dim); color: var(--ok); }
+.btag-running  { background: var(--run-dim); color: var(--run); }
+.btag-building { background: var(--accent-dim); color: var(--accent); }
+.btag-error    { background: var(--err-dim); color: var(--err); }
+.btag-idle     { background: var(--border); color: var(--tx3); }
+.btag-stopped  { background: var(--border); color: var(--tx3); }
+
+/* Branch info section within row */
+.branch-info {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--sp));
+  min-width: 0;
+  flex-shrink: 1;
+}
+.branch-status-text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tx3);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.branch-actions {
+  display: flex;
+  gap: calc(var(--sp) * 0.7);
+  flex-shrink: 0;
+}
+
+/* Loading bar positioned at bottom of branch row.
+   Rounds its own bottom corners to match the parent row's
+   border-radius — the row no longer uses overflow:hidden so
+   the bar must clip itself. */
+.branch-loading {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  border-radius: 0 0 var(--r-input) var(--r-input);
+}
+
+
+/* Disabled-look for preview/action buttons on non-ready branches */
+.opacity-dim {
+  opacity: 0.35;
+  pointer-events: none;
+}
+.opacity-full {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ─── addRepo.js ─── */
+.add-repo-page {
+  max-width: 540px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+.page-title {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;     /* tighten display text per §TRACKING */
+  margin-bottom: 20px;
+  color: var(--tx1);
+  text-wrap: balance;          /* prevent ugly widows in headings (Chrome 114+) */
+}
+
+/* §TYPE — Hierarchy template per §HIERARCHY. Views may opt into these
+   utility classes; the bare h-tags above remain as fallback. Each class
+   layers size + weight + color + tracking — never size-only contrast. */
+.type-display  { font: 800 var(--text-3xl)/1.05 var(--font-ui); letter-spacing: -0.025em; color: var(--tx1); }
+.type-title    { font: 700 var(--text-2xl)/1.15 var(--font-ui); letter-spacing: -0.02em;  color: var(--tx1); }
+.type-heading  { font: 600 var(--text-xl)/1.25  var(--font-ui); letter-spacing: -0.015em; color: var(--tx1); }
+.type-subhead  { font: 600 var(--text-lg)/1.3   var(--font-ui); letter-spacing: -0.01em;  color: var(--tx1); }
+.type-body     { font: 400 var(--text-md)/1.55  var(--font-ui); color: var(--tx2); }
+.type-body-sm  { font: 400 var(--text-base)/1.5 var(--font-ui); letter-spacing: 0.005em; color: var(--tx2); }
+.type-label    { font: 500 var(--text-sm)/1.3   var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--tx3); }
+.type-code     { font: 400 0.92em/1.6           var(--font-mono); }
+.type-metric   { font: 700 var(--text-3xl)/1.0  var(--font-mono); font-variant-numeric: tabular-nums slashed-zero; color: var(--tx1); }
+.error-text {
+  color: var(--err);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  display: none;
+}
+.form-section {
+  margin-bottom: 18px;
+}
+.form-section-sm {
+  margin-bottom: 14px;
+}
+.form-section-lg {
+  margin-bottom: 22px;
+}
+.form-row {
+  display: flex;
+  gap: 8px;
+}
+.form-row-10 {
+  display: flex;
+  gap: 10px;
+}
+.label-hint {
+  color: var(--tx3);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  margin-top: 4px;
+}
+.label-hint-12 {
+  color: var(--tx3);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  margin-top: 4px;
+}
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.card-section-title {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+/* ─── GitHub repo picker (addRepo.js) ─── */
+.repo-picker-header {
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.repo-picker-types {
+  margin-bottom: 8px;
+}
+.repo-picker-filter {
+  width: 100%;
+  margin-bottom: 8px;
+}
+.repo-picker-list {
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  background: var(--sf1);
+  max-height: 360px;
+  overflow-y: auto;
+}
+.repo-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  transition: background-color 120ms var(--ease-fast, ease);
+}
+.repo-picker-row:last-child { border-bottom: 0; }
+.repo-picker-row:hover { background: var(--sf2, rgba(255,255,255,0.02)); }
+.repo-picker-row-installed { opacity: 0.62; }
+.repo-picker-row-main { flex: 1; min-width: 0; }
+.repo-picker-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tx1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.repo-picker-desc {
+  font-size: 12px;
+  color: var(--tx2);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.repo-picker-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  align-items: center;
+}
+.repo-picker-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--sf2, rgba(255,255,255,0.04));
+  color: var(--tx3);
+  border: 1px solid var(--border);
+}
+.repo-picker-tag.tag-private { background: var(--accent-bg-faint, rgba(212,160,48,0.08)); color: var(--accent); border-color: var(--accent); }
+.repo-picker-tag.tag-fork { color: var(--tx2); }
+.repo-picker-tag.tag-arch { color: var(--err); border-color: var(--err-border, var(--err)); }
+.repo-picker-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--tx3);
+}
+.repo-picker-installed { cursor: default; }
+.repo-picker-status {
+  padding: 24px;
+  text-align: center;
+  color: var(--tx2);
+  font-size: 13px;
+  font-family: var(--font-mono);
+}
+.repo-picker-status .ml-8 { margin-left: 8px; }
+
+/* ─── Share modal (modals.js) ─── */
+.modal-share {
+  max-width: var(--modal-w-sm);
+  text-align: center;
+}
+.share-qr-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 16px auto;
+  padding: 12px;
+  background: var(--sf2, rgba(255,255,255,0.04));
+  border-radius: var(--r-card);
+  max-width: 240px;
+}
+.share-qr {
+  width: 100%;
+  height: auto;
+  max-width: 220px;
+  display: block;
+}
+.share-url-input {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 10px 12px;
+  margin-top: 8px;
+  background: var(--sf1);
+  color: var(--tx1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+}
+.share-btn-row {
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 12px;
+  gap: 8px;
+}
+
+/* ─── Deployment history modal ─── */
+.modal-history { max-width: var(--modal-w-md); }
+.history-list {
+  max-height: 420px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  background: var(--sf1);
+  margin: 12px 0;
+}
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.history-row:last-child { border-bottom: 0; }
+.history-row-rollback { background: var(--accent-bg-faint, rgba(212,160,48,0.04)); }
+.history-row-main { flex: 1; min-width: 0; }
+.history-row-sha { color: var(--accent); font-weight: 600; font-size: 12px; }
+.history-row-note {
+  color: var(--tx2);
+  font-size: 12px;
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: var(--sf2, rgba(255,255,255,0.03));
+  border-radius: var(--r-card);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.history-row-note-btn { margin-top: 6px; }
+.history-row-actions { margin-top: 8px; }
+.history-row-comments {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-left: 2px solid var(--accent);
+  padding-left: 10px;
+}
+.history-comment {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "by del" "text del";
+  gap: 2px 8px;
+  font-size: 12px;
+}
+.history-comment-by   { grid-area: by; color: var(--tx3); font-family: var(--font-mono); font-size: 11px; }
+.history-comment-text { grid-area: text; color: var(--tx2); white-space: pre-wrap; word-break: break-word; }
+.history-comment-del  { grid-area: del; align-self: start; padding: 2px 8px; font-size: 14px; line-height: 1; }
+
+/* ─── README inline render (K7) ─── */
+.repo-readme-wrap {
+  margin-top: 12px;
+  padding: 14px 18px;
+  background: var(--sf1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  max-height: 360px;
+  overflow-y: auto;
+}
+.repo-readme-body { font-size: 13px; line-height: 1.55; color: var(--tx2); }
+.repo-readme-body .md-h  { color: var(--tx1); margin: 14px 0 6px; }
+.repo-readme-body .md-h1 { font-size: 18px; }
+.repo-readme-body .md-h2 { font-size: 16px; }
+.repo-readme-body .md-h3 { font-size: 14px; }
+.repo-readme-body .md-h4,
+.repo-readme-body .md-h5,
+.repo-readme-body .md-h6 { font-size: 13px; }
+.repo-readme-body .md-p  { margin: 8px 0; }
+.repo-readme-body .md-list { margin: 6px 0 6px 18px; }
+.repo-readme-body .md-code,
+.repo-readme-body code {
+  font-family: var(--font-mono);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 11.5px;
+  color: var(--accent);
+}
+.repo-readme-body .md-code {
+  display: block;
+  padding: 10px 12px;
+  margin: 8px 0;
+  white-space: pre;
+  overflow-x: auto;
+}
+.repo-readme-body .md-quote {
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+  color: var(--tx3);
+  margin: 8px 0;
+}
+.repo-readme-body .md-hr  { border: 0; border-top: 1px solid var(--border); margin: 12px 0; }
+.repo-readme-body a       { color: var(--accent); text-decoration: underline; }
+
+/* ─── Runtime-errors modal (J3) ─── */
+.modal-errors { max-width: var(--modal-w-md); }
+.errors-list {
+  max-height: 480px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  background: var(--sf1);
+  margin: 12px 0;
+}
+.errors-row {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.errors-row:last-child { border-bottom: 0; }
+.errors-msg { color: var(--err); font-family: var(--font-mono); font-size: 12px; font-weight: 600; word-break: break-word; }
+.errors-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.errors-stack {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border-radius: var(--r-card);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--tx2);
+  max-height: 200px;
+  overflow: auto;
+}
+/* (.pill-clickable consolidated into §3.7 below — single source of truth.) */
+
+/* ─── Visual diff slider (modals.js diffModal) ─── */
+.modal-diff { max-width: var(--modal-w-lg); }
+.diff-stage {
+  position: relative;
+  width: 100%;
+  background: var(--bg-deep);   /* palette-derived, never pure black */
+  border-radius: var(--r-card);
+  overflow: hidden;
+  cursor: ew-resize;
+  user-select: none;
+  touch-action: none;
+}
+.diff-img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.diff-img-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* clipPath inset() set inline by JS */
+}
+.diff-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  pointer-events: none;
+  box-shadow: 0 0 12px rgba(212,160,48,0.8);
+}
+.diff-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translate(-50%, -50%);
+  border: 3px solid var(--bg);
+  box-shadow: 0 4px 16px oklch(8% 0.020 var(--hue-base) / 0.6);
+}
+
+/* ─── Analytics view (analytics.js) ─── */
+.stat-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.stat-tile {
+  background: var(--sf1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  padding: 16px;
+  text-align: left;
+}
+.stat-tile-value {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  color: var(--accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.stat-tile-label { font-size: 11px; color: var(--tx2); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px; }
+.stat-tile-sub { font-size: 11px; color: var(--tx3); margin-top: 4px; }
+
+.counter-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.counter-row:last-child { border-bottom: 0; }
+.counter-name { color: var(--tx2); }
+.counter-value { color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.hist-row {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  background: var(--sf1);
+  border-radius: var(--r-card);
+  border: 1px solid var(--border);
+}
+.hist-meta { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.hist-name { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--tx1); }
+.hist-svg  { display: block; }
+.hist-label-strip {
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--tx3);
+  margin-top: 2px;
+}
+.hist-label-cell { flex: 1; text-align: center; }
+
+/* ─── Pull-to-refresh indicator (app.js DV.installPullToRefresh) ─── */
+.ptr-indicator {
+  height: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--tx2);
+  background: linear-gradient(to bottom, var(--sf2, rgba(255,255,255,0.04)), transparent);
+  transition: height 80ms ease-out, color 120ms ease;
+}
+.ptr-indicator.ptr-armed {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ─── Empty-state component (D3) ─── */
+/* Consistent "nothing here yet" framing. Replaces ad-hoc "No webhooks
+   configured." text scattered across Settings + modals + dashboard.
+   Render via DV.emptyState({icon, title, sub, cta}). */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px 24px;
+  color: var(--tx2);
+  gap: 4px;
+}
+.empty-state-icon {
+  font-size: 28px;
+  line-height: 1;
+  margin-bottom: 8px;
+  color: var(--tx3);
+  filter: grayscale(0.4);
+}
+.empty-state-title {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tx1);
+  letter-spacing: -0.01em;
+}
+.empty-state-sub {
+  font-size: 12px;
+  color: var(--tx3);
+  max-width: 360px;
+  line-height: 1.5;
+}
+.empty-state-cta {
+  margin-top: 12px;
+}
+
+/* §ERRORS — palette-calibrated error component. Replaces ad-hoc red
+   text scattered across views. Use as:
+     <div class="error-message">
+       <strong>Build failed.</strong> Run with -v to see the trace.
+     </div>
+   The left-border is the accent stripe; bg uses the err color at 8%
+   for inset feel; recovery copy belongs inside the same block. */
+.error-message {
+  background: oklch(60% 0.165 var(--hue-err) / 0.08);
+  border-left: 3px solid var(--err);
+  border-radius: 0 var(--r-card) var(--r-card) 0;
+  color: var(--tx1);
+  padding: var(--sp-md) var(--sp-lg);
+  font-size: var(--text-md);
+  line-height: 1.5;
+}
+.error-message strong { color: var(--err); font-weight: 600; }
+.error-message + .error-message { margin-top: var(--sp-sm); }
+
+/* Inverse: success-message for completed-step affirmation. */
+.success-message {
+  background: oklch(64% 0.118 var(--hue-ok) / 0.08);
+  border-left: 3px solid var(--ok);
+  border-radius: 0 var(--r-card) var(--r-card) 0;
+  color: var(--tx1);
+  padding: var(--sp-md) var(--sp-lg);
+  font-size: var(--text-md);
+  line-height: 1.5;
+}
+.success-message strong { color: var(--ok); font-weight: 600; }
+
+/* ─── Skeleton loaders (D2) ─── */
+/* Use as: <div class="skeleton skeleton-text"></div> for a single line,
+   or stack multiples for paragraphs. The shimmer is a single keyframe
+   moving a soft gradient across a semi-transparent background. Pure
+   CSS — no JS, no extra DOM. */
+@keyframes skel-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--sf1) 0%,
+    var(--sf2) 50%,
+    var(--sf1) 100%
+  );
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--r-btn);
+}
+.skeleton-text { height: 14px; margin: 6px 0; }
+.skeleton-text:nth-child(odd) { width: 75%; }
+.skeleton-text:nth-child(even) { width: 92%; }
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.skeleton-row:last-child { border-bottom: 0; }
+.skeleton-circle { width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0; }
+.skeleton-flex   { flex: 1; min-width: 0; }
+.skeleton-pill   { width: 60px; height: 20px; border-radius: var(--r-pill); }
+
+/* Honour reduced-motion — show a flat shimmer-less surface instead */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background: var(--sf1); }
+}
+
+/* ─── Settings tab bar (D1) ─── */
+.settings-tab-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px;
+  margin: 0 0 24px;
+  background: var(--sf1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-popover);
+  backdrop-filter: blur(8px);
+}
+.settings-tab {
+  /* Rest */
+  background: transparent;
+  color: var(--tx2);
+  border: 0;
+  padding: 7px 14px;
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  border-radius: var(--r-btn);
+  cursor: pointer;
+  transition: background-color var(--dur-micro) var(--ease-fast),
+              color var(--dur-micro) var(--ease-fast);
+}
+.settings-tab:hover { background: var(--sf2); color: var(--tx1); }
+.settings-tab:focus-visible {
+  outline: none;
+  background: var(--sf2);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+/* §NAVIGATION — active items always combine 3 cues: accent color +
+   weight bump + positional indicator. The 2px underline is the
+   positional cue here; chip glow handles it elsewhere. */
+.settings-tab-active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: 600;
+  position: relative;
+}
+.settings-tab-active::after {
+  content: '';
+  position: absolute;
+  left: var(--sp-md);
+  right: var(--sp-md);
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: var(--r-pill);
+  box-shadow: 0 0 8px var(--accent-mid);
+}
+.settings-tab-active:hover { background: var(--accent-mid); color: var(--accent); }
+
+/* ─── Action overflow menu (C2 — branch-row "•••" popover) ─── */
+.branch-actions {
+  position: relative;
+}
+.action-menu-trigger {
+  /* Inherits .btn-icon styles via class composition */
+}
+.action-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 6px;
+  min-width: 200px;
+  padding: 6px;
+  background: var(--sf2);
+  border: 1px solid var(--border-h);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: actionMenuIn 120ms var(--ease-fast);
+}
+@keyframes actionMenuIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.action-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-btn);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--tx1);
+  text-align: left;
+  width: 100%;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.action-menu-item:hover { background: var(--sf3); }
+.action-menu-item .action-menu-glyph {
+  width: 20px;
+  text-align: center;
+  color: var(--tx3);
+}
+.action-menu-item.action-menu-item-danger { color: var(--err); }
+.action-menu-item.action-menu-item-danger:hover { background: var(--err-bg-h); }
+.action-menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 4px;
+}
+
+/* ─── Floating Action Button (mobile palette shortcut) ─── */
+.dv-fab {
+  display: none;        /* desktop: not shown — Cmd/Ctrl+K already exists */
+}
+@media (hover: none) and (pointer: coarse) {
+  .dv-fab {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    position: fixed;
+    right: max(20px, env(safe-area-inset-right));
+    bottom: max(20px, env(safe-area-inset-bottom));
+    padding: 14px 20px;
+    background: var(--accent);
+    color: var(--bg);
+    border: 0;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 8px 24px oklch(8% 0.020 var(--hue-base) / 0.5), 0 2px 6px var(--accent-mid);
+    z-index: 50;
+    transition: transform 120ms var(--ease-fast, ease);
+  }
+  .dv-fab:active { transform: scale(0.96); }
+  .dv-fab-glyph { font-size: 18px; line-height: 1; }
+}
+
+/* ─── Touch targets: ≥44px on touch devices (WCAG 2.5.5 Level AAA) ─── */
+@media (hover: none) and (pointer: coarse) {
+  button, .chip, [role="button"], .topbar-icon {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  /* Smaller "bs" buttons get padding bumped instead of width — keeps
+     them readable inline alongside text. */
+  .bs {
+    padding: 10px 14px;
+    font-size: 13px;
+  }
+  /* Compact chips inside picker rows still look right */
+  .repo-picker-types .chip,
+  .chip-row .chip {
+    padding: 8px 14px;
+  }
+}
+
+/* ─── preview.js ─── */
+.preview-controls {
+  padding: 10px 16px;
+  border-bottom: 1.5px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: var(--sf1);
+}
+.preview-branch-bar {
+  padding: 8px 16px;
+  border-bottom: 1.5px solid var(--border);
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.preview-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.preview-empty-text {
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.select-inline {
+  width: auto;
+  min-width: 150px;
+  padding: 8px;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  color: var(--tx1);
+  border-radius: 6px;
+}
+.device-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 8px;
+}
+.compare-row {
+  display: inline-flex;
+  gap: 16px;
+  flex-wrap: nowrap;
+}
+.frame-body-inner {
+  position: relative;
+  overflow: hidden;
+}
+.frame-loader {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  z-index: 2;
+  transition: opacity .3s;
+}
+.frame-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 16px;
+}
+.frame-status-text {
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+.frame-status-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+.frame-info-badge {
+  color: var(--tx3);
+  font-size: 10px;
+}
+.frame-popout-btn {
+  margin-left: 6px;
+  background: transparent;
+  border: 1px solid var(--tx3);
+  color: var(--tx2);
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: var(--r-badge);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color var(--dur-micro) var(--ease-fast), border-color var(--dur-micro) var(--ease-fast), color var(--dur-micro) var(--ease-fast);
+}
+.frame-popout-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+.frame-popout-btn:active {
+  transform: scale(0.92);
+}
+.frame-label-accent {
+  color: var(--accent);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.frame-label-dup {
+  color: var(--tx3);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.frame-branch-info {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.frame-branch-status {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.frame-branch-status-ok { color: var(--ok); }
+.frame-branch-status-dim { color: var(--tx3); }
+.preview-chip-bar {
+  display: flex;
+  gap: 4px;
+  margin: 4px 6px;
+}
+.preview-chip-sm {
+  font-size: 10px;
+  padding: 4px 10px;
+}
+.preview-loading-bar {
+  width: 120px;
+}
+.preview-url-bar {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tx3);
+  padding: 4px 16px;
+  border-bottom: 1.5px solid var(--border);
+  background: var(--sf1);
+}
+.preview-frame.fullscreen {
+  position: fixed;
+  inset: 0;
+  /* Modal-tier: above topbar/popover, below toasts so error notifications
+     still reach the user, and below the command palette so it can still
+     be opened over a fullscreen preview. */
+  z-index: var(--z-modal);
+  background: var(--bg);
+  border-radius: 0;
+  border: none;
+  display: flex;
+  flex-direction: column;
+}
+.preview-frame.fullscreen .frame-body {
+  flex: 1;
+  width: 100% !important;
+  height: auto !important;
+  transform: none !important;
+}
+.preview-frame.fullscreen iframe {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* ─── mcp.js ─── */
+.mcp-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: calc(var(--sp) * 3) calc(var(--sp) * 2.5);
+}
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.page-header-icon {
+  font-size: 24px;
+}
+.page-header-title {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  flex: 1;
+  letter-spacing: -0.03em;
+}
+.config-panel {
+  background: var(--sf1);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.config-label {
+  font-weight: 600;
+  font-size: 12px;
+  margin-bottom: 8px;
+  color: var(--accent);
+}
+.config-text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tx2);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.config-text-loose {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tx2);
+  line-height: 1.8;
+}
+.config-text-2 {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tx2);
+  line-height: 2;
+}
+.config-hint {
+  margin-top: 6px;
+  color: var(--tx3);
+  font-size: 10px;
+}
+.mcp-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.mcp-status-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+.mcp-status-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tx3);
+}
+
+/* Tool cards in MCP */
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.section-title-mt {
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 24px;
+  margin-bottom: 12px;
+}
+.tool-card {
+  margin-bottom: 8px;
+  padding: calc(var(--sp) * 1.5) calc(var(--sp) * 2);
+}
+.tool-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.tool-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.tool-params {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--tx3);
+}
+.tool-desc {
+  font-size: 12px;
+  color: var(--tx2);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* MCP Fetch section */
+.fetch-input {
+  width: 100%;
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--sf1);
+  border: 1px solid var(--sf3);
+  border-radius: 6px;
+  color: var(--tx1);
+  box-sizing: border-box;
+  margin-bottom: 8px;
+}
+.fetch-options-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  align-items: center;
+}
+.fetch-option {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tx2);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.selector-input {
+  width: 140px;
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--sf1);
+  border: 1px solid var(--sf3);
+  border-radius: 4px;
+  color: var(--tx1);
+}
+.btn-fetch {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  margin-left: auto;
+  padding: 6px 16px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 12px;
+}
+.fetch-status-ok {
+  color: var(--accent);
+  font-size: 12px;
+}
+.fetch-status-err {
+  color: var(--err);
+  font-size: 12px;
+}
+.fetch-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tx2);
+  margin-bottom: 8px;
+}
+
+/* MCP result displays */
+.result-title {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 6px;
+  color: var(--tx1);
+}
+.code-block {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tx2);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 400px;
+  overflow: auto;
+  background: var(--sf1);
+  padding: 10px;
+  border-radius: 6px;
+}
+.code-block-sm {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--tx3);
+  line-height: 1.8;
+  padding: 6px 0;
+  max-height: 200px;
+  overflow: auto;
+}
+.details-accent {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  cursor: pointer;
+}
+.details-content {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--tx3);
+  line-height: 1.8;
+  padding: 6px 0;
+}
+
+/* MCP preview rows */
+.preview-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--sf3);
+}
+.preview-row-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  flex: 1;
+}
+.preview-row-chip {
+  font-size: 10px;
+}
+.mcp-empty-text {
+  color: var(--tx3);
+  font-size: 12px;
+  padding: 8px 0;
+}
+.mcp-result-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tx2);
+  margin-top: 8px;
+}
+.mcp-img-preview {
+  max-width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--sf3);
+}
+.btn-copy {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  margin-left: 8px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--tx3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.btn-copy:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+.max-text-input {
+  width: 80px;
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--sf1);
+  border: 1px solid var(--sf3);
+  border-radius: 4px;
+  color: var(--tx1);
+}
+
+/* MCP agent section header */
+.agent-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.agent-title {
+  font-size: 14px;
+  font-weight: 600;
+  flex: 1;
+}
+
+/* ─── modals.js — title typography per §HIERARCHY ─── */
+.modal-title {
+  font-family: var(--font-ui);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  letter-spacing: -0.015em;     /* tighten per §TRACKING */
+  color: var(--tx1);
+  margin-bottom: 16px;
+  text-wrap: balance;            /* prevent ugly widows */
+}
+.modal-title-sm {
+  font-family: var(--font-ui);
+  font-size: var(--text-md);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--tx1);
+  margin-bottom: 12px;
+  text-wrap: balance;
+}
+.form-field {
+  margin-bottom: 12px;
+}
+.mode-chip-row {
+  display: flex;
+  gap: 6px;
+}
+.btn-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+.btn-row-sm {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.btn-row-md {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* APK modal */
+.apk-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.apk-icon {
+  font-size: 20px;
+}
+.apk-title {
+  font-size: 16px;
+  font-weight: 700;
+  flex: 1;
+  margin: 0;
+}
+.apk-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tx3);
+}
+.apk-info-box {
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: var(--tx2);
+  line-height: 1.7;
+}
+.apk-info-label {
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--accent);
+}
+.apk-info-hint {
+  margin-top: 6px;
+  color: var(--tx3);
+}
+.apk-log-container {
+  margin-bottom: 12px;
+}
+.apk-log-box {
+  max-height: 220px;
+  display: none;
+}
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+.status-label {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.download-link {
+  display: block;
+  margin-top: 8px;
+}
+.download-btn {
+  width: 100%;
+  font-size: 14px;
+}
+
+/* Log toolbar (Clear / Auto-scroll / Word-wrap) */
+.log-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 11px;
+}
+.log-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--tx2);
+  cursor: pointer;
+  user-select: none;
+}
+.log-toolbar input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+.live-log.no-wrap {
+  white-space: pre;
+  word-break: normal;
+}
+
+/* ══════════════════════════════════════════════════
+   §7 — STATE CLASSES
+   ══════════════════════════════════════════════════ */
+.hidden       { display: none !important; }
+.visible      { display: block; }
+.visible-flex { display: flex; }
+.invisible    { visibility: hidden; }
+.z-2          { z-index: 2; }
+
+/* ══════════════════════════════════════════════════
+   §8 — ANIMATIONS
+   ══════════════════════════════════════════════════ */
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modalIn { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes dropIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+
+/* §SIGNATURE — The one motion. The amber-wash bloom on initial app
+   mount is the product's defining moment: a quick warm-up of the
+   atmosphere itself, suggesting the terminal lighting up. Plays
+   once, applied to body via .dv-mounted (set by app.js after first
+   render) so it can't fight reduced-motion (see §9 below). */
+@keyframes dv-bloom {
+  0%   { opacity: 0;   transform: scale(0.92); }
+  60%  { opacity: 1;   transform: scale(1.02); }
+  100% { opacity: 0.85;transform: scale(1); }
+}
+body.dv-mounted::before {
+  animation: dv-bloom var(--dur-delight) var(--ease-spring) forwards;
+}
+
+/* §STAGGER — choreographed list entrances (per §STAGGER skill).
+   Apply via .stagger-in to children of a list. Total cap 150ms so
+   long lists don't drag. Used by branch-row / repo-card on render. */
+.stagger-in { opacity: 0; transform: translateY(8px); animation: dv-stagger 220ms var(--ease-physical) forwards; }
+.stagger-in:nth-child(1) { animation-delay:   0ms; }
+.stagger-in:nth-child(2) { animation-delay:  40ms; }
+.stagger-in:nth-child(3) { animation-delay:  80ms; }
+.stagger-in:nth-child(4) { animation-delay: 120ms; }
+.stagger-in:nth-child(n+5) { animation-delay: 150ms; }
+@keyframes dv-stagger { to { opacity: 1; transform: translateY(0); } }
+
+/* ══════════════════════════════════════════════════
+   §9 — REDUCED MOTION + RESPONSIVE
+   ══════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 600px) {
+  :root { --sp: 6px; }
+  button { min-height: 44px; }
+  .bs { min-height: 36px; }
+  .dd-item { min-height: 44px; }
+  .chip { min-height: 36px; }
+  .topbar { padding: 8px 10px; }
+  button { font-size: 12px; padding: 8px 12px; }
+  .bs { padding: 6px 8px; font-size: 11px; }
+  .bp { padding: 8px 14px; }
+  .card { padding: 12px; }
+  .btag { font-size: 10px; padding: 2px 6px; }
+  .chip { font-size: 10px; padding: 4px 10px; }
+  .modal { padding: 14px; max-width: 100%; }
+  .stats-bar { gap: 14px; }
+  .stat-num { font-size: 18px; }
+  .branch-row { padding: 10px 12px; gap: 8px; }
+  body::before { display: none; }
+  .container { padding: 16px 12px; }
+  .container-sm { padding: 16px 12px; }
+  .container-xs { padding: 60px 16px; }
+  .setup-page { padding: 60px 16px; }
+  .dashboard-page { padding: 16px 12px; }
+  .mcp-page { padding: 16px 12px; }
+  .add-repo-page { padding: 16px 12px; }
+  .page-header { gap: 8px; margin-bottom: 16px; }
+  .preview-controls { padding: 8px 10px; gap: 8px; }
+  /* iOS Safari force-zooms when a focused input has font-size < 16px,
+     yanking the layout around the user. Bump form fields to 16px on
+     mobile so focus is silent. */
+  input, select, textarea { font-size: 16px; }
+}
+
+/* ══════════════════════════════════════════════════
+   §TUNNEL — HTTPS tunnel panel (MCP settings)
+   ══════════════════════════════════════════════════ */
+.tunnel-url-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+.tunnel-url {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ok);
+  word-break: break-all;
+}
+.tunnel-start-btn,
+.tunnel-stop-btn {
+  margin-top: 10px;
+  font-size: 13px;
+}
+.color-err { color: var(--err); }
+.color-ok  { color: var(--ok);  }
+/* --warn is hue 55 orange, visually distinct from --accent (hue 75 amber).
+   Use for non-critical caution states (e.g. bundle-size growth, deprecation). */
+.color-warn { color: var(--warn); }
+
+/* ══════════════════════════════════════════════════
+   §APK-WD — APK working-directory input row
+   ══════════════════════════════════════════════════ */
+.apk-wd-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 0 6px;
+  border-top: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.apk-wd-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tx2);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.apk-wd-input {
+  background: var(--sf2);
+  border: 1px solid var(--border-h);
+  border-radius: var(--r-input);
+  color: var(--tx1);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 6px 10px;
+  outline: none;
+  transition: border-color var(--dur-micro) var(--ease-fast);
+}
+.apk-wd-input:focus { border-color: var(--accent); }
+.apk-wd-hint {
+  font-size: 11px;
+  color: var(--tx3);
+}
+
+/* ══════════════════════════════════════════════════
+   §8 — TOAST NOTIFICATIONS
+   ══════════════════════════════════════════════════ */
+.toast-container {
+  position: fixed;
+  top: 56px;
+  right: 16px;
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  padding: 10px 32px 10px 16px;
+  border-radius: var(--r-card);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--tx1);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-lg);
+  animation: toastIn 200ms var(--ease-physical) forwards;
+  pointer-events: auto;
+  max-width: 340px;
+  border-left: 3px solid var(--accent);
+  position: relative;
+}
+.toast-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  background: transparent;
+  border: 0;
+  color: var(--tx2);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.toast-close:hover { color: var(--tx1); background: oklch(91% 0.012 var(--hue-text) / 0.06); }
+.toast-success {
+  background: var(--ok-bg-h);
+  border-left-color: var(--ok);
+}
+.toast-error {
+  background: var(--err-dim);
+  border-left-color: var(--err);
+}
+.toast-info {
+  background: var(--run-bg-h);
+  border-left-color: var(--run);
+}
+.toast-exit {
+  animation: toastOut 300ms var(--ease-fast) forwards;
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(20px) scale(0.95); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+@keyframes toastOut {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(40px); }
+}
+
+/* ══════════════════════════════════════════════════
+   §9 — BUILD DURATION BADGE
+   ══════════════════════════════════════════════════ */
+.duration-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: var(--sf2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums; /* numbers don't jitter on update */
+  color: var(--tx3);
+  border: 1px solid var(--border);
+}
+
+/* ══════════════════════════════════════════════════
+   §10 — KEYBOARD SHORTCUT HINTS
+   ══════════════════════════════════════════════════ */
+.kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--sf2);
+  border: 1px solid var(--border-h);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--tx3);
+  line-height: 1.4;
+  vertical-align: middle;
+}
+
+/* ══════════════════════════════════════════════════
+   §11 — COMMIT SHA BADGE
+   ══════════════════════════════════════════════════ */
+.sha-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: var(--sf2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums slashed-zero; /* slashed 0 distinguishes from O */
+  color: var(--tx3);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: color var(--dur-micro) var(--ease-fast), border-color var(--dur-micro) var(--ease-fast);
+}
+.sha-badge:hover {
+  color: var(--accent);
+  border-color: var(--border-accent);
+}
+
+/* ══════════════════════════════════════════════════
+   §12 — RESPONSIVE
+   ══════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════
+   §13 — TOPBAR ICONS & PILLS
+   ══════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════
+   §13.1 — TOPBAR ICONS — every state explicit
+   ──────────────────────────────────────────────────
+   32×32 square icon buttons in the right-side nav. Active state
+   uses 3 cues per §NAVIGATION (color + bg + bottom indicator).
+   ══════════════════════════════════════════════════ */
+.topbar-icon {
+  /* Rest */
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px; height: 32px;
+  border-radius: var(--r-btn);
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--tx3);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 0;
+  transition: background-color var(--dur-micro) var(--ease-fast),
+              border-color var(--dur-micro) var(--ease-fast),
+              color var(--dur-micro) var(--ease-fast),
+              transform var(--dur-micro) var(--ease-fast);
+}
+.topbar-icon:hover {
+  background: var(--sf2);
+  color: var(--tx1);
+  border-color: var(--border-h);
+}
+.topbar-icon:active {
+  background: var(--sf3);
+  transform: translateY(1px) scale(0.94);
+  transition-duration: 50ms;
+}
+.topbar-icon:focus-visible {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+.topbar-icon-active {
+  /* Active — 3-cue: accent color + accent-dim bg + bottom indicator */
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.topbar-icon-active::after {
+  content: '';
+  position: absolute;
+  left: 8px; right: 8px;
+  bottom: -5px;
+  height: 2px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-mid);
+}
+
+/* §13.2 — Topbar pill (HTTPS tunnel indicator). Slightly larger than
+   status pills — sits in the topbar where 9px reads as illegible. */
+.topbar-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+.topbar-pill-ok {
+  background: var(--ok-dim);
+  color: var(--ok);
+  border: 1px solid var(--ok-border);
+  /* Subtle pulse to suggest 'live link active' without becoming
+     attention-demanding. Plays once per page load via the body
+     dv-mounted gate. */
+  box-shadow: 0 0 8px oklch(64% 0.118 var(--hue-ok) / 0.3);
+}
+
+/* ══════════════════════════════════════════════════
+   §14 — SETTINGS PAGE
+   ══════════════════════════════════════════════════ */
+.settings-page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: calc(var(--sp) * 3) calc(var(--sp) * 2.5);
+}
+.settings-section {
+  margin-bottom: calc(var(--sp) * 4);
+}
+.settings-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tx2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-family: var(--font-mono);
+  margin-bottom: calc(var(--sp) * 1.5);
+  padding-bottom: calc(var(--sp));
+  border-bottom: 1px solid var(--border);
+}
+.settings-key-row {
+  background: var(--sf1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  padding: calc(var(--sp) * 1.5) calc(var(--sp) * 2);
+  margin-bottom: var(--sp);
+  transition: border-color var(--dur-micro) var(--ease-fast);
+}
+.settings-key-row:hover { border-color: var(--border-h); }
+.settings-key-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--tx1);
+}
+.settings-masked {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--tx3);
+  letter-spacing: 0.02em;
+}
+/* Secret-age indicator — neutral when fresh, accent-warning when
+   the secret has been around > 90 days. The 'rotate?' suffix is
+   advisory; the user can ignore it without blocking work. */
+.settings-age {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--tx3);
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.settings-age-stale {
+  color: var(--accent);
+  border-color: var(--border-accent);
+  background: var(--accent-dim);
+}
+.settings-hint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--tx3);
+  line-height: 1.5;
+  margin-top: 2px;
+}
+.settings-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+.settings-link:hover { text-decoration: underline; }
+.settings-divider-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--tx3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: calc(var(--sp) * 2);
+  margin-bottom: var(--sp);
+}
+.settings-chip-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.settings-add-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.settings-bulk {
+  background: var(--sf1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  padding: calc(var(--sp) * 2);
+}
+.settings-bulk-textarea {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+}
+.settings-url {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent);
+  word-break: break-all;
+}
+.settings-actions-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.settings-actions-grid a {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+.settings-about-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.settings-about-label {
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.settings-about-value {
+  color: var(--tx1);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ══════════════════════════════════════════════════
+   §3.7 — STATUS PILLS — semantic indicators
+   ──────────────────────────────────────────────────
+   Tiny mono pill for status/state labels next to repos, branches,
+   webhooks, DNS, etc. Six semantic variants, each tied to a palette
+   color. Smaller than chips (no interactivity assumed). When clickable,
+   add .pill-clickable.
+   ══════════════════════════════════════════════════ */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+  font-family: var(--font-mono);
+  font-size: 10px;            /* +1 from previous 9px — was sub-legible */
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  border: 1px solid transparent; /* reserved space so variants can border without jumping */
+  white-space: nowrap;
+}
+
+/* Semantic variants — each carries the same hue family as its
+   corresponding semantic color token, so .pill-err is unmistakably
+   in the err family at thumbnail size. */
+.pill-ok   { background: var(--ok-dim);     color: var(--ok);     border-color: var(--ok-border); }
+.pill-err  { background: var(--err-dim);    color: var(--err);    border-color: var(--err-border); }
+.pill-warn { background: var(--accent-dim); color: var(--accent); border-color: var(--border-accent); }
+.pill-info { background: var(--run-dim);    color: var(--run);    border-color: oklch(63% 0.115 var(--hue-run) / 0.20); }
+.pill-muted{ background: var(--sf2);        color: var(--tx3);    border-color: var(--border); }
+.pill-acc  { background: var(--accent);     color: var(--bg);     border-color: var(--accent); }
+
+/* Clickable pill (used by branch-row signal pill — opens log/errors). */
+.pill-clickable {
+  cursor: pointer;
+  border: 1px solid transparent; /* override the variant border so click affordance reads cleanly */
+  transition: filter var(--dur-micro) var(--ease-fast), box-shadow var(--dur-micro) var(--ease-fast);
+}
+.pill-clickable:hover { filter: brightness(1.15); box-shadow: 0 0 12px currentColor; }
+.pill-clickable:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px currentColor, 0 0 14px currentColor;
+}
+
+@media (max-width: 640px) {
+  .container { padding: 12px 10px; }
+  .branch-row { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .branch-actions { width: 100%; justify-content: flex-start; }
+  .stats-bar { gap: 12px; flex-wrap: wrap; }
+  .topbar { padding: 8px 10px; }
+  .preview-controls { flex-wrap: wrap; }
+  .toast-container { left: 10px; right: 10px; }
+  .toast { max-width: none; }
+}
+
+/* ── Command palette ───────────────────────────────────────────────── */
+.palette-bg { align-items: flex-start; padding-top: 12vh; }
+.palette-modal {
+  max-width: 640px; padding: 0; overflow: hidden; width: 100%;
+}
+.palette-input {
+  width: 100%; box-sizing: border-box; border: 0; outline: none;
+  background: transparent; color: var(--tx1);
+  font-size: 16px; padding: 18px 20px;
+  border-bottom: 1px solid var(--border-h);
+}
+.palette-input::placeholder { color: var(--tx3); }
+.palette-list { max-height: 56vh; overflow-y: auto; padding: 6px; }
+.palette-empty { padding: 32px 20px; text-align: center; color: var(--tx3); font-size: 13px; }
+.palette-section {
+  padding: 10px 14px 4px; font-size: 10px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--tx3);
+}
+.palette-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 10px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid transparent;
+}
+.palette-row-active, .palette-row:hover {
+  background: var(--accent-dim); border-color: var(--accent-mid);
+}
+.palette-row-label { color: var(--tx1); font-size: 14px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-row-hint  { color: var(--tx3); font-size: 11px; font-family: var(--font-mono); }
+.palette-footer {
+  padding: 10px 16px; border-top: 1px solid var(--border-h);
+  color: var(--tx3); font-size: 11px; font-family: var(--font-mono);
+}
+
+/* ── Shortcuts overlay ─────────────────────────────────────────────── */
+.shortcuts-grid {
+  display: grid; grid-template-columns: auto 1fr; gap: 10px 16px;
+  margin: 8px 0 4px;
+}
+.shortcut-key {
+  font-family: var(--font-mono); font-size: 11px;
+  background: var(--sf2); color: var(--tx1);
+  padding: 3px 8px; border-radius: 4px;
+  border: 1px solid var(--border-h);
+  justify-self: start;
+}
+.shortcut-desc { color: var(--tx2); font-size: 13px; align-self: center; }
+
+/* ── Dashboard multi-select ────────────────────────────────────────── */
+.branch-check {
+  width: 16px; height: 16px; border: 1px solid var(--border-h);
+  border-radius: 3px; background: var(--bg-deep); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 16px;
+}
+.branch-check.on {
+  background: var(--accent-dim); border-color: var(--accent);
+  color: var(--accent);
+}
+.branch-check.on::after { content: "✓"; font-size: 11px; }
+.bulk-bar {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; margin: 0 0 12px;
+  background: var(--accent-dim); border: 1px solid var(--accent-mid);
+  border-radius: var(--r-modal); color: var(--accent);
+  font-size: 13px; font-weight: 500;
+}
+.bulk-bar-sep { flex: 1; }
+
+/* ── Branch thumbnail (auto-captured after successful build) ───────── */
+.branch-thumb {
+  width: 72px; height: 48px; object-fit: cover;
+  border: 1px solid var(--border-h); border-radius: 4px;
+  background: var(--bg-deep); cursor: pointer;
+  transition: transform 0.12s var(--ease-fast), border-color 0.12s;
+  flex: 0 0 auto;
+}
+.branch-thumb:hover {
+  border-color: var(--accent); transform: scale(1.03);
+}
+
+/* ── Compare-branch fuzzy picker ──────────────────────────────────── */
+.compare-picker { position: relative; display: inline-flex; gap: 4px; align-items: center; }
+.compare-picker-input {
+  padding: 4px 8px; font-size: 12px; width: 220px;
+  background: var(--sf1); border: 1px solid var(--border-h); color: var(--tx1);
+  border-radius: 4px; outline: none;
+}
+.compare-picker-input:focus { border-color: var(--accent); }
+.compare-picker-list {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 80;
+  min-width: 260px; max-height: 320px; overflow-y: auto;
+  background: var(--sf1); border: 1px solid var(--border-h); border-radius: 6px;
+  box-shadow: var(--shadow-md);
+  display: none; padding: 4px;
+}
+.compare-picker-list.on { display: block; }
+.compare-picker-item {
+  padding: 6px 10px; border-radius: 4px; cursor: pointer;
+  display: flex; justify-content: space-between; gap: 8px; align-items: center;
+  color: var(--tx1); font-size: 12px;
+}
+.compare-picker-item:hover, .compare-picker-item.on { background: var(--accent-dim); color: var(--accent); }
+.compare-picker-status {
+  font-family: var(--font-mono); font-size: 10px; color: var(--tx3);
+  padding: 1px 6px; border-radius: var(--r-pill); border: 1px solid var(--border);
+}
+.compare-picker-ready   { color: var(--ok); border-color: var(--ok-dim); }
+.compare-picker-running { color: var(--run); border-color: var(--run-dim); }
+.compare-picker-building { color: var(--accent); border-color: var(--accent-mid); }
+.compare-picker-error   { color: var(--err); border-color: var(--err-dim); }
+.compare-picker-empty   { padding: 10px; color: var(--tx3); font-size: 12px; text-align: center; }
+.compare-picker-clear {
+  font-size: 11px; padding: 4px 8px;
+}
+
+/* ── Auto-diff pill (delta vs. previous build) ─────────────────────── */
+.diff-badge {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  padding: 2px 7px; border-radius: var(--r-pill);
+  border: 1px solid var(--border); cursor: pointer;
+  margin-left: 4px; white-space: nowrap;
+}
+.diff-badge-none   { color: var(--tx3); border-color: var(--border); }
+.diff-badge-small  { color: var(--ok);  border-color: var(--ok-dim); background: var(--ok-dim); }
+.diff-badge-medium { color: var(--accent); border-color: var(--accent-mid); background: var(--accent-dim); }
+.diff-badge-large  { color: var(--err); border-color: var(--err-dim); background: var(--err-dim); }
+
+/* ── Framework detection badge ─────────────────────────────────────── */
+.detect-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 6px;
+  background: var(--accent-dim); border: 1px solid var(--accent-mid);
+  color: var(--accent); font-size: 12px;
+}
+.detect-badge strong { color: var(--tx1); font-weight: 600; }
+.detect-badge-icon { font-size: 13px; }
+.detect-badge-meta { color: var(--tx3); font-size: 11px; font-family: var(--font-mono); }
+
+/* ── Modal empty states ────────────────────────────────────────────── */
+/* Used by the log modal when a branch has not been built yet, or any
+   modal that needs to communicate "nothing here yet, here's why."
+   Same chrome family as `.frame-empty` but tuned for in-modal copy. */
+.modal-empty {
+  padding: var(--sp-2xl) var(--sp-lg);
+  text-align: center;
+  color: var(--tx2);
+  font-family: var(--font-ui);
+}
+.modal-empty-title {
+  color: var(--tx1);
+  font-size: var(--text-md);
+  font-weight: 500;
+  margin-bottom: var(--sp-sm);
+}
+.modal-empty-body {
+  color: var(--tx3);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  max-width: 360px;
+  margin: 0 auto;
+}
+
+/* ── Inline SVG icons (DV.iconEl) ──────────────────────────────────── */
+/* Wraps the DV.iconEl(name) <span>. Inherits currentColor so accent /
+   error / ghost button variants colour the stroke automatically. */
+.dv-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;        /* prevent vertical jitter inside text-aligned buttons */
+}
+.dv-icon svg { display: block; }
+
+/* ── Tabular numerics across the dashboard chrome ──────────────────── */
+.frame-info-badge,
+.compare-picker-status,
+.diff-badge,
+.shortcut-key,
+.kbd { font-variant-numeric: tabular-nums; }
+
+/* ── Reduced-motion guard (a11y) ───────────────────────────────────── */
+/* Users who set OS-level reduced motion get a near-instant version of
+   every animation/transition. Status pulses, modal entrances, palette
+   stagger, MJPEG flicker — all neutralised. Keeps the design intent
+   (state changes still render) without vestibular triggers. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

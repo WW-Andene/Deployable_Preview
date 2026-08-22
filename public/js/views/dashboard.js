@@ -1,0 +1,657 @@
+(function(){
+var S = DV.S, el = DV.el, api = DV.api, statusClass = DV.statusClass;
+
+// ── Multi-select helpers (exposed on DV for the keyboard handler) ──
+function rowKey(owner, repo, slug) { return owner + "/" + repo + ":" + slug; }
+function selectedKeys() { return Object.keys(S.selectedRows || {}).filter(function(k){ return S.selectedRows[k]; }); }
+function clearSelection() { S.selectedRows = {}; }
+
+DV._selectAllBranches = function() {
+  var any = false;
+  for (var i = 0; i < (S.repos || []).length; i++) {
+    var r = S.repos[i], slugs = Object.keys(r.branchStatuses || {});
+    for (var j = 0; j < slugs.length; j++) {
+      var k = rowKey(r.owner, r.repo, slugs[j]);
+      if (!S.selectedRows[k]) { S.selectedRows[k] = true; any = true; }
+    }
+  }
+  if (!any) clearSelection(); // toggle off if everything was already selected
+  DV.render();
+};
+DV._rebuildSelectedBranches = function() {
+  var keys = selectedKeys();
+  if (!keys.length) { DV.showToast("Nothing selected", "info"); return; }
+  if (!confirm("Rebuild " + keys.length + " selected branch" + (keys.length === 1 ? "" : "es") + "?")) return;
+  for (var i = 0; i < keys.length; i++) {
+    var parts = keys[i].split(":");
+    var ownerRepo = parts[0].split("/");
+    api("POST", "/api/build/" + ownerRepo[0] + "/" + ownerRepo[1] + "?slug=" + encodeURIComponent(parts[1]));
+  }
+  DV.showToast("Rebuilding " + keys.length + " branch" + (keys.length === 1 ? "" : "es") + "…", "info");
+  clearSelection();
+  DV.loadRepos();
+};
+DV._stopSelectedBranches = function() {
+  var keys = selectedKeys();
+  if (!keys.length) return;
+  for (var i = 0; i < keys.length; i++) {
+    var parts = keys[i].split(":");
+    var ownerRepo = parts[0].split("/");
+    api("POST", "/api/stop/" + ownerRepo[0] + "/" + ownerRepo[1] + "?slug=" + encodeURIComponent(parts[1]));
+  }
+  DV.showToast("Stopping " + keys.length + "…", "info");
+  clearSelection();
+  DV.loadRepos();
+};
+
+function timeAgo(ts) {
+  if (!ts) return "";
+  var diff = Math.floor((Date.now() - ts) / 1000);
+  if (diff < 5) return "just now";
+  if (diff < 60) return diff + "s ago";
+  if (diff < 3600) return Math.floor(diff / 60) + "m ago";
+  if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
+  return Math.floor(diff / 86400) + "d ago";
+}
+
+function btagClass(status) {
+  return "btag btag-" + (status === "ready" ? "ready" : status === "running" ? "running" : status === "building" ? "building" : status === "error" ? "error" : "idle");
+}
+function rowClass(status) {
+  return "branch-row stagger-in branch-row-" + (status === "ready" ? "ready" : status === "running" ? "running" : status === "building" ? "building" : status === "error" ? "error" : "idle");
+}
+
+DV.views.dashboard = function(app) {
+  var ct = el("div", { c: "container" });
+
+  if (!S.repos.length) {
+    ct.appendChild(el("div", { c: "loading-view" }, [
+      el("div", { c: "brand-monogram" }, "DV"),
+      el("h2", { c: "page-title" }, "Deploy your first app"),
+      el("p", { c: "preview-empty-text mb-32" }, "Pick a repo, choose branches, and DeployView handles the rest \u2014 clone, build, serve, auto-rebuild on push."),
+      el("button", { c: "bp p-10-28 text-14", on: { click: function() { DV.openAddRepo(); } } }, "+ Add Repository")
+    ]));
+  } else {
+    var totalBranches = 0, readyCount = 0, buildingCount = 0, errorCount = 0;
+    for (var ri = 0; ri < S.repos.length; ri++) {
+      var bs = S.repos[ri].branchStatuses || {};
+      for (var k in bs) {
+        totalBranches++;
+        if (bs[k].status === "ready" || bs[k].status === "running") readyCount++;
+        else if (bs[k].status === "building") buildingCount++;
+        else if (bs[k].status === "error") errorCount++;
+      }
+    }
+    // Search/filter bar + a manual Refresh button. Pull-to-refresh
+    // covers mobile; desktop users had no way to force a reload.
+    var searchRow = el("div", { c: "flex-row gap-8 mb-12" });
+    if (S.repos.length > 2) {
+      var searchInput = document.createElement("input");
+      searchInput.className = "flex-1";
+      searchInput.id = "dashboard-search";  // for focus restoration across renders
+      searchInput.placeholder = "Filter repos & branches...";
+      searchInput.value = S.dashboardFilter || "";
+      searchInput.addEventListener("input", function(e) {
+        S.dashboardFilter = e.target.value;
+        DV.render();
+      });
+      searchRow.appendChild(searchInput);
+    } else {
+      searchRow.appendChild(el("div", { c: "flex-1" }));
+    }
+    var refreshBtn = el("button", {
+      c: "bg bs",
+      attr: { title: "Reload repos & build statuses", "aria-label": "Refresh dashboard" },
+      on: { click: function() {
+        var b = this; b.disabled = true; var orig = b.textContent; b.textContent = "…";
+        DV.loadRepos();
+        setTimeout(function(){ b.disabled = false; b.textContent = orig; }, 600);
+      } }
+    }, "↻");
+    searchRow.appendChild(refreshBtn);
+    ct.appendChild(searchRow);
+
+    // Stats bar — Repos / Branches / Ready always show. Building +
+    // Failed only show when non-zero (transient state, not worth a
+    // permanent slot). Stats are also filter chips: clicking a status
+    // tile (Ready / Building / Failed) toggles a status filter so
+    // users with many branches can triage by state instead of scanning.
+    var statsBar = el("div", { c: "stats-bar" });
+    function statTile(num, label, statusFilter, colorClass) {
+      var active = statusFilter && S.dashboardStatusFilter === statusFilter;
+      var attrs = statusFilter
+        ? { role: "button", tabindex: "0", "aria-pressed": active ? "true" : "false", title: active ? "Click to clear status filter" : "Filter to " + label.toLowerCase() }
+        : {};
+      var on = statusFilter
+        ? { click: function() { S.dashboardStatusFilter = active ? null : statusFilter; DV.render(); }, keydown: function(e) { if (e.key === " " || e.key === "Enter") { e.preventDefault(); S.dashboardStatusFilter = active ? null : statusFilter; DV.render(); } } }
+        : null;
+      var props = { c: "stat-item" + (statusFilter ? " stat-item-clickable" : "") + (active ? " stat-item-active" : ""), attr: attrs };
+      if (on) props.on = on;
+      return el("div", props, [
+        el("span", { c: "stat-num" + (colorClass ? " " + colorClass : "") }, num),
+        el("span", { c: "stat-label" }, label)
+      ]);
+    }
+    statsBar.appendChild(statTile(S.repos.length, "Repos", null, null));
+    statsBar.appendChild(statTile(totalBranches, "Branches", null, null));
+    if (readyCount)    statsBar.appendChild(statTile(readyCount,    "Ready",    "ready",    "color-ok"));
+    if (buildingCount) statsBar.appendChild(statTile(buildingCount, "Building", "building", "color-accent"));
+    if (errorCount)    statsBar.appendChild(statTile(errorCount,    "Failed",   "error",    "color-err"));
+    ct.appendChild(statsBar);
+
+    // Bulk action bar — appears when 1+ branches selected
+    var selCount = selectedKeys().length;
+    if (selCount > 0) {
+      var bar = el("div", { c: "bulk-bar" }, [
+        el("span", {}, selCount + " selected"),
+        el("span", { c: "bulk-bar-sep" }),
+        el("button", { c: "bg bs", on: { click: DV._rebuildSelectedBranches } }, "Rebuild (b)"),
+        el("button", { c: "bg bs", on: { click: DV._stopSelectedBranches } }, "Stop"),
+        el("button", { c: "bg bs", on: { click: function(){ clearSelection(); DV.render(); } } }, "Clear")
+      ]);
+      ct.appendChild(bar);
+    }
+
+    var filteredRepos = S.repos;
+    // Status-filter is a list of equivalent statuses to match (so the
+    // 'Ready' tile catches both 'ready' and 'running' since both
+    // represent live previews).
+    var statusFilter = S.dashboardStatusFilter;
+    var statusGroup = statusFilter === "ready" ? ["ready", "running"]
+                    : statusFilter === "building" ? ["building", "queued"]
+                    : statusFilter === "error" ? ["error"]
+                    : null;
+    if (S.dashboardFilter || statusGroup) {
+      var q = (S.dashboardFilter || "").toLowerCase();
+      filteredRepos = S.repos.filter(function(r) {
+        var bs = r.branchStatuses || {};
+        var slugs = Object.keys(bs);
+        // Status filter: keep the repo only if at least one branch
+        // matches one of the requested statuses.
+        if (statusGroup) {
+          var anyMatch = slugs.some(function(k) { return statusGroup.indexOf(bs[k].status) !== -1; });
+          if (!anyMatch) return false;
+        }
+        if (!q) return true;
+        if ((r.owner + "/" + r.repo).toLowerCase().indexOf(q) !== -1) return true;
+        for (var k in bs) { if ((bs[k].branch || k).toLowerCase().indexOf(q) !== -1) return true; }
+        return false;
+      });
+    }
+
+    for (var i = 0; i < filteredRepos.length; i++) {
+      (function(repo) {
+        var card = el("div", { c: "card" });
+
+        var header = el("div", { c: "repo-header" });
+        var headerLeft = el("div", {});
+        headerLeft.appendChild(el("h3", {}, repo.owner + "/" + repo.repo));
+        if (repo.description) headerLeft.appendChild(el("p", { c: "repo-meta" }, repo.description));
+        headerLeft.appendChild(el("p", { c: "repo-meta" }, (repo.buildCommand || "npm run build") + " \u2192 " + (repo.outputDir || "dist")));
+        header.appendChild(headerLeft);
+        var headerRight = el("div", { c: "flex-row gap-6 items-center" });
+        // K7: README peek. Toggle expands a markdown render of the
+        // repo's README inside the card.
+        headerRight.appendChild(el("button", {
+          c: "bg bs", attr: { title: "Show README", "aria-pressed": (S._readmeOpen||{})[repo.owner+"/"+repo.repo] ? "true" : "false" },
+          on: { click: function() {
+            S._readmeOpen = S._readmeOpen || {};
+            var k = repo.owner + "/" + repo.repo;
+            S._readmeOpen[k] = !S._readmeOpen[k];
+            DV.render();
+          } }
+        }, "📖"));
+        // I2: auto PR previews toggle. When ON, GitHub pull_request
+        // webhook events auto-add the head branch as pr-<N> + build it,
+        // and remove it on close. Off by default.
+        headerRight.appendChild(el("button", {
+          c: "bg bs",
+          attr: {
+            title: "Auto preview every PR (uses pull_request webhook)",
+            "aria-pressed": repo.autoPRPreviews ? "true" : "false"
+          },
+          on: { click: function() {
+            var next = !repo.autoPRPreviews;
+            api("PATCH", "/api/repos/" + repo.owner + "/" + repo.repo, { autoPRPreviews: next }).then(function(r) {
+              if (r.error) { DV.showToast(r.error, "error"); return; }
+              repo.autoPRPreviews = next;
+              DV.showToast("Auto-PR previews " + (next ? "enabled" : "disabled"), "success");
+              // When turning ON, verify WEBHOOK_SECRET is set — without
+              // it the inbound /api/webhook handler 403s every event,
+              // so Auto-PR is silently inert. Telling the user at
+              // toggle time closes the gap between intent and effect.
+              if (next) {
+                fetch("/api/secrets").then(function(s){ return s.json(); }).then(function(secrets){
+                  var hasSecret = (secrets || []).some(function(k){ return k.key === "WEBHOOK_SECRET" && k.hasValue; });
+                  if (!hasSecret) {
+                    DV.showToast("Auto-PR enabled, but WEBHOOK_SECRET is not set — GitHub webhooks will be rejected. Add it in Settings → API Keys.", "error");
+                  }
+                }).catch(function(){});
+              }
+              DV.render();
+            }).catch(function(e) { DV.showToast("Toggle failed: " + ((e && e.message) || "network"), "error"); });
+          } }
+        }, repo.autoPRPreviews ? "✓ Auto-PR" : "Auto-PR off"));
+        headerRight.appendChild(el("button", { c: "bd bs", attr: { title: "Delete " + repo.owner + "/" + repo.repo, "aria-label": "Delete " + repo.owner + "/" + repo.repo } , on: { click: function() {
+          // Surface live-state in the confirm so a delete that's
+          // about to stop running processes / kill ports / orphan
+          // history isn't quietly destructive.
+          var bsAll = repo.branchStatuses || {};
+          var slugList = Object.keys(bsAll);
+          var running = slugList.filter(function(k){ var s = bsAll[k] && bsAll[k].status; return s === "running" || s === "building"; });
+          var prompt = "Delete " + repo.owner + "/" + repo.repo + "?";
+          prompt += "\n\n• " + slugList.length + " branch" + (slugList.length === 1 ? "" : "es") + " will be removed";
+          if (running.length) {
+            prompt += "\n• " + running.length + " running/building branch" + (running.length === 1 ? "" : "es") + " will be stopped: " + running.slice(0, 3).join(", ") + (running.length > 3 ? ", …" : "");
+          }
+          prompt += "\n• Workspace clones + build history will be deleted";
+          prompt += "\n\nThis cannot be undone.";
+          if (!confirm(prompt)) return;
+          api("DELETE", "/api/repos/" + repo.owner + "/" + repo.repo).then(function(r) {
+            if (r && r.error) { DV.showToast("Delete failed: " + r.error, "error"); return; }
+            DV.showToast("Deleted " + repo.owner + "/" + repo.repo, "info");
+            DV.loadRepos();
+          }).catch(function(e) { DV.showToast("Delete failed: " + ((e && e.message) || "network"), "error"); });
+        } } }, "x"));
+        header.appendChild(headerRight);
+        card.appendChild(header);
+
+        // K7: collapsible README. Cached client-side per-render — first
+        // expand fetches /api/github/.../readme, second is instant.
+        S._readmeOpen = S._readmeOpen || {};
+        S._readmeMd   = S._readmeMd   || {};
+        var rk0 = repo.owner + "/" + repo.repo;
+        if (S._readmeOpen[rk0]) {
+          var rwrap = el("div", { c: "repo-readme-wrap" });
+          if (S._readmeMd[rk0] === undefined) {
+            rwrap.appendChild(el("div", { c: "color-tx3 text-12" }, "Loading README…"));
+            api("GET", "/api/github/" + repo.owner + "/" + repo.repo + "/readme").then(function(r) {
+              S._readmeMd[rk0] = (r && r.md) || "";
+              DV.render();
+            }).catch(function(){ S._readmeMd[rk0] = ""; DV.render(); });
+          } else if (!S._readmeMd[rk0]) {
+            rwrap.appendChild(el("div", { c: "color-tx3 text-12" }, "No README found in repo root."));
+          } else {
+            var body = document.createElement("div");
+            body.className = "repo-readme-body";
+            body.innerHTML = (window.DV && DV.md ? DV.md.render(S._readmeMd[rk0]) : "");
+            rwrap.appendChild(body);
+          }
+          card.appendChild(rwrap);
+        }
+
+        var slugs = Object.keys(repo.branchStatuses || {});
+        for (var j = 0; j < slugs.length; j++) {
+          (function(slug) {
+            var bs = repo.branchStatuses[slug] || { status: "idle" };
+            var branchName = bs.branch || slug;
+            var branchBaseDir = bs.baseDir || "";
+            var branchMode = bs.mode || "static";
+            var label = branchName + (branchBaseDir ? " \u2192 " + branchBaseDir : "") + (branchMode === "server" ? " [server]" : "");
+            var previewUrl = "/preview/" + repo.owner + "/" + repo.repo + "/" + slug + "/";
+            var isLive = bs.status === "ready" || bs.status === "running";
+
+            var row = el("div", { c: rowClass(bs.status) });
+
+            if (bs.status === "building") {
+              row.appendChild(el("div", { c: "dv-loading branch-loading" }));
+            }
+
+            // Checkbox for multi-select
+            var rk = rowKey(repo.owner, repo.repo, slug);
+            var checked = !!S.selectedRows[rk];
+            row.appendChild(el("div", {
+              c: "branch-check" + (checked ? " on" : ""),
+              attr: { title: "Select for bulk action", "aria-label": "Select " + label + " for bulk action", role: "checkbox", "aria-checked": S.selectedRows[rk] ? "true" : "false", tabindex: "0" },
+              on: {
+                click: function(e) {
+                  e.stopPropagation();
+                  if (S.selectedRows[rk]) delete S.selectedRows[rk]; else S.selectedRows[rk] = true;
+                  DV.render();
+                },
+                // G3-001: keyboard-toggle support (Space / Enter)
+                keydown: function(e) {
+                  if (e.key !== " " && e.key !== "Enter") return;
+                  e.preventDefault();
+                  if (S.selectedRows[rk]) delete S.selectedRows[rk]; else S.selectedRows[rk] = true;
+                  DV.render();
+                }
+              }
+            }));
+
+            var info = el("div", { c: "branch-info" }, [
+              // G1-002: status conveyed by aria-label, not just colour
+              el("span", { c: statusClass(bs.status), attr: { role: "img", "aria-label": "Status: " + (bs.status || "idle") } }),
+              el("span", { c: btagClass(bs.status) }, label)
+            ]);
+            if (bs.hasThumb) {
+              var thumb = document.createElement("img");
+              thumb.className = "branch-thumb";
+              thumb.src = "/api/thumb/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug) + "&t=" + (bs.thumbAt || 0);
+              thumb.alt = "preview of " + label;
+              thumb.title = "Latest preview — click to open";
+              // Defer offscreen thumb loads — a dashboard with N repos × M
+              // branches otherwise fires N×M PNG fetches at first render
+              // even for rows the user has to scroll to. Decoding async
+              // keeps the main thread free during the heavy initial paint.
+              thumb.loading = "lazy";
+              thumb.decoding = "async";
+              thumb.width = 72; thumb.height = 48;
+              thumb.addEventListener("click", (function(r2, s2){ return function(){
+                S.activeRepo = r2; S.activeBranch = s2; S.compareMode = false; S.compareBranch = ""; S.view = "preview"; DV.render();
+              }; })(repo, slug));
+              info.insertBefore(thumb, info.firstChild);
+            }
+            // Auto-diff pill: shows pixel change vs. previous build's thumb.
+            if (bs.diff && typeof bs.diff.percent === "number") {
+              var pct = bs.diff.percent;
+              var diffCls = pct < 0.5 ? "diff-badge diff-badge-none"
+                          : pct < 5  ? "diff-badge diff-badge-small"
+                          : pct < 20 ? "diff-badge diff-badge-medium"
+                                     : "diff-badge diff-badge-large";
+              var diffPill = el("span", {
+                c: diffCls,
+                attr: { title: "Pixel change vs. previous build — click for heatmap" },
+                on: { click: (function(r2, s2){ return function(ev) {
+                  ev.stopPropagation();
+                  window.open("/api/thumb-diff/" + r2.owner + "/" + r2.repo + "?slug=" + encodeURIComponent(s2), "_blank", "noopener");
+                }; })(repo, slug) }
+              }, "Δ " + pct.toFixed(1) + "%");
+              info.appendChild(diffPill);
+            }
+            row.appendChild(info);
+
+            // ── Status row (C1) ────────────────────────────────────────
+            // Compose once, in priority order:
+            //   1) status text (Queued / Building / Running / Ready / Cancelled / Idle)
+            //   2) ONE canonical pill (worst-of: error > broken > secret >
+            //      budget > runtime errors). Click opens the relevant modal.
+            //   3) info chips (bundle size + delta, duration, age, sha)
+            var statusParts = [];
+            var ek = repo.owner + "/" + repo.repo + ":" + slug;
+            var errCount = S._previewErrorCounts && S._previewErrorCounts[ek];
+
+            // 1) Status text
+            if (bs.status === "cancelled") statusParts.push(el("span", {}, "Cancelled"));
+            else if (bs.status === "queued")   statusParts.push(el("span", {}, "Queued…"));
+            else if (bs.status === "building") statusParts.push(el("span", {}, branchMode === "server" ? "Starting…" : "Building…"));
+            else if (bs.status === "running")  statusParts.push(el("span", {}, "Running — port " + (bs.serverPort || "?")));
+            else if (bs.status === "ready")    statusParts.push(el("span", {}, "Ready"));
+            else if (bs.status === "error")    statusParts.push(el("span", {}, branchMode === "server" ? "Server failed" : "Build failed"));
+            else statusParts.push(el("span", {}, bs.lastBuild ? "Idle" : "Never built"));
+
+            // 2) Single canonical pill — only for warn/error severities.
+            //    Healthy "ready"/"running" stay quiet. Click routes to
+            //    the relevant modal (errorsModal for runtime, logModal
+            //    for everything else — the build log is the canonical
+            //    place to investigate broken/secret/budget/error).
+            var signal = DV.branchRow && DV.branchRow.computeStatusSignal(bs, errCount);
+            if (signal && (signal.level === "error" || signal.level === "broken" ||
+                           signal.level === "secret" || signal.level === "budget" ||
+                           signal.level === "runtime")) {
+              statusParts.push(el("button", {
+                c: signal.className + " pill-clickable",
+                attr: { title: signal.title, "aria-label": signal.text },
+                on: { click: (function(sig) { return function(e) {
+                  e.stopPropagation();
+                  if (sig.level === "runtime") {
+                    S.errorsModal = { owner: repo.owner, repo: repo.repo, slug: slug, loading: true, errors: [] };
+                    DV.render();
+                    api("GET", "/api/preview-errors/" + repo.owner + "/" + repo.repo + "/" + encodeURIComponent(slug)).then(function(r) {
+                      if (!S.errorsModal) return;
+                      S.errorsModal.loading = false;
+                      S.errorsModal.errors = (r && r.errors) || [];
+                      DV.render();
+                    });
+                  } else {
+                    S.logModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: ek };
+                    DV.render();
+                  }
+                }; })(signal) }
+              }, signal.text));
+            }
+
+            // 3) Info chips — duration · bundle size + delta · time-ago · short sha
+            if (bs.duration && bs.status !== "building") {
+              statusParts.push(el("span", { c: "duration-badge" }, bs.duration + "s"));
+            }
+            if (bs.outputBytes && bs.status !== "building") {
+              var sizeStr = (DV.branchRow && DV.branchRow.formatBytes) ? DV.branchRow.formatBytes(bs.outputBytes) : (bs.outputBytes + " B");
+              statusParts.push(el("span", { c: "color-tx3 text-11 font-mono" }, sizeStr));
+              if (bs.outputBytesDeltaPct != null && Math.abs(bs.outputBytesDeltaPct) >= 0.1) {
+                var sign = bs.outputBytesDelta > 0 ? "▲" : "▼";
+                var cls  = bs.outputBytesDelta > 0 ? "color-warn" : "color-ok";
+                statusParts.push(el("span", { c: cls + " text-11 font-mono", attr: { title: "Bundle size vs previous build" } },
+                  sign + " " + Math.abs(bs.outputBytesDeltaPct) + "%"));
+              }
+            }
+            if (bs.lastBuild && bs.status !== "building") {
+              statusParts.push(el("span", { c: "color-tx3 text-10 font-mono" }, timeAgo(bs.lastBuild)));
+            }
+            // Schedule indicator — renders only when the branch has
+            // schedule != 0. Numeric schedule (seconds between
+            // rebuilds): show 'next: in 12m' relative to lastBuild.
+            // String schedule (cron expression): show '⏱ cron' badge
+            // without countdown (parsing cron client-side is overkill
+            // here; the title attr surfaces the raw expression).
+            if (bs.schedule) {
+              var sched = bs.schedule;
+              if (typeof sched === "number" && sched > 0) {
+                var nextAt = (bs.lastBuild || 0) + sched * 1000;
+                var msUntil = nextAt - Date.now();
+                var label;
+                if (!bs.lastBuild) label = "every " + (sched < 3600 ? Math.round(sched / 60) + "m" : sched < 86400 ? Math.round(sched / 3600) + "h" : Math.round(sched / 86400) + "d");
+                else if (msUntil <= 0) label = "next: due";
+                else if (msUntil < 60000) label = "next: " + Math.ceil(msUntil / 1000) + "s";
+                else if (msUntil < 3600000) label = "next: " + Math.round(msUntil / 60000) + "m";
+                else if (msUntil < 86400000) label = "next: " + Math.round(msUntil / 3600000) + "h";
+                else label = "next: " + Math.round(msUntil / 86400000) + "d";
+                statusParts.push(el("span", { c: "color-tx3 text-10 font-mono", attr: { title: "Auto-rebuild every " + sched + "s" } }, "⏱ " + label));
+              } else if (typeof sched === "string" && sched.trim()) {
+                statusParts.push(el("span", { c: "color-tx3 text-10 font-mono", attr: { title: "Cron schedule: " + sched } }, "⏱ cron"));
+              }
+            }
+            if (bs.commitSha && bs.status !== "building" && bs.status !== "idle") {
+              statusParts.push(el("span", { c: "sha-badge", attr: { title: "Commit: " + bs.commitSha }, on: { click: function() {
+                DV.copyToClipboard(bs.commitSha, { successMessage: "SHA copied: " + (bs.commitSha || "").slice(0, 7) });
+              } } }, bs.commitSha.slice(0, 7)));
+            }
+            row.appendChild(el("div", { c: "branch-status-text flex-row gap-6 items-center flex-wrap" }, statusParts));
+
+            var actions = el("div", { c: "branch-actions" });
+            var menuKey = repo.owner + "/" + repo.repo + ":" + slug;
+
+            // ── Primary actions inline (C2) ───────────────────────────
+            // Two buttons inline at most: a state-dependent primary
+            // (Cancel-while-building / Preview-when-ready) and Rebuild.
+            // Everything else moves to the overflow menu below.
+            if (bs.status === "building" || bs.status === "queued") {
+              actions.appendChild(el("button", { c: "bd bs", attr: { title: "Cancel " + label, "aria-label": "Cancel " + label }, on: { click: function() {
+                api("POST", "/api/cancel/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(function(r) {
+                  if (r && r.ok) {
+                    DV.showToast("Cancelled", "info");
+                    DV.loadRepos();
+                  } else {
+                    DV.showToast("Cancel failed: " + ((r && r.error) || "unknown"), "error");
+                  }
+                }).catch(function(e) { DV.showToast("Cancel failed: " + ((e && e.message) || "network"), "error"); });
+              } } }, DV.iconEl("close")));
+            } else if (isLive) {
+              actions.appendChild(el("button", { c: "bp bs", attr: { title: "Preview " + label, "aria-label": "Preview " + label }, on: { click: function() {
+                S.activeRepo = repo; S.activeBranch = slug; S.compareMode = false; S.compareBranch = ""; S.view = "preview"; DV.render();
+              } } }, DV.iconEl("preview")));
+            }
+            actions.appendChild(el("button", { c: "bg bs", attr: { title: "Rebuild " + label, "aria-label": "Rebuild " + label }, on: { click: function() {
+              api("POST", "/api/build/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(function(r) {
+                if (r && r.error) DV.showToast("Rebuild failed: " + r.error, "error");
+                else DV.showToast("Rebuild queued: " + label, "info");
+                DV.loadRepos();
+              }).catch(function(e) { DV.showToast("Rebuild failed: " + ((e && e.message) || "network"), "error"); });
+            } } }, DV.iconEl("rebuild")));
+
+            // ── Overflow menu (C2) ────────────────────────────────────
+            // Single "•••" toggle that opens a popover with the rest.
+            // Click-outside or pick-an-item closes it.
+            var menuOpen = S.openActionMenu === menuKey;
+            actions.appendChild(el("button", {
+              c: "btn-icon action-menu-trigger",
+              attr: { title: "More actions", "aria-label": "More actions for " + label, "aria-haspopup": "menu", "aria-expanded": menuOpen ? "true" : "false" },
+              on: { click: function(e) {
+                e.stopPropagation();
+                S.openActionMenu = menuOpen ? null : menuKey;
+                DV.render();
+              } }
+            }, "•••"));
+
+            if (menuOpen) {
+              var menu = el("div", { c: "action-menu", attr: { role: "menu" } });
+              function _item(opts) {
+                var spec = {
+                  c: "action-menu-item" + (opts.danger ? " action-menu-item-danger" : ""),
+                  attr: { role: "menuitem", title: opts.title || opts.label },
+                  on: { click: function(e) {
+                    e.stopPropagation();
+                    S.openActionMenu = null;
+                    if (typeof opts.run === "function") opts.run();
+                    DV.render();
+                  } }
+                };
+                if (opts.href) { spec.attr.href = opts.href; if (opts.download) spec.attr.download = ""; }
+                return el(opts.href ? "a" : "button", spec, [
+                  el("span", { c: "action-menu-glyph" }, opts.glyph || ""),
+                  el("span", {}, opts.label)
+                ]);
+              }
+
+              if (isLive) {
+                menu.appendChild(_item({
+                  glyph: "↗", label: "Open in new tab",
+                  run: function() { window.open(previewUrl, "_blank", "noopener"); }
+                }));
+                menu.appendChild(_item({
+                  glyph: "⊞", label: "Share (QR / sheet / copy link)",
+                  run: function() {
+                    var origin = (S._tunnelStatus && S._tunnelStatus.url) ? S._tunnelStatus.url : window.location.origin;
+                    DV.openShare(origin.replace(/\/$/, "") + previewUrl, repo.owner + "/" + repo.repo + " · " + slug);
+                  }
+                }));
+                menu.appendChild(_item({
+                  glyph: "⤓", label: "Download artifact (.zip)",
+                  href: "/api/artifact/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug),
+                  download: true
+                }));
+                if (bs.diff && typeof bs.diff.percent === "number" && bs.diff.percent > 0) {
+                  menu.appendChild(_item({
+                    glyph: "◐", label: "Visual diff (before / after)",
+                    run: function() { S.diffModal = { owner: repo.owner, repo: repo.repo, slug: slug, thumbAt: bs.thumbAt, diff: bs.diff }; }
+                  }));
+                }
+              }
+              if (branchMode === "server" && bs.status === "running") {
+                menu.appendChild(_item({
+                  glyph: "■", label: "Stop server",
+                  run: function() {
+                    api("POST", "/api/stop/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(function(r) {
+                      if (r && r.error) { DV.showToast("Stop failed: " + r.error, "error"); return; }
+                      DV.showToast("Server stopped", "info");
+                      DV.loadRepos();
+                    }).catch(function(e) { DV.showToast("Stop failed: " + ((e && e.message) || "network"), "error"); });
+                  }
+                }));
+              }
+              menu.appendChild(_item({
+                glyph: "≡", label: "Build log",
+                run: function() { S.logModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: menuKey }; }
+              }));
+              menu.appendChild(_item({
+                glyph: "↶", label: "Deployment history & rollback",
+                run: function() {
+                  S.historyModal = { owner: repo.owner, repo: repo.repo, slug: slug, loading: true, history: [] };
+                  api("GET", "/api/history/" + repo.owner + "/" + repo.repo + "?slug=" + encodeURIComponent(slug)).then(function(r) {
+                    if (!S.historyModal) return;
+                    S.historyModal.loading = false;
+                    S.historyModal.history = (r && r.history) || [];
+                    S.historyModal.error = r && r.error;
+                    DV.render();
+                  }).catch(function(e) {
+                    if (!S.historyModal) return;
+                    S.historyModal.loading = false;
+                    S.historyModal.error = e.message || "Failed to load history";
+                    DV.render();
+                  });
+                }
+              }));
+              menu.appendChild(_item({
+                glyph: "✎", label: "Edit configuration",
+                run: function() {
+                  var bcLive = (repo.activeBranches || []).find(function(b){
+                    if (b.customSlug && b.customSlug === slug) return true;
+                    var auto = (b.branch || "").replace(/\//g, "__") + (b.baseDir ? "--" + b.baseDir.replace(/\//g, "__") : "");
+                    return auto === slug;
+                  }) || {};
+                  S.editModal = {
+                    owner: repo.owner, repo: repo.repo, slug: slug,
+                    branch: bs.branch || bcLive.branch,
+                    baseDir: bcLive.baseDir || "",
+                    buildCommand: bcLive.buildCommand || "",
+                    outputDir: bcLive.outputDir || "",
+                    mode: bcLive.mode || bs.mode || "static",
+                    startCommand: bcLive.startCommand || "",
+                    envVars: bcLive.envVars || "",
+                    language: bcLive.language || "auto",
+                    customSlug: bcLive.customSlug || "",
+                    previewPassword: bcLive.previewPassword || "",
+                    injectSecrets: !!bcLive.injectSecrets,
+                    envGroupIds: Array.isArray(bcLive.envGroupIds) ? bcLive.envGroupIds.slice() : [],
+                    edge: bcLive.edge || { redirects: [], headers: [] },
+                    schedule: bcLive.schedule || 0
+                  };
+                }
+              }));
+              menu.appendChild(_item({
+                glyph: "⌬", label: "Build APK",
+                run: function() { S.apkModal = { owner: repo.owner, repo: repo.repo, slug: slug, key: menuKey }; }
+              }));
+              menu.appendChild(el("div", { c: "action-menu-divider" }));
+              menu.appendChild(_item({
+                glyph: "✕", label: "Remove this branch", danger: true,
+                run: function() {
+                  if (!confirm("Remove this branch?")) return;
+                  api("DELETE", "/api/repos/" + repo.owner + "/" + repo.repo + "/branch?slug=" + encodeURIComponent(slug)).then(DV.loadRepos);
+                }
+              }));
+              actions.appendChild(menu);
+
+              // Click-outside closes the menu. Bound once per render via
+              // the dropdown handler slot already used by the branch picker.
+              setTimeout(function() {
+                var handler = function(ev) {
+                  if (!actions.contains(ev.target)) {
+                    S.openActionMenu = null;
+                    document.removeEventListener("click", handler, true);
+                    DV.render();
+                  }
+                };
+                document.addEventListener("click", handler, true);
+                DV.setDropdownHandler(handler);
+              }, 0);
+            }
+            row.appendChild(actions);
+
+            card.appendChild(row);
+          })(slugs[j]);
+        }
+        ct.appendChild(card);
+      })(S.repos[i]);
+    }
+  }
+  app.appendChild(ct);
+
+  // Mobile: drag-down from the top of the dashboard to refresh repos.
+  // No-op on desktop (touch-event listeners just never fire).
+  DV.installPullToRefresh(ct, function() {
+    DV.showToast("Refreshing…", "info");
+    DV.loadRepos();
+  });
+};
+})();
