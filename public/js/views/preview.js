@@ -229,6 +229,11 @@ DV.views.preview = function(app) {
   urlBar.appendChild(el("button", { c: "bg bs", attr: { title: "Copy URL" }, on: { click: function() {
     DV.copyToClipboard(window.location.origin + url, { successMessage: "URL copied" });
   } } }, "Copy"));
+  urlBar.appendChild(el("button", { c: "bg bs", attr: { title: "Studio — visual editor" }, on: { click: function() {
+    var slug = S.activeBranch;
+    var studioUrl = "/studio.html#" + encodeURIComponent(repo.owner) + "/" + encodeURIComponent(repo.repo) + "/" + encodeURIComponent(slug);
+    window.open(studioUrl, "_blank", "noopener");
+  } } }, "Studio"));
   urlBar.appendChild(el("button", { c: "bg bs", attr: { title: "Open in new tab" }, on: { click: function() {
     window.open(url, "_blank", "noopener");
   } } }, DV.iconEl("arrow_out")));

@@ -1,0 +1,113 @@
+/* Studio — Figma/Canva-style visual editor layered on the DV design system.
+   Reuses --bg/--surface*/--tx*/--accent* etc. from style.css (already
+   linked before this file in studio.html). */
+
+.studio-body { margin: 0; height: 100vh; overflow: hidden; background: var(--bg); color: var(--tx1); font-family: 'Space Grotesk', system-ui, sans-serif; }
+
+.st-shell { display: flex; flex-direction: column; height: 100vh; }
+
+.st-topbar {
+  height: 48px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;
+  padding: 0 14px; border-bottom: 1px solid var(--surface-border, rgba(255,255,255,.08));
+  background: var(--surface1, #14151c);
+}
+.st-topbar-title { display: flex; align-items: center; gap: 10px; }
+.st-brand { font-weight: 700; color: var(--accent); font-size: 15px; }
+.st-repo-label { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--tx2); }
+.st-topbar-actions { display: flex; gap: 8px; }
+
+.st-body { flex: 1; display: flex; min-height: 0; }
+
+.st-preview-wrap { flex: 1; min-width: 0; background: #fff; position: relative; }
+.st-preview-iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+.st-dock {
+  width: 340px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0;
+  border-left: 1px solid var(--surface-border, rgba(255,255,255,.08));
+  background: var(--surface1, #14151c);
+}
+
+.st-tabs { display: flex; flex-shrink: 0; border-bottom: 1px solid var(--surface-border, rgba(255,255,255,.08)); }
+.st-tab {
+  flex: 1; padding: 10px; background: none; border: 0; color: var(--tx2); cursor: pointer;
+  font-family: inherit; font-size: 13px; font-weight: 600; border-bottom: 2px solid transparent;
+}
+.st-tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+
+.st-panel-body { flex: 1 1 55%; overflow-y: auto; min-height: 0; padding: 10px 12px; }
+.st-panel { display: none; }
+
+.st-changelog {
+  flex: 0 0 auto; max-height: 34vh; overflow-y: auto; border-top: 1px solid var(--surface-border, rgba(255,255,255,.08));
+  padding: 10px 12px;
+}
+
+.st-empty, .st-hint { color: var(--tx3); font-size: 12px; line-height: 1.5; padding: 6px 0; }
+
+.st-selected-tag { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--surface-border, rgba(255,255,255,.08)); }
+.st-tag-name { font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--accent); font-size: 13px; }
+.st-tag-sel { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--tx3); word-break: break-all; }
+
+.st-section-title { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--tx3); margin: 14px 0 6px; }
+
+.st-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.st-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.st-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+
+.st-field { display: flex; flex-direction: column; gap: 4px; }
+.st-field label { font-size: 10px; color: var(--tx3); }
+.st-field input, .st-field select {
+  background: var(--surface2, #1b1d26); border: 1px solid var(--surface-border, rgba(255,255,255,.08));
+  color: var(--tx1); border-radius: 6px; padding: 5px 6px; font-size: 12px; font-family: inherit; width: 100%;
+  box-sizing: border-box;
+}
+.st-field input:focus, .st-field select:focus { outline: none; border-color: var(--accent); }
+
+.st-color-row { display: flex; gap: 6px; align-items: center; }
+.st-color-row input[type=color] { width: 28px; height: 28px; padding: 0; border: 1px solid var(--surface-border, rgba(255,255,255,.08)); border-radius: 6px; background: none; }
+.st-color-row input[type=text] { flex: 1; }
+
+.st-btn-sm, .st-btn-xs {
+  background: var(--surface2, #1b1d26); border: 1px solid var(--surface-border, rgba(255,255,255,.08));
+  color: var(--tx1); border-radius: 6px; cursor: pointer; font-family: inherit; font-weight: 600;
+}
+.st-btn-sm { padding: 6px 10px; font-size: 12px; }
+.st-btn-xs { padding: 3px 7px; font-size: 11px; }
+.st-btn-sm:hover, .st-btn-xs:hover { border-color: var(--accent); color: var(--accent); }
+.st-btn-sm.on { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+.st-btn-primary { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+
+.st-locate-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.st-locate-row { background: var(--surface2, #1b1d26); border-radius: 6px; padding: 6px 8px; display: flex; flex-direction: column; gap: 3px; }
+.st-locate-path { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--accent); }
+.st-locate-preview { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--tx3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.st-code-top { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.st-file-select { flex: 1; background: var(--surface2, #1b1d26); border: 1px solid var(--surface-border, rgba(255,255,255,.08)); color: var(--tx1); border-radius: 6px; padding: 5px 6px; font-size: 12px; }
+.st-editor-wrap { height: 40vh; }
+.st-editor {
+  width: 100%; height: 100%; box-sizing: border-box; resize: vertical;
+  background: var(--bg-deep, #050608); color: var(--tx1); border: 1px solid var(--surface-border, rgba(255,255,255,.08));
+  border-radius: 6px; padding: 8px; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.5;
+}
+
+.st-changelog-header { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--tx3); margin-bottom: 6px; }
+.st-changelog-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.st-changelog-row { background: var(--surface2, #1b1d26); border-radius: 6px; padding: 5px 8px; }
+.st-cl-label { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--accent); word-break: break-all; }
+.st-cl-detail { font-size: 11px; color: var(--tx2); }
+.st-changelog-actions { display: flex; gap: 8px; }
+
+.st-toast {
+  position: fixed; bottom: 16px; left: 50%; transform: translate(-50%, 20px);
+  background: var(--surface2, #1b1d26); color: var(--tx1); border: 1px solid var(--surface-border, rgba(255,255,255,.08));
+  padding: 8px 14px; border-radius: 8px; font-size: 12px; opacity: 0; pointer-events: none; transition: all .2s ease;
+}
+.st-toast.show { opacity: 1; transform: translate(-50%, 0); }
+.st-toast.err { border-color: var(--err, #c45040); color: var(--err, #c45040); }
+
+@media (max-width: 900px) {
+  .st-body { flex-direction: column; }
+  .st-dock { width: 100%; height: 45vh; border-left: 0; border-top: 1px solid var(--surface-border, rgba(255,255,255,.08)); }
+  .st-preview-wrap { flex: 1 1 55vh; }
+}

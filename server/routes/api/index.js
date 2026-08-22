@@ -104,6 +104,7 @@ router.use("/", require("./infra"));
 router.use("/", require("./apk"));
 router.use("/", require("./dv"));
 router.use("/", require("./fetch"));
+router.use("/", require("./studio"));
 
 // ── Metrics + health ─────────────────────────────────────────────────────────
 const metrics = require("../../metrics");
