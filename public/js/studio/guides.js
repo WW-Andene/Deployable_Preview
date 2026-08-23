@@ -41,7 +41,8 @@
         el: msg.el || null,
         property: msg.property,
         from: msg.from,
-        to: msg.to
+        to: msg.to,
+        groupId: msg.groupId || null
       });
       if (Studio.S.selected && Studio.S.selected.selector === msg.selector) {
         if (msg.property === "position-offset") {

@@ -86,6 +86,9 @@
     try { window.parent.postMessage(Object.assign({ __studio: true }, msg), "*"); } catch (_) {}
   }
 
+  var nextGroupId = 1;
+  function newGroupId() { return "g" + (nextGroupId++); }
+
   // ── Selector generation (best-effort, stable-ish) ──────────────────────
   // Studio's own bookkeeping classes must never leak into a computed
   // selector or the "classes" sent for source-file matching — they're not
@@ -344,8 +347,13 @@
     for (var i = 0; i < idEls.length; i++) idEls[i].removeAttribute("id");
     var cs = getComputedStyle(el);
     if (cs.position === "absolute" || cs.position === "fixed") {
-      var left = parseFloat(el.style.left) || 0;
-      var top = parseFloat(el.style.top) || 0;
+      // Read the COMPUTED left/top, not just el.style — an element can be
+      // absolute/fixed purely via an author stylesheet (never dragged in
+      // Studio, so no inline left/top exists yet), and computed left/top
+      // resolves to a real px value in that case too, unlike el.style
+      // which would silently be "" (parseFloat → NaN → wrongly treated as 0).
+      var left = parseFloat(cs.left) || 0;
+      var top = parseFloat(cs.top) || 0;
       clone.style.left = (left + 16) + "px";
       clone.style.top = (top + 16) + "px";
     }
@@ -357,6 +365,10 @@
     var targets = selectedSet.length ? selectedSet.slice() : (selected ? [selected] : []);
     if (!targets.length) return;
     clearSelectionClasses();
+    // Duplicating N elements is ONE user action — tag every resulting
+    // change with the same groupId so a single Ctrl/Cmd+Z undoes all of
+    // them together instead of just the last one (see undo.js popGroup()).
+    var groupId = targets.length > 1 ? newGroupId() : null;
     var newSet = [];
     targets.forEach(function (el) {
       var originalSelector = cssPath(el);
@@ -368,7 +380,8 @@
         el: describeEl(clone),
         property: "duplicate",
         from: { selector: originalSelector },
-        to: { selector: cssPath(clone) }
+        to: { selector: cssPath(clone) },
+        groupId: groupId
       });
     });
     selectedSet = newSet;
@@ -404,6 +417,9 @@
     if (selectedSet.length < 2) return;
     var items = selectedSet.map(function (el) { return { el: el, r: el.getBoundingClientRect(), from: null }; });
     items.forEach(function (i) { i.from = captureFromPos(i.el, i.r); });
+    // One align/distribute click moves several elements as ONE user action —
+    // group them so a single undo reverts all of them (see undo.js popGroup()).
+    var groupId = newGroupId();
 
     function commit(i) {
       post({
@@ -412,7 +428,8 @@
         el: describeEl(i.el),
         property: "position-offset",
         from: i.from,
-        to: { left: i.el.style.left, top: i.el.style.top, position: i.el.style.position }
+        to: { left: i.el.style.left, top: i.el.style.top, position: i.el.style.position },
+        groupId: groupId
       });
     }
 
@@ -480,7 +497,14 @@
     var t = e.target;
     if (t === document.documentElement || t === document.body) return;
 
-    e.preventDefault();
+    // On touch, DON'T cancel the default action here — that would kill the
+    // page's native scroll on every single tap, including ones that were
+    // never going to become a drag. Selecting-by-tapping doesn't need
+    // preventDefault at all; a drag that actually engages calls it itself,
+    // later, from onPendingDragMove (a non-passive pointermove listener can
+    // still cancel an in-progress touch scroll). Mouse/pen keep the
+    // original behavior (avoids ghost text-selection while dragging).
+    if (e.pointerType !== "touch") e.preventDefault();
     e.stopPropagation();
 
     // Shift/Cmd/Ctrl+click toggles multi-selection (desktop); the
@@ -502,6 +526,12 @@
     dragOriginX = e.clientX; dragOriginY = e.clientY;
     document.addEventListener("pointermove", onPendingDragMove);
     document.addEventListener("pointerup", onPendingDragUp);
+    // pointercancel fires instead of pointerup when the OS interrupts a
+    // touch gesture mid-way (incoming call, edge-navigation swipe…) — treat
+    // it the same as pointerup so listeners get cleaned up and
+    // __studio-dragging (touch-action:none on the whole document) doesn't
+    // get stuck on, permanently disabling touch scroll until reload.
+    document.addEventListener("pointercancel", onPendingDragUp);
   }, true);
 
   function onPendingDragMove(e) {
@@ -511,6 +541,7 @@
       if (Math.abs(dx0) < DRAG_THRESHOLD && Math.abs(dy0) < DRAG_THRESHOLD) return;
       pendingDragStarted = true;
       dragEl = pendingDragEl;
+      e.preventDefault(); // now that we know it's a drag, cancel touch's native scroll for the rest of the gesture
       document.documentElement.classList.add("__studio-dragging");
       liftToFreeform(dragEl);
       dragStartLeft = parseFloat(dragEl.style.left) || 0;
@@ -524,6 +555,7 @@
   function onPendingDragUp() {
     document.removeEventListener("pointermove", onPendingDragMove);
     document.removeEventListener("pointerup", onPendingDragUp);
+    document.removeEventListener("pointercancel", onPendingDragUp);
     if (pendingDragStarted) onDragUp();
     pendingDragEl = null; pendingDragStarted = false;
   }
@@ -770,6 +802,7 @@
     document.documentElement.classList.add("__studio-dragging");
     document.addEventListener("pointermove", onResizeMove);
     document.addEventListener("pointerup", onResizeUp);
+    document.addEventListener("pointercancel", onResizeUp); // see pendingDrag's pointercancel comment
   });
 
   function onResizeMove(e) {
@@ -787,6 +820,7 @@
   function onResizeUp() {
     document.removeEventListener("pointermove", onResizeMove);
     document.removeEventListener("pointerup", onResizeUp);
+    document.removeEventListener("pointercancel", onResizeUp);
     document.documentElement.classList.remove("__studio-dragging");
     if (resizeEl && resizeState && resizeState.moved) {
       post({
@@ -817,6 +851,7 @@
     document.documentElement.classList.add("__studio-dragging");
     document.addEventListener("pointermove", onRotateMove);
     document.addEventListener("pointerup", onRotateUp);
+    document.addEventListener("pointercancel", onRotateUp); // see pendingDrag's pointercancel comment
   });
 
   function onRotateMove(e) {
@@ -832,6 +867,7 @@
   function onRotateUp() {
     document.removeEventListener("pointermove", onRotateMove);
     document.removeEventListener("pointerup", onRotateUp);
+    document.removeEventListener("pointercancel", onRotateUp);
     document.documentElement.classList.remove("__studio-dragging");
     if (rotateEl && rotateState && rotateState.moved) {
       post({

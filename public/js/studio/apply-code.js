@@ -65,9 +65,34 @@
   // ── Inline-style patching ────────────────────────────────────────────
   function isJsxFile(path) { return /\.(jsx|tsx)$/i.test(path); }
 
+  // Splits on `delimiter` only at nesting depth 0 (outside quotes and
+  // parens) — a naive .split(delimiter) shreds any value that itself
+  // contains one, e.g. `rgba(0, 0, 0, .5)` or `"Arial, sans-serif"`.
+  function splitTopLevel(str, delimiter) {
+    var parts = [];
+    var depth = 0, quote = null, start = 0;
+    for (var i = 0; i < str.length; i++) {
+      var ch = str[i];
+      if (quote) {
+        if (ch === quote && str[i - 1] !== "\\") quote = null;
+      } else if (ch === '"' || ch === "'") {
+        quote = ch;
+      } else if (ch === "(") {
+        depth++;
+      } else if (ch === ")") {
+        depth--;
+      } else if (ch === delimiter && depth === 0) {
+        parts.push(str.slice(start, i));
+        start = i + 1;
+      }
+    }
+    parts.push(str.slice(start));
+    return parts;
+  }
+
   function parseHtmlStyleAttr(str) {
     var pairs = [];
-    (str || "").split(";").forEach(function (decl) {
+    splitTopLevel(str || "", ";").forEach(function (decl) {
       var idx = decl.indexOf(":");
       if (idx === -1) return;
       var k = decl.slice(0, idx).trim();
@@ -92,7 +117,7 @@
   }
   function parseJsxStyleObj(str) {
     var pairs = [];
-    (str || "").split(",").forEach(function (decl) {
+    splitTopLevel(str || "", ",").forEach(function (decl) {
       var idx = decl.indexOf(":");
       if (idx === -1) return;
       var k = decl.slice(0, idx).trim();
