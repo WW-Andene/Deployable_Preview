@@ -119,12 +119,6 @@
   function onMouseOut(e) {
     if (hovered) { hovered.classList.remove("__studio-hover"); hovered = null; }
   }
-  function onClick(e) {
-    if (!enabled) return;
-    e.preventDefault();
-    e.stopPropagation();
-    selectElement(e.target);
-  }
 
   function selectElement(el) {
     if (selected) selected.classList.remove("__studio-selected");
@@ -165,7 +159,6 @@
 
   document.addEventListener("mouseover", onMouseOver, true);
   document.addEventListener("mouseout", onMouseOut, true);
-  document.addEventListener("click", onClick, true);
   window.addEventListener("scroll", positionResizeHandle, true);
   window.addEventListener("resize", positionResizeHandle);
 
@@ -223,22 +216,60 @@
     }
   }
 
+  // Select AND drag in a single gesture: on mousedown we immediately select
+  // whatever was clicked (so this doubles as the old "click to select"), and
+  // arm a pending drag. The pending drag only actually engages (lifting the
+  // element to freeform positioning) once the pointer has moved past a small
+  // threshold — that's what lets a plain click still just select without
+  // nudging the element, while a click-and-drag in one motion works too
+  // (previously drag only armed if an element was *already* selected from a
+  // prior, separate click, which made a single click-drag gesture do nothing).
+  var DRAG_THRESHOLD = 4;
+  var pendingDragEl = null, pendingDragStarted = false;
+
   document.addEventListener("mousedown", function (e) {
-    if (!enabled || !selected) return;
+    if (!enabled) return;
     if (e.target === resizeHandle) return; // resize handled separately
-    if (!selected.contains(e.target) && e.target !== selected) return;
-    if (e.target.closest("input,textarea,select,button,a")) return; // don't hijack real interactions
+    var t = e.target;
+    if (t === document.documentElement || t === document.body) return;
+
     e.preventDefault();
-    dragEl = selected;
-    liftToFreeform(dragEl);
+    e.stopPropagation();
+
+    var actingEl = (selected && (t === selected || selected.contains(t))) ? selected : t;
+    if (selected !== actingEl) selectElement(actingEl);
+
+    if (t.closest && t.closest("input,textarea,select,button,a")) return; // don't hijack real interactions
+
+    pendingDragEl = actingEl;
+    pendingDragStarted = false;
     dragOriginX = e.clientX; dragOriginY = e.clientY;
-    dragStartLeft = parseFloat(dragEl.style.left) || 0;
-    dragStartTop = parseFloat(dragEl.style.top) || 0;
-    dragState = { moved: false };
-    dragSpacingCandidates = spacingCandidates(dragEl); // snapshot rects once; sibling boxes don't move mid-drag
-    document.addEventListener("mousemove", onDragMove);
-    document.addEventListener("mouseup", onDragUp);
+    document.addEventListener("mousemove", onPendingDragMove);
+    document.addEventListener("mouseup", onPendingDragUp);
   }, true);
+
+  function onPendingDragMove(e) {
+    if (!pendingDragEl) return;
+    if (!pendingDragStarted) {
+      var dx0 = e.clientX - dragOriginX, dy0 = e.clientY - dragOriginY;
+      if (Math.abs(dx0) < DRAG_THRESHOLD && Math.abs(dy0) < DRAG_THRESHOLD) return;
+      pendingDragStarted = true;
+      dragEl = pendingDragEl;
+      liftToFreeform(dragEl);
+      dragStartLeft = parseFloat(dragEl.style.left) || 0;
+      dragStartTop = parseFloat(dragEl.style.top) || 0;
+      dragState = { moved: false };
+      dragSpacingCandidates = spacingCandidates(dragEl); // snapshot rects once; sibling boxes don't move mid-drag
+    }
+    onDragMove(e);
+  }
+
+  function onPendingDragUp() {
+    document.removeEventListener("mousemove", onPendingDragMove);
+    document.removeEventListener("mouseup", onPendingDragUp);
+    if (pendingDragStarted) onDragUp();
+    pendingDragEl = null; pendingDragStarted = false;
+  }
 
   function siblingAndPageEdges(el) {
     var edges = { v: [], h: [] };

@@ -54,11 +54,13 @@
     // Body: preview iframe + right dock
     var body = h("div", { class: "st-body" });
 
-    var previewWrap = h("div", { class: "st-preview-wrap" });
+    var previewWrap = h("div", { class: "st-preview-wrap st-framed" });
+    var deviceFrame = h("div", { class: "st-device-frame" });
     iframe = document.createElement("iframe");
     iframe.className = "st-preview-iframe";
     iframe.src = S.previewUrl;
-    previewWrap.appendChild(iframe);
+    deviceFrame.appendChild(iframe);
+    previewWrap.appendChild(deviceFrame);
     body.appendChild(previewWrap);
     Studio.guides.bindIframe(iframe);
 
@@ -66,26 +68,45 @@
       injectOverlay();
     });
 
-    // Right dock: tabs (Inspect / Code / Log)
+    // Right dock: tabs (Inspect / Code / Log / View)
     var dock = h("div", { class: "st-dock" });
     var tabs = h("div", { class: "st-tabs" });
     var tabInspect = h("button", { class: "st-tab", text: "Inspect" });
     var tabCode = h("button", { class: "st-tab", text: "Code" });
     var tabLog = h("button", { class: "st-tab", text: "Log" });
+    var tabView = h("button", { class: "st-tab", text: "View" });
     tabInspect.addEventListener("click", function () { setPanel("inspect"); });
     tabCode.addEventListener("click", function () { setPanel("code"); });
     tabLog.addEventListener("click", function () { setPanel("log"); });
-    tabs.appendChild(tabInspect); tabs.appendChild(tabCode); tabs.appendChild(tabLog);
+    tabView.addEventListener("click", function () { setPanel("view"); });
+    tabs.appendChild(tabInspect); tabs.appendChild(tabCode); tabs.appendChild(tabLog); tabs.appendChild(tabView);
     dock.appendChild(tabs);
 
     var panelBody = h("div", { class: "st-panel-body" });
     inspectorRoot = h("div", { class: "st-panel st-panel-inspect" });
     codeRoot = h("div", { class: "st-panel st-panel-code" });
     changelogRoot = h("div", { class: "st-panel st-panel-log" });
+    var viewRoot = h("div", { class: "st-panel st-panel-view" });
     panelBody.appendChild(inspectorRoot);
     panelBody.appendChild(codeRoot);
     panelBody.appendChild(changelogRoot);
+    panelBody.appendChild(viewRoot);
     dock.appendChild(panelBody);
+
+    // View panel: toggle between windowed (Xiaomi-format) and full preview
+    var isFullView = false;
+    var viewPanelInner = h("div", { class: "st-view-panel" });
+    var viewToggleBtn = h("button", { class: "st-btn-sm", text: "Passer en vue complète" });
+    var viewHint = h("div", { class: "st-view-hint", text: "Par défaut, l'aperçu s'affiche fenêtré au format Xiaomi 13T (439\u00d7976, comme dans le mode preview classique). Utilisez ce bouton pour l'afficher en plein écran." });
+    viewToggleBtn.addEventListener("click", function () {
+      isFullView = !isFullView;
+      previewWrap.classList.toggle("st-full", isFullView);
+      previewWrap.classList.toggle("st-framed", !isFullView);
+      viewToggleBtn.textContent = isFullView ? "Repasser en vue fenêtrée (Xiaomi)" : "Passer en vue complète";
+    });
+    viewPanelInner.appendChild(viewToggleBtn);
+    viewPanelInner.appendChild(viewHint);
+    viewRoot.appendChild(viewPanelInner);
 
     body.appendChild(dock);
     root.appendChild(body);
@@ -103,9 +124,11 @@
       tabInspect.classList.toggle("on", name === "inspect");
       tabCode.classList.toggle("on", name === "code");
       tabLog.classList.toggle("on", name === "log");
+      tabView.classList.toggle("on", name === "view");
       inspectorRoot.style.display = name === "inspect" ? "block" : "none";
       codeRoot.style.display = name === "code" ? "block" : "none";
       changelogRoot.style.display = name === "log" ? "flex" : "none";
+      viewRoot.style.display = name === "view" ? "block" : "none";
       if (name === "code") Studio.renderCodePanel(codeRoot);
       if (name === "log") Studio.renderChangeLog(changelogRoot);
     }
