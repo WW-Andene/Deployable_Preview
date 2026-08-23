@@ -39,9 +39,22 @@
       var list = h("div", { class: "st-changelog-list" });
       changes.slice().reverse().forEach(function (c) {
         var row = h("div", { class: "st-changelog-row" });
-        var label = c.sourceFile ? c.sourceFile : (c.selector || "(unknown)");
+        var label = c.sourceFile ? (c.sourceFile + ":" + c.sourceLine) : (c.selector || "(unknown)");
         row.appendChild(h("div", { class: "st-cl-label", text: label }));
         row.appendChild(h("div", { class: "st-cl-detail", text: c.property + (c.to !== undefined ? (": " + JSON.stringify(c.to)) : "") }));
+        if (!c.sourceFile && c.el) {
+          var applyRow = h("div", { class: "st-cl-apply" });
+          var applyBtn = h("button", { class: "st-btn-xs", text: "Apply to code…" });
+          var mount = h("div", { class: "st-cl-apply-mount" });
+          applyBtn.addEventListener("click", function () {
+            Studio.applyChangeToCode(c, mount, function () { Studio.renderChangeLog(root); });
+          });
+          applyRow.appendChild(applyBtn);
+          row.appendChild(applyRow);
+          row.appendChild(mount);
+        } else if (c.sourceFile) {
+          row.appendChild(h("div", { class: "st-hint", text: "✓ Applied to source — will be included in Commit & push." }));
+        }
         list.appendChild(row);
       });
       scrollArea.appendChild(list);
@@ -70,7 +83,7 @@
     root.appendChild(actions);
 
     root.appendChild(h("div", { class: "st-hint" }, [
-      document.createTextNode("Commit & push only sends changes that came from the Code tab (real source-file edits). Visual-only tweaks made in Inspect need \u201cFind in source files\u201d first, or export the JSON and hand it to Claude to apply.")
+      document.createTextNode("Commit & push sends real source-file edits: Code-tab saves, and visual changes you\u2019ve applied via \u201cApply to code\u2026\u201d below. Anything still unapplied is visual-only and won\u2019t be included \u2014 export the JSON and hand it to Claude if you\u2019d rather apply it that way.")
     ]));
   };
 

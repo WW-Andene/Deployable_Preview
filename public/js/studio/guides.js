@@ -30,6 +30,7 @@
     } else if (msg.type === "change") {
       Studio.recordChange({
         selector: msg.selector,
+        el: msg.el || null,
         property: msg.property,
         from: msg.from,
         to: msg.to

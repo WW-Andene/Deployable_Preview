@@ -20,8 +20,10 @@
     isFullView: false
   };
 
+  var nextChangeId = 1;
   Studio.recordChange = function (entry) {
     entry.at = Date.now();
+    entry.id = nextChangeId++;
     Studio.S.changes.push(entry);
     if (Studio.onChangesUpdated) Studio.onChangesUpdated();
   };

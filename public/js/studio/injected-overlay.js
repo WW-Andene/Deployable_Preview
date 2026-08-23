@@ -477,6 +477,7 @@
       post({
         type: "change",
         selector: cssPath(dragEl),
+        el: describeEl(dragEl),
         property: "position-offset",
         to: { left: dragEl.style.left, top: dragEl.style.top, position: dragEl.style.position },
         leftFlow: dragWasInFlow,
@@ -519,6 +520,7 @@
       post({
         type: "change",
         selector: cssPath(resizeEl),
+        el: describeEl(resizeEl),
         property: "size",
         to: { width: resizeEl.style.width, height: resizeEl.style.height }
       });
@@ -577,7 +579,7 @@
         if (selected && msg.property) {
           var before = selected.style[msg.property];
           selected.style[msg.property] = msg.value;
-          post({ type: "change", selector: cssPath(selected), property: msg.property, from: before, to: msg.value });
+          post({ type: "change", selector: cssPath(selected), el: describeEl(selected), property: msg.property, from: before, to: msg.value });
           positionResizeHandle();
           if (boxModelLayer.style.display !== "none") showBoxModel(selected);
         }
