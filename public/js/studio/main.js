@@ -139,8 +139,51 @@
 
     viewPanelInner.appendChild(h("div", { class: "st-view-hint", text: "Choisissez le format d'\u00e9cran affich\u00e9 dans Studio \u2014 les m\u00eames presets que le mode preview classique (Xiaomi 13T, iPhone 15, Galaxy S24, iPad Air, etc.), ou la vue plein \u00e9cran." }));
     viewPanelInner.appendChild(presetGrid);
+
+    // Zoom (CSS `zoom`, not transform \u2014 panning is just this scroll
+    // container's native overflow:auto) + snap-to-grid.
+    viewPanelInner.appendChild(h("div", { class: "st-section-title", text: "Zoom" }));
+    var zoomRow = h("div", { class: "st-preset-grid" });
+    var zoomLabel = h("span", { class: "st-view-hint", text: Math.round(S.zoom * 100) + "%" });
+    [0.5, 0.75, 1, 1.25, 1.5, 2].forEach(function (z) {
+      var btn = h("button", { class: "st-btn-sm st-preset-btn" + (S.zoom === z ? " on" : ""), text: Math.round(z * 100) + "%" });
+      btn.addEventListener("click", function () {
+        S.zoom = z;
+        zoomLabel.textContent = Math.round(z * 100) + "%";
+        zoomRow.querySelectorAll(".st-preset-btn").forEach(function (b) { b.classList.remove("on"); });
+        btn.classList.add("on");
+        Studio.applyZoom();
+      });
+      zoomRow.appendChild(btn);
+    });
+    viewPanelInner.appendChild(zoomRow);
+    viewPanelInner.appendChild(zoomLabel);
+
+    viewPanelInner.appendChild(h("div", { class: "st-section-title", text: "Grid" }));
+    var gridBtn = h("button", { class: "st-btn-sm" + (S.snapToGrid ? " on" : ""), text: S.snapToGrid ? "Snap to grid: On" : "Snap to grid: Off" });
+    var gridSizeField = h("div", { class: "st-field" }, [
+      h("label", { text: "Grid size (px)" }),
+      (function () {
+        var input = h("input", { type: "number", value: S.gridSize, min: "2", max: "200" });
+        input.addEventListener("change", function () {
+          S.gridSize = Math.max(2, parseInt(input.value, 10) || 8);
+          Studio.guides.setSnapToGrid(S.snapToGrid, S.gridSize);
+        });
+        return input;
+      })()
+    ]);
+    gridBtn.addEventListener("click", function () {
+      S.snapToGrid = !S.snapToGrid;
+      gridBtn.classList.toggle("on", S.snapToGrid);
+      gridBtn.textContent = S.snapToGrid ? "Snap to grid: On" : "Snap to grid: Off";
+      Studio.guides.setSnapToGrid(S.snapToGrid, S.gridSize);
+    });
+    viewPanelInner.appendChild(gridBtn);
+    viewPanelInner.appendChild(gridSizeField);
+
     viewRoot.appendChild(viewPanelInner);
     selectPreset(S.devicePreset);
+    applyZoom();
 
     body.appendChild(dock);
     root.appendChild(body);
@@ -174,6 +217,7 @@
     // toggles like multi-select mode need to be re-pushed once it's ready.
     Studio.onOverlayReady = function () {
       if (S.multiSelectMode) Studio.guides.setMultiSelectMode(true);
+      if (S.snapToGrid) Studio.guides.setSnapToGrid(true, S.gridSize);
     };
     Studio.onSelectionChanged = function () { Studio.renderInspector(inspectorRoot); };
     Studio.onCodeFileChanged = function () { if (S.activePanel === "code") Studio.renderCodePanel(codeRoot); };
@@ -201,6 +245,18 @@
       }
     }
     Studio.applyDeviceFrame = applyDeviceFrame;
+
+    function applyZoom() {
+      // CSS `zoom` (not transform:scale — see studio.css comment on
+      // .st-preview-wrap.st-framed) scales the frame's actual layout box,
+      // so pan is just the wrap's native overflow:auto scroll. Anchor
+      // top-left instead of centering once zoomed in, or the overflow on
+      // the top/left side becomes unreachable by scrolling — see the
+      // .st-zoomed comment in studio.css.
+      deviceFrame.style.zoom = S.zoom;
+      previewWrap.classList.toggle("st-zoomed", S.zoom !== 1);
+    }
+    Studio.applyZoom = applyZoom;
   }
 
   function injectOverlay() {

@@ -52,6 +52,9 @@
     "#__studio-box-model .layer{position:absolute;}" +
     "#__studio-resize-handle{position:fixed;width:10px;height:10px;background:#d4a030;border:1.5px solid #14151c;border-radius:2px;z-index:2147483647;cursor:se-resize;touch-action:none;}" +
     "@media (pointer:coarse){#__studio-resize-handle{width:26px;height:26px;border-radius:6px;}}" +
+    "#__studio-rotate-handle{position:fixed;width:12px;height:12px;background:#5aaaff;border:1.5px solid #14151c;border-radius:50%;z-index:2147483647;cursor:grab;touch-action:none;}" +
+    "@media (pointer:coarse){#__studio-rotate-handle{width:26px;height:26px;}}" +
+    "#__studio-grid-layer{position:absolute;inset:0;pointer-events:none;z-index:2147483644;display:none;}" +
     "html.__studio-dragging, html.__studio-dragging *{touch-action:none !important;}";
   document.documentElement.appendChild(style);
 
@@ -68,6 +71,16 @@
   resizeHandle.id = "__studio-resize-handle";
   resizeHandle.style.display = "none";
   document.documentElement.appendChild(resizeHandle);
+
+  var rotateHandle = document.createElement("div");
+  rotateHandle.id = "__studio-rotate-handle";
+  rotateHandle.style.display = "none";
+  document.documentElement.appendChild(rotateHandle);
+
+  var gridLayer = document.createElement("div");
+  gridLayer.id = "__studio-grid-layer";
+  document.documentElement.appendChild(gridLayer);
+  var snapToGrid = false, gridSize = 8;
 
   function post(msg) {
     try { window.parent.postMessage(Object.assign({ __studio: true }, msg), "*"); } catch (_) {}
@@ -205,16 +218,38 @@
     ];
     var out = {};
     for (var i = 0; i < keys.length; i++) out[keys[i]] = c[keys[i]];
+    out.rotationDeg = currentRotationDeg(el); // synthetic — see currentRotationDeg
     return out;
   }
 
   function positionResizeHandle() {
-    if (!selected) { resizeHandle.style.display = "none"; return; }
+    if (!selected) { resizeHandle.style.display = "none"; rotateHandle.style.display = "none"; return; }
     var r = selected.getBoundingClientRect();
     resizeHandle.style.display = "block"; // must be visible before offsetWidth is meaningful
     var hw = resizeHandle.offsetWidth / 2, hh = resizeHandle.offsetHeight / 2;
     resizeHandle.style.left = (r.right - hw) + "px";
     resizeHandle.style.top = (r.bottom - hh) + "px";
+
+    // Rotate handle floats above the (axis-aligned) bounding box's top
+    // center. For a rotated element this tracks the box, not the visually
+    // rotated corner — an approximation, same spirit as the resize handle
+    // not accounting for rotation either.
+    rotateHandle.style.display = "block";
+    var rhw = rotateHandle.offsetWidth / 2, rhh = rotateHandle.offsetHeight / 2;
+    rotateHandle.style.left = ((r.left + r.right) / 2 - rhw) + "px";
+    rotateHandle.style.top = (r.top - 24 - rhh) + "px";
+  }
+
+  // We always set rotation as the ONLY transform (never combined with
+  // scale/skew), so it can be read back with a plain regex instead of
+  // decomposing a matrix() — same "inline style is the source of truth"
+  // approach as every other property here.
+  function currentRotationDeg(el) {
+    var m = /rotate\((-?[\d.]+)deg\)/.exec(el.style.transform || "");
+    return m ? parseFloat(m[1]) : 0;
+  }
+  function angleOf(cx, cy, x, y) {
+    return Math.atan2(y - cy, x - cx) * 180 / Math.PI;
   }
 
   document.addEventListener("mouseover", onMouseOver, true);
@@ -441,7 +476,7 @@
   // trackpad. clientX/clientY/target all behave the same as MouseEvent.
   document.addEventListener("pointerdown", function (e) {
     if (!enabled) return;
-    if (e.target === resizeHandle) return; // resize handled separately
+    if (e.target === resizeHandle || e.target === rotateHandle) return; // handled by their own listeners
     var t = e.target;
     if (t === document.documentElement || t === document.body) return;
 
@@ -686,6 +721,13 @@
     var finalRect = { left: nx, right: nx + w, top: ny, bottom: ny + h };
     drawEqualSpacingGuides(dragEl, finalRect);
 
+    // Grid snap is a fallback for whichever axis a smart guide didn't
+    // already claim — guides (aligning to real content) take priority.
+    if (snapToGrid) {
+      if (!snappedX) nx = snapVal(nx);
+      if (!snappedY) ny = snapVal(ny);
+    }
+
     dragEl.style.left = nx + "px";
     dragEl.style.top = ny + "px";
     positionResizeHandle();
@@ -737,6 +779,7 @@
     var dh = e.clientY - resizeOriginY;
     var nw = Math.max(8, resizeStartW + dw);
     var nh = Math.max(8, resizeStartH + dh);
+    if (snapToGrid) { nw = Math.max(gridSize, snapVal(nw)); nh = Math.max(gridSize, snapVal(nh)); }
     resizeEl.style.width = nw + "px";
     resizeEl.style.height = nh + "px";
     positionResizeHandle();
@@ -756,6 +799,67 @@
       });
     }
     resizeEl = null; resizeState = null;
+  }
+
+  // ── Rotate ────────────────────────────────────────────────────────────
+  var rotateEl, rotateState, rotateCx, rotateCy, rotateStartDeg, rotatePointerStartDeg;
+
+  rotateHandle.addEventListener("pointerdown", function (e) {
+    if (!selected) return;
+    e.preventDefault(); e.stopPropagation();
+    rotateEl = selected;
+    var r = rotateEl.getBoundingClientRect();
+    rotateCx = (r.left + r.right) / 2;
+    rotateCy = (r.top + r.bottom) / 2;
+    rotateStartDeg = currentRotationDeg(rotateEl);
+    rotatePointerStartDeg = angleOf(rotateCx, rotateCy, e.clientX, e.clientY);
+    rotateState = { moved: false };
+    document.documentElement.classList.add("__studio-dragging");
+    document.addEventListener("pointermove", onRotateMove);
+    document.addEventListener("pointerup", onRotateUp);
+  });
+
+  function onRotateMove(e) {
+    if (!rotateEl) return;
+    rotateState.moved = true;
+    var pointerDeg = angleOf(rotateCx, rotateCy, e.clientX, e.clientY);
+    var deg = rotateStartDeg + (pointerDeg - rotatePointerStartDeg);
+    // Shift snaps to 15° increments, Figma/Canva-style.
+    if (e.shiftKey) deg = Math.round(deg / 15) * 15;
+    rotateEl.style.transform = "rotate(" + Math.round(deg) + "deg)";
+    positionResizeHandle();
+  }
+  function onRotateUp() {
+    document.removeEventListener("pointermove", onRotateMove);
+    document.removeEventListener("pointerup", onRotateUp);
+    document.documentElement.classList.remove("__studio-dragging");
+    if (rotateEl && rotateState && rotateState.moved) {
+      post({
+        type: "change",
+        selector: cssPath(rotateEl),
+        el: describeEl(rotateEl),
+        property: "transform",
+        from: rotateStartDeg ? "rotate(" + rotateStartDeg + "deg)" : "",
+        to: rotateEl.style.transform
+      });
+    }
+    rotateEl = null; rotateState = null;
+  }
+
+  // ── Snap to grid ──────────────────────────────────────────────────────
+  function snapVal(v) { return Math.round(v / gridSize) * gridSize; }
+
+  function drawGrid() {
+    if (!snapToGrid) { gridLayer.style.display = "none"; return; }
+    var w = Math.max(document.documentElement.scrollWidth, window.innerWidth);
+    var h = Math.max(document.documentElement.scrollHeight, window.innerHeight);
+    gridLayer.style.width = w + "px";
+    gridLayer.style.height = h + "px";
+    gridLayer.style.backgroundImage =
+      "linear-gradient(to right, rgba(90,170,255,.18) 1px, transparent 1px)," +
+      "linear-gradient(to bottom, rgba(90,170,255,.18) 1px, transparent 1px)";
+    gridLayer.style.backgroundSize = gridSize + "px " + gridSize + "px";
+    gridLayer.style.display = "block";
   }
 
   // ── Box-model (padding/margin) visualizer ────────────────────────────────
@@ -791,6 +895,11 @@
         break;
       case "setMultiSelectMode":
         multiSelectMode = !!msg.value;
+        break;
+      case "setSnapToGrid":
+        snapToGrid = !!msg.value;
+        if (msg.size) gridSize = Math.max(2, msg.size);
+        drawGrid();
         break;
       case "select":
         var target = msg.selector ? document.querySelector(msg.selector) : null;

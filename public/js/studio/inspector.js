@@ -180,6 +180,14 @@
       root.appendChild(h("div", { class: "st-hint", text: "Drag this element on the canvas to place it freely — it's currently positioned by the page layout (" + (c.display || "block") + ")." }));
     }
 
+    // ── Rotation (drag the blue handle above the selection, or type a
+    //    value here — Shift+drag snaps to 15° increments) ──
+    root.appendChild(h("div", { class: "st-section-title", text: "Rotation" }));
+    root.appendChild(numField("Angle", c.rotationDeg || 0, "deg", function (v) {
+      var deg = parseFloat(v) || 0;
+      Studio.guides.setStyle("transform", deg ? "rotate(" + deg + "deg)" : "");
+    }));
+
     // ── Alignment (flex/grid parent-aware, but exposed simply) ──
     root.appendChild(h("div", { class: "st-section-title", text: "Alignment" }));
     var alignGrid = h("div", { class: "st-grid-2" });

@@ -20,7 +20,12 @@
     status: "loading",      // 'loading' | 'ready' | 'error'
     devicePreset: "13t",    // key into DV.VIEW_PRESETS, or "full" for edge-to-edge
     isFullView: false,
-    multiSelectMode: false  // touch stand-in for Shift/Cmd/Ctrl+click — see topbar toggle in main.js
+    multiSelectMode: false, // touch stand-in for Shift/Cmd/Ctrl+click — see topbar toggle in main.js
+    snapToGrid: false,
+    gridSize: 8,
+    zoom: 1  // CSS `zoom` on the device frame — NOT transform:scale, which
+             // desyncs iframe pointer coordinates (see studio.css). Pan is
+             // just the preview wrap's native overflow:auto scroll.
   };
 
   var nextChangeId = 1;
