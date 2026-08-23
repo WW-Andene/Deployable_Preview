@@ -38,6 +38,21 @@
       ]),
       h("div", { class: "st-topbar-actions" }, [
         (function () {
+          // Touch has no Shift/Cmd/Ctrl key, so multi-select needs an
+          // explicit toggle: while on, every tap adds/removes an element
+          // instead of replacing the selection. Off by default so a single
+          // tap still just selects, matching desktop's plain-click.
+          var multiBtn = h("button", { class: "st-btn-sm", text: "Multi-select" });
+          multiBtn.title = "Toggle multi-select mode (for touch \u2014 no Shift key needed)";
+          multiBtn.classList.toggle("on", S.multiSelectMode);
+          multiBtn.addEventListener("click", function () {
+            S.multiSelectMode = !S.multiSelectMode;
+            multiBtn.classList.toggle("on", S.multiSelectMode);
+            Studio.guides.setMultiSelectMode(S.multiSelectMode);
+          });
+          return multiBtn;
+        })(),
+        (function () {
           var reloadBtn = h("button", { class: "st-btn-sm", text: "\u21bb Reload preview" });
           reloadBtn.addEventListener("click", function () { reloadIframe(); });
           return reloadBtn;
@@ -154,6 +169,12 @@
     Studio.onPanelChanged = function () { setPanel(S.activePanel); };
     setPanel("inspect");
 
+    // The overlay is a fresh script instance on every navigation/rebuild
+    // (new document = new __studioOverlayInstalled guard), so persistent
+    // toggles like multi-select mode need to be re-pushed once it's ready.
+    Studio.onOverlayReady = function () {
+      if (S.multiSelectMode) Studio.guides.setMultiSelectMode(true);
+    };
     Studio.onSelectionChanged = function () { Studio.renderInspector(inspectorRoot); };
     Studio.onCodeFileChanged = function () { if (S.activePanel === "code") Studio.renderCodePanel(codeRoot); };
     Studio.onChangesUpdated = function () {

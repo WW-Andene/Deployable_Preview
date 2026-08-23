@@ -19,7 +19,8 @@
     lastRebuildAt: null,
     status: "loading",      // 'loading' | 'ready' | 'error'
     devicePreset: "13t",    // key into DV.VIEW_PRESETS, or "full" for edge-to-edge
-    isFullView: false
+    isFullView: false,
+    multiSelectMode: false  // touch stand-in for Shift/Cmd/Ctrl+click — see topbar toggle in main.js
   };
 
   var nextChangeId = 1;

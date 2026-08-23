@@ -33,6 +33,10 @@
   var dragState = null;
   var resizeState = null;
   var enabled = true;
+  // Touch (mobile) has no Shift key for additive selection — a persistent
+  // toggle sent from the parent UI stands in for it there. See main.js's
+  // "Multi-select" topbar button.
+  var multiSelectMode = false;
 
   var style = document.createElement("style");
   style.textContent =
@@ -46,7 +50,9 @@
     "#__studio-guide-layer .g-dim{position:absolute;font:10px/1.4 monospace;background:#ff5f6d;color:#fff;padding:1px 4px;border-radius:2px;transform:translate(-50%,-50%);}" +
     "#__studio-box-model{position:fixed;pointer-events:none;z-index:2147483645;}" +
     "#__studio-box-model .layer{position:absolute;}" +
-    "#__studio-resize-handle{position:fixed;width:10px;height:10px;background:#d4a030;border:1.5px solid #14151c;border-radius:2px;z-index:2147483647;cursor:se-resize;}";
+    "#__studio-resize-handle{position:fixed;width:10px;height:10px;background:#d4a030;border:1.5px solid #14151c;border-radius:2px;z-index:2147483647;cursor:se-resize;touch-action:none;}" +
+    "@media (pointer:coarse){#__studio-resize-handle{width:26px;height:26px;border-radius:6px;}}" +
+    "html.__studio-dragging, html.__studio-dragging *{touch-action:none !important;}";
   document.documentElement.appendChild(style);
 
   var guideLayer = document.createElement("div");
@@ -193,9 +199,10 @@
   function positionResizeHandle() {
     if (!selected) { resizeHandle.style.display = "none"; return; }
     var r = selected.getBoundingClientRect();
-    resizeHandle.style.left = (r.right - 5) + "px";
-    resizeHandle.style.top = (r.bottom - 5) + "px";
-    resizeHandle.style.display = "block";
+    resizeHandle.style.display = "block"; // must be visible before offsetWidth is meaningful
+    var hw = resizeHandle.offsetWidth / 2, hh = resizeHandle.offsetHeight / 2;
+    resizeHandle.style.left = (r.right - hw) + "px";
+    resizeHandle.style.top = (r.bottom - hh) + "px";
   }
 
   document.addEventListener("mouseover", onMouseOver, true);
@@ -353,7 +360,10 @@
   var DRAG_THRESHOLD = 4;
   var pendingDragEl = null, pendingDragStarted = false;
 
-  document.addEventListener("mousedown", function (e) {
+  // Pointer Events (not mouse-only) so the same code drives mouse, touch,
+  // and pen — required for Studio to work on a phone/tablet, not just a
+  // trackpad. clientX/clientY/target all behave the same as MouseEvent.
+  document.addEventListener("pointerdown", function (e) {
     if (!enabled) return;
     if (e.target === resizeHandle) return; // resize handled separately
     var t = e.target;
@@ -362,10 +372,11 @@
     e.preventDefault();
     e.stopPropagation();
 
-    // Shift/Cmd/Ctrl+click toggles multi-selection and never starts a drag —
-    // matches Canva/Figma, where additive-select is a distinct gesture from
-    // moving an object.
-    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+    // Shift/Cmd/Ctrl+click toggles multi-selection (desktop); the
+    // Multi-select topbar toggle does the same thing for touch, which has
+    // no modifier keys. Either way this never starts a drag — additive
+    // selection is a distinct gesture from moving an object.
+    if (multiSelectMode || e.shiftKey || e.metaKey || e.ctrlKey) {
       toggleSelect(t);
       return;
     }
@@ -378,8 +389,8 @@
     pendingDragEl = actingEl;
     pendingDragStarted = false;
     dragOriginX = e.clientX; dragOriginY = e.clientY;
-    document.addEventListener("mousemove", onPendingDragMove);
-    document.addEventListener("mouseup", onPendingDragUp);
+    document.addEventListener("pointermove", onPendingDragMove);
+    document.addEventListener("pointerup", onPendingDragUp);
   }, true);
 
   function onPendingDragMove(e) {
@@ -389,6 +400,7 @@
       if (Math.abs(dx0) < DRAG_THRESHOLD && Math.abs(dy0) < DRAG_THRESHOLD) return;
       pendingDragStarted = true;
       dragEl = pendingDragEl;
+      document.documentElement.classList.add("__studio-dragging");
       liftToFreeform(dragEl);
       dragStartLeft = parseFloat(dragEl.style.left) || 0;
       dragStartTop = parseFloat(dragEl.style.top) || 0;
@@ -399,8 +411,8 @@
   }
 
   function onPendingDragUp() {
-    document.removeEventListener("mousemove", onPendingDragMove);
-    document.removeEventListener("mouseup", onPendingDragUp);
+    document.removeEventListener("pointermove", onPendingDragMove);
+    document.removeEventListener("pointerup", onPendingDragUp);
     if (pendingDragStarted) onDragUp();
     pendingDragEl = null; pendingDragStarted = false;
   }
@@ -604,8 +616,9 @@
   }
 
   function onDragUp() {
-    document.removeEventListener("mousemove", onDragMove);
-    document.removeEventListener("mouseup", onDragUp);
+    document.removeEventListener("pointermove", onDragMove);
+    document.removeEventListener("pointerup", onDragUp);
+    document.documentElement.classList.remove("__studio-dragging");
     clearGuides();
     if (dragEl && dragState && dragState.moved) {
       post({
@@ -628,7 +641,7 @@
   // ── Resize ────────────────────────────────────────────────────────────
   var resizeStartW, resizeStartH, resizeOriginX, resizeOriginY, resizeEl;
 
-  resizeHandle.addEventListener("mousedown", function (e) {
+  resizeHandle.addEventListener("pointerdown", function (e) {
     if (!selected) return;
     e.preventDefault(); e.stopPropagation();
     resizeEl = selected;
@@ -636,8 +649,9 @@
     resizeStartW = r.width; resizeStartH = r.height;
     resizeOriginX = e.clientX; resizeOriginY = e.clientY;
     resizeState = { moved: false };
-    document.addEventListener("mousemove", onResizeMove);
-    document.addEventListener("mouseup", onResizeUp);
+    document.documentElement.classList.add("__studio-dragging");
+    document.addEventListener("pointermove", onResizeMove);
+    document.addEventListener("pointerup", onResizeUp);
   });
 
   function onResizeMove(e) {
@@ -652,8 +666,9 @@
     positionResizeHandle();
   }
   function onResizeUp() {
-    document.removeEventListener("mousemove", onResizeMove);
-    document.removeEventListener("mouseup", onResizeUp);
+    document.removeEventListener("pointermove", onResizeMove);
+    document.removeEventListener("pointerup", onResizeUp);
+    document.documentElement.classList.remove("__studio-dragging");
     if (resizeEl && resizeState && resizeState.moved) {
       post({
         type: "change",
@@ -697,6 +712,9 @@
       case "setEnabled":
         enabled = !!msg.value;
         if (!enabled) { clearGuides(); if (hovered) hovered.classList.remove("__studio-hover"); }
+        break;
+      case "setMultiSelectMode":
+        multiSelectMode = !!msg.value;
         break;
       case "select":
         var target = msg.selector ? document.querySelector(msg.selector) : null;

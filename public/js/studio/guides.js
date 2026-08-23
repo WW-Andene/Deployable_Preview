@@ -18,6 +18,7 @@
     hideBoxModel: function () { Studio.guides.send("hideBoxModel"); },
     requestSelectedStyle: function () { Studio.guides.send("getSelectedStyle"); },
     align: function (mode) { Studio.guides.send("align", { mode: mode }); },
+    setMultiSelectMode: function (on) { Studio.guides.send("setMultiSelectMode", { value: on }); },
     applyValue: function (selector, property, value) { Studio.guides.send("applyValue", { selector: selector, property: property, value: value }); }
   };
 
