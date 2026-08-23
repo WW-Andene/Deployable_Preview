@@ -17,7 +17,8 @@
     showBoxModel: function () { Studio.guides.send("showBoxModel"); },
     hideBoxModel: function () { Studio.guides.send("hideBoxModel"); },
     requestSelectedStyle: function () { Studio.guides.send("getSelectedStyle"); },
-    align: function (mode) { Studio.guides.send("align", { mode: mode }); }
+    align: function (mode) { Studio.guides.send("align", { mode: mode }); },
+    applyValue: function (selector, property, value) { Studio.guides.send("applyValue", { selector: selector, property: property, value: value }); }
   };
 
   // Listen for messages coming FROM the injected overlay inside the iframe.
@@ -52,6 +53,10 @@
       }
     } else if (msg.type === "ready") {
       if (Studio.onOverlayReady) Studio.onOverlayReady();
+    } else if (msg.type === "undo") {
+      Studio.undo();
+    } else if (msg.type === "redo") {
+      Studio.redo();
     }
   });
 })();

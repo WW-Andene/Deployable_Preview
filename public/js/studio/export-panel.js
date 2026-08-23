@@ -21,14 +21,31 @@
 
     var header = h("div", { class: "st-changelog-header" }, [
       h("span", { text: changes.length + " change" + (changes.length === 1 ? "" : "s") }),
-      (function () {
-        var clearBtn = h("button", { class: "st-btn-xs", text: "Clear" });
-        clearBtn.addEventListener("click", function () {
-          Studio.S.changes = [];
-          if (Studio.onChangesUpdated) Studio.onChangesUpdated();
-        });
-        return clearBtn;
-      })()
+      h("div", { class: "st-cl-header-actions" }, [
+        (function () {
+          var undoBtn = h("button", { class: "st-btn-xs", text: "↶ Undo" });
+          undoBtn.disabled = !changes.length;
+          undoBtn.title = "Ctrl/Cmd+Z";
+          undoBtn.addEventListener("click", function () { Studio.undo(); });
+          return undoBtn;
+        })(),
+        (function () {
+          var redoBtn = h("button", { class: "st-btn-xs", text: "↷ Redo" });
+          redoBtn.disabled = !Studio.S.undoneStack.length;
+          redoBtn.title = "Ctrl/Cmd+Shift+Z";
+          redoBtn.addEventListener("click", function () { Studio.redo(); });
+          return redoBtn;
+        })(),
+        (function () {
+          var clearBtn = h("button", { class: "st-btn-xs", text: "Clear" });
+          clearBtn.addEventListener("click", function () {
+            Studio.S.changes = [];
+            Studio.S.undoneStack = [];
+            if (Studio.onChangesUpdated) Studio.onChangesUpdated();
+          });
+          return clearBtn;
+        })()
+      ])
     ]);
     root.appendChild(header);
 

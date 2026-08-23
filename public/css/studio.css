@@ -91,6 +91,9 @@
 }
 
 .st-changelog-header { flex: 0 0 auto; display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--tx3); padding: 10px 12px 6px; }
+.st-cl-header-actions { display: flex; gap: 6px; }
+.st-btn-xs:disabled { opacity: .4; cursor: not-allowed; }
+.st-btn-xs:disabled:hover { border-color: var(--surface-border, rgba(255,255,255,.08)); color: var(--tx1); }
 .st-changelog-scroll { flex: 1; overflow-y: auto; min-height: 0; padding: 0 12px; }
 .st-changelog-list { display: flex; flex-direction: column; gap: 4px; padding-bottom: 8px; }
 .st-changelog-row { background: var(--surface2, #1b1d26); border-radius: 6px; padding: 5px 8px; }

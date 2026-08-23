@@ -9,7 +9,8 @@
     previewUrl: null,
     selected: null,       // { selector, tag, classes, text, attrs, rect, computed } — primary/last selection
     selection: [],        // [{ selector, tag, rect }] — full multi-selection (Shift/Cmd/Ctrl+click)
-    changes: [],           // accumulated diff entries
+    changes: [],           // accumulated diff entries — also doubles as the undo stack, see undo.js
+    undoneStack: [],       // changes popped by undo(), replayed by redo() — cleared on any new change
     boxModelOn: false,
     activePanel: "inspect", // 'inspect' | 'code'
     codeFile: null,        // { path, content, sha256 }
@@ -26,6 +27,7 @@
     entry.at = Date.now();
     entry.id = nextChangeId++;
     Studio.S.changes.push(entry);
+    Studio.S.undoneStack = []; // a fresh change invalidates whatever redo history existed
     if (Studio.onChangesUpdated) Studio.onChangesUpdated();
   };
 

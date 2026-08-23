@@ -271,17 +271,30 @@
   }
 
   // ── Align & distribute (Canva/Figma toolbar actions on a multi-selection) ─
+  // Mirrors liftToFreeform's static->absolute conversion math to compute
+  // what an element's left/top *would have been* pre-move, so the resulting
+  // change carries a usable "from" for undo (see moveElementToRect).
+  function captureFromPos(el, r) {
+    var wasStatic = getComputedStyle(el).position === "static";
+    if (!wasStatic) return { left: el.style.left, top: el.style.top, position: el.style.position };
+    var anchor = nearestPositionedAncestor(el) || el.parentElement;
+    var aRect = anchor ? anchor.getBoundingClientRect() : { left: 0, top: 0 };
+    return { left: (r.left - aRect.left) + "px", top: (r.top - aRect.top) + "px", position: "" };
+  }
+
   function alignSelection(mode) {
     if (selectedSet.length < 2) return;
-    var items = selectedSet.map(function (el) { return { el: el, r: el.getBoundingClientRect() }; });
+    var items = selectedSet.map(function (el) { return { el: el, r: el.getBoundingClientRect(), from: null }; });
+    items.forEach(function (i) { i.from = captureFromPos(i.el, i.r); });
 
-    function commit(el) {
+    function commit(i) {
       post({
         type: "change",
-        selector: cssPath(el),
-        el: describeEl(el),
+        selector: cssPath(i.el),
+        el: describeEl(i.el),
         property: "position-offset",
-        to: { left: el.style.left, top: el.style.top, position: el.style.position }
+        from: i.from,
+        to: { left: i.el.style.left, top: i.el.style.top, position: i.el.style.position }
       });
     }
 
@@ -291,7 +304,7 @@
       items.forEach(function (i) {
         var x = mode === "left" ? minLeft : mode === "right" ? maxRight - i.r.width : (minLeft + maxRight) / 2 - i.r.width / 2;
         moveElementToRect(i.el, x, i.r.top);
-        commit(i.el);
+        commit(i);
       });
     } else if (mode === "top" || mode === "centerV" || mode === "bottom") {
       var minTop = Math.min.apply(null, items.map(function (i) { return i.r.top; }));
@@ -299,7 +312,7 @@
       items.forEach(function (i) {
         var y = mode === "top" ? minTop : mode === "bottom" ? maxBottom - i.r.height : (minTop + maxBottom) / 2 - i.r.height / 2;
         moveElementToRect(i.el, i.r.left, y);
-        commit(i.el);
+        commit(i);
       });
     } else if (mode === "distributeH") {
       if (items.length < 3) return;
@@ -310,7 +323,7 @@
       var cursor = sortedH[0].r.left;
       sortedH.forEach(function (i) {
         moveElementToRect(i.el, cursor, i.r.top);
-        commit(i.el);
+        commit(i);
         cursor += i.r.width + gapH;
       });
     } else if (mode === "distributeV") {
@@ -322,7 +335,7 @@
       var cursorV = sortedV[0].r.top;
       sortedV.forEach(function (i) {
         moveElementToRect(i.el, i.r.left, cursorV);
-        commit(i.el);
+        commit(i);
         cursorV += i.r.height + gapV;
       });
     }
@@ -600,6 +613,10 @@
         selector: cssPath(dragEl),
         el: describeEl(dragEl),
         property: "position-offset",
+        // "from" reproduces the pre-drag visual position (useful for undo);
+        // note it stays position:absolute even for a freshly-lifted element,
+        // so undoing doesn't restore original flow-layout — see liftToFreeform.
+        from: { left: dragStartLeft + "px", top: dragStartTop + "px", position: dragEl.style.position },
         to: { left: dragEl.style.left, top: dragEl.style.top, position: dragEl.style.position },
         leftFlow: dragWasInFlow,
         parentLayout: dragParentLayout
@@ -643,6 +660,7 @@
         selector: cssPath(resizeEl),
         el: describeEl(resizeEl),
         property: "size",
+        from: { width: resizeStartW + "px", height: resizeStartH + "px" },
         to: { width: resizeEl.style.width, height: resizeEl.style.height }
       });
     }
@@ -712,9 +730,42 @@
       case "getSelectedStyle":
         if (selected) post({ type: "selectedStyle", computed: computedSubset(selected), rect: rectOf(selected) });
         break;
+      case "applyValue":
+        // Used by undo/redo — sets a change's from/to value directly,
+        // without recording a new "change" (that would defeat the point).
+        var applyTarget = msg.selector ? document.querySelector(msg.selector) : null;
+        if (applyTarget) {
+          if (msg.property === "position-offset") {
+            applyTarget.style.position = (msg.value && msg.value.position) || "";
+            applyTarget.style.left = (msg.value && msg.value.left) || "";
+            applyTarget.style.top = (msg.value && msg.value.top) || "";
+          } else if (msg.property === "size") {
+            applyTarget.style.width = (msg.value && msg.value.width) || "";
+            applyTarget.style.height = (msg.value && msg.value.height) || "";
+          } else {
+            applyTarget.style[msg.property] = msg.value;
+          }
+          if (selected === applyTarget) {
+            positionResizeHandle();
+            if (boxModelLayer.style.display !== "none") showBoxModel(applyTarget);
+          }
+        }
+        break;
       default:
         break;
     }
+  });
+
+  // Keyboard shortcuts while focus is inside the previewed page (e.g. right
+  // after a drag) — forward to the parent Studio UI, which owns the actual
+  // undo/redo stack (see state.js / undo.js).
+  document.addEventListener("keydown", function (e) {
+    if (!enabled) return;
+    var mod = e.metaKey || e.ctrlKey;
+    if (!mod || e.key.toLowerCase() !== "z") return;
+    if (e.target && e.target.closest && e.target.closest("input,textarea,[contenteditable]")) return;
+    e.preventDefault();
+    post({ type: e.shiftKey ? "redo" : "undo" });
   });
 
   post({ type: "ready" });

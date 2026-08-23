@@ -219,6 +219,18 @@
     setTimeout(function () { toastEl.className = "st-toast"; }, 4000);
   };
 
+  // Undo/redo while focus is in the parent Studio chrome (not the preview
+  // iframe, which forwards its own Ctrl/Cmd+Z via postMessage — see
+  // injected-overlay.js).
+  document.addEventListener("keydown", function (e) {
+    var mod = e.metaKey || e.ctrlKey;
+    if (!mod || e.key.toLowerCase() !== "z") return;
+    var t = e.target;
+    if (t && t.closest && t.closest("input,textarea,select,[contenteditable]")) return;
+    e.preventDefault();
+    if (e.shiftKey) Studio.redo(); else Studio.undo();
+  });
+
   window.addEventListener("hashchange", build);
   document.addEventListener("DOMContentLoaded", build);
   if (document.readyState !== "loading") build();
