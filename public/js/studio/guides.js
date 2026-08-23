@@ -16,7 +16,8 @@
     setStyle: function (property, value) { Studio.guides.send("setStyle", { property: property, value: value }); },
     showBoxModel: function () { Studio.guides.send("showBoxModel"); },
     hideBoxModel: function () { Studio.guides.send("hideBoxModel"); },
-    requestSelectedStyle: function () { Studio.guides.send("getSelectedStyle"); }
+    requestSelectedStyle: function () { Studio.guides.send("getSelectedStyle"); },
+    align: function (mode) { Studio.guides.send("align", { mode: mode }); }
   };
 
   // Listen for messages coming FROM the injected overlay inside the iframe.
@@ -24,7 +25,8 @@
     var msg = e.data;
     if (!msg || !msg.__studio) return;
     if (msg.type === "select") {
-      Studio.S.selected = { selector: msg.el.selector, tag: msg.el.tag, classes: msg.el.classes, text: msg.el.text, attrs: msg.el.attrs, rect: msg.rect, computed: msg.computed };
+      Studio.S.selected = msg.el ? { selector: msg.el.selector, tag: msg.el.tag, classes: msg.el.classes, text: msg.el.text, attrs: msg.el.attrs, rect: msg.rect, computed: msg.computed } : null;
+      Studio.S.selection = msg.multi || [];
       Studio.S.locateCandidates = [];
       if (Studio.onSelectionChanged) Studio.onSelectionChanged();
     } else if (msg.type === "change") {

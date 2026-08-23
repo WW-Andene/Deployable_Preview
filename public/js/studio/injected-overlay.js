@@ -28,6 +28,7 @@
 
   var SNAP = 6;
   var selected = null;
+  var selectedSet = []; // multi-select, Shift/Cmd/Ctrl+click — see toggleSelect()
   var hovered = null;
   var dragState = null;
   var resizeState = null;
@@ -37,6 +38,7 @@
   style.textContent =
     ".__studio-hover{outline:1.5px dashed #d4a030 !important;outline-offset:-1px;cursor:pointer;}" +
     ".__studio-selected{outline:2px solid #d4a030 !important;outline-offset:-2px;}" +
+    ".__studio-multi-selected{outline:2px solid #5aaaff !important;outline-offset:-2px;}" +
     "#__studio-guide-layer{position:fixed;inset:0;pointer-events:none;z-index:2147483646;}" +
     "#__studio-guide-layer .g-line{position:absolute;background:#ff5f6d;}" +
     "#__studio-guide-layer .g-v{width:1px;top:0;bottom:0;}" +
@@ -120,12 +122,51 @@
     if (hovered) { hovered.classList.remove("__studio-hover"); hovered = null; }
   }
 
-  function selectElement(el) {
+  function clearSelectionClasses() {
     if (selected) selected.classList.remove("__studio-selected");
-    selected = el;
-    selected.classList.add("__studio-selected");
+    selectedSet.forEach(function (e) { e.classList.remove("__studio-selected", "__studio-multi-selected"); });
+  }
+
+  function applySelectionClasses() {
+    selectedSet.forEach(function (e) {
+      e.classList.remove("__studio-selected", "__studio-multi-selected");
+      e.classList.add(selectedSet.length > 1 ? "__studio-multi-selected" : "__studio-selected");
+    });
+    if (selected && selectedSet.length > 1) selected.classList.add("__studio-selected");
+  }
+
+  function postSelection() {
     positionResizeHandle();
-    post({ type: "select", el: describeEl(el), rect: rectOf(el), computed: computedSubset(el) });
+    post({
+      type: "select",
+      el: selected ? describeEl(selected) : null,
+      rect: selected ? rectOf(selected) : null,
+      computed: selected ? computedSubset(selected) : null,
+      multi: selectedSet.map(function (e) { return { selector: cssPath(e), tag: e.tagName.toLowerCase(), rect: rectOf(e) }; })
+    });
+  }
+
+  // Plain click: replace the whole selection with just this element.
+  function selectElement(el) {
+    clearSelectionClasses();
+    selected = el;
+    selectedSet = [el];
+    applySelectionClasses();
+    postSelection();
+  }
+
+  // Shift/Cmd/Ctrl+click: toggle this element in/out of the multi-selection
+  // without disturbing the rest — Canva/Figma-style additive selection.
+  function toggleSelect(el) {
+    clearSelectionClasses();
+    var idx = selectedSet.indexOf(el);
+    if (idx === -1) { selectedSet.push(el); selected = el; }
+    else {
+      selectedSet.splice(idx, 1);
+      selected = selectedSet.length ? selectedSet[selectedSet.length - 1] : null;
+    }
+    applySelectionClasses();
+    postSelection();
   }
 
   function rectOf(el) {
@@ -216,6 +257,78 @@
     }
   }
 
+  // Moves an already-freeform (or about-to-be-lifted) element so its box
+  // sits at the given viewport-space (targetLeft, targetTop), converting
+  // into its own anchor's local coordinate space. Used by align/distribute,
+  // which — unlike drag — computes target positions from *other* elements'
+  // rects, not from a pointer delta.
+  function moveElementToRect(el, targetLeft, targetTop) {
+    liftToFreeform(el);
+    var anchor = nearestPositionedAncestor(el) || el.parentElement;
+    var aRect = anchor ? anchor.getBoundingClientRect() : { left: 0, top: 0 };
+    el.style.left = (targetLeft - aRect.left) + "px";
+    el.style.top = (targetTop - aRect.top) + "px";
+  }
+
+  // ── Align & distribute (Canva/Figma toolbar actions on a multi-selection) ─
+  function alignSelection(mode) {
+    if (selectedSet.length < 2) return;
+    var items = selectedSet.map(function (el) { return { el: el, r: el.getBoundingClientRect() }; });
+
+    function commit(el) {
+      post({
+        type: "change",
+        selector: cssPath(el),
+        el: describeEl(el),
+        property: "position-offset",
+        to: { left: el.style.left, top: el.style.top, position: el.style.position }
+      });
+    }
+
+    if (mode === "left" || mode === "centerH" || mode === "right") {
+      var minLeft = Math.min.apply(null, items.map(function (i) { return i.r.left; }));
+      var maxRight = Math.max.apply(null, items.map(function (i) { return i.r.right; }));
+      items.forEach(function (i) {
+        var x = mode === "left" ? minLeft : mode === "right" ? maxRight - i.r.width : (minLeft + maxRight) / 2 - i.r.width / 2;
+        moveElementToRect(i.el, x, i.r.top);
+        commit(i.el);
+      });
+    } else if (mode === "top" || mode === "centerV" || mode === "bottom") {
+      var minTop = Math.min.apply(null, items.map(function (i) { return i.r.top; }));
+      var maxBottom = Math.max.apply(null, items.map(function (i) { return i.r.bottom; }));
+      items.forEach(function (i) {
+        var y = mode === "top" ? minTop : mode === "bottom" ? maxBottom - i.r.height : (minTop + maxBottom) / 2 - i.r.height / 2;
+        moveElementToRect(i.el, i.r.left, y);
+        commit(i.el);
+      });
+    } else if (mode === "distributeH") {
+      if (items.length < 3) return;
+      var sortedH = items.slice().sort(function (a, b) { return a.r.left - b.r.left; });
+      var span = sortedH[sortedH.length - 1].r.right - sortedH[0].r.left;
+      var totalW = sortedH.reduce(function (s, i) { return s + i.r.width; }, 0);
+      var gapH = (span - totalW) / (sortedH.length - 1);
+      var cursor = sortedH[0].r.left;
+      sortedH.forEach(function (i) {
+        moveElementToRect(i.el, cursor, i.r.top);
+        commit(i.el);
+        cursor += i.r.width + gapH;
+      });
+    } else if (mode === "distributeV") {
+      if (items.length < 3) return;
+      var sortedV = items.slice().sort(function (a, b) { return a.r.top - b.r.top; });
+      var spanV = sortedV[sortedV.length - 1].r.bottom - sortedV[0].r.top;
+      var totalH = sortedV.reduce(function (s, i) { return s + i.r.height; }, 0);
+      var gapV = (spanV - totalH) / (sortedV.length - 1);
+      var cursorV = sortedV[0].r.top;
+      sortedV.forEach(function (i) {
+        moveElementToRect(i.el, i.r.left, cursorV);
+        commit(i.el);
+        cursorV += i.r.height + gapV;
+      });
+    }
+    postSelection(); // refresh rects for the multi-select toolbar after the move
+  }
+
   // Select AND drag in a single gesture: on mousedown we immediately select
   // whatever was clicked (so this doubles as the old "click to select"), and
   // arm a pending drag. The pending drag only actually engages (lifting the
@@ -236,8 +349,16 @@
     e.preventDefault();
     e.stopPropagation();
 
+    // Shift/Cmd/Ctrl+click toggles multi-selection and never starts a drag —
+    // matches Canva/Figma, where additive-select is a distinct gesture from
+    // moving an object.
+    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+      toggleSelect(t);
+      return;
+    }
+
     var actingEl = (selected && (t === selected || selected.contains(t))) ? selected : t;
-    if (selected !== actingEl) selectElement(actingEl);
+    if (selected !== actingEl || selectedSet.length > 1) selectElement(actingEl);
 
     if (t.closest && t.closest("input,textarea,select,button,a")) return; // don't hijack real interactions
 
@@ -564,10 +685,14 @@
         if (target) selectElement(target);
         break;
       case "deselect":
-        if (selected) selected.classList.remove("__studio-selected");
+        clearSelectionClasses();
         selected = null;
+        selectedSet = [];
         resizeHandle.style.display = "none";
         boxModelLayer.style.display = "none";
+        break;
+      case "align":
+        alignSelection(msg.mode);
         break;
       case "showBoxModel":
         showBoxModel(selected);

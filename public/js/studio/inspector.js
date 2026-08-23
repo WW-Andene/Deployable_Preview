@@ -59,11 +59,56 @@
     return wrap;
   }
 
+  var ALIGN_ACTIONS = [
+    ["left", "⭠ Align left"], ["centerH", "↕ Align center H"], ["right", "⭢ Align right"],
+    ["top", "⭡ Align top"], ["centerV", "↔ Align center V"], ["bottom", "⭣ Align bottom"],
+    ["distributeH", "⇔ Distribute H"], ["distributeV", "⇕ Distribute V"]
+  ];
+
+  function renderMultiSelectPanel(root, selection) {
+    root.appendChild(h("div", { class: "st-selected-tag" }, [
+      h("span", { class: "st-tag-name", text: selection.length + " elements selected" }),
+      h("span", { class: "st-tag-sel", text: "Shift/Cmd/Ctrl+click to add or remove elements." })
+    ]));
+    root.appendChild(h("div", { class: "st-section-title", text: "Align" }));
+    var alignGrid = h("div", { class: "st-grid-2" });
+    ALIGN_ACTIONS.slice(0, 6).forEach(function (pair) {
+      var btn = h("button", { class: "st-btn-sm", text: pair[1] });
+      btn.addEventListener("click", function () { Studio.guides.align(pair[0]); });
+      alignGrid.appendChild(btn);
+    });
+    root.appendChild(alignGrid);
+    root.appendChild(h("div", { class: "st-section-title", text: "Distribute" }));
+    var distGrid = h("div", { class: "st-grid-2" });
+    ALIGN_ACTIONS.slice(6).forEach(function (pair) {
+      var btn = h("button", { class: "st-btn-sm", text: pair[1] });
+      if (selection.length < 3) btn.disabled = true;
+      btn.addEventListener("click", function () { Studio.guides.align(pair[0]); });
+      distGrid.appendChild(btn);
+    });
+    root.appendChild(distGrid);
+    if (selection.length < 3) {
+      root.appendChild(h("div", { class: "st-hint", text: "Distribute needs at least 3 selected elements (it evens out the gaps between them)." }));
+    }
+    var list = h("div", { class: "st-locate-list" });
+    selection.forEach(function (item) {
+      var row = h("div", { class: "st-locate-row" });
+      row.appendChild(h("span", { class: "st-locate-path", text: item.tag + " " + item.selector }));
+      list.appendChild(row);
+    });
+    root.appendChild(h("div", { class: "st-section-title", text: "Selected elements" }));
+    root.appendChild(list);
+  }
+
   Studio.renderInspector = function (root) {
     root.innerHTML = "";
+    if (Studio.S.selection && Studio.S.selection.length >= 2) {
+      renderMultiSelectPanel(root, Studio.S.selection);
+      return;
+    }
     var sel = Studio.S.selected;
     if (!sel) {
-      root.appendChild(h("div", { class: "st-empty", text: "Click an element in the preview to select it." }));
+      root.appendChild(h("div", { class: "st-empty", text: "Click an element in the preview to select it. Shift/Cmd/Ctrl+click to select multiple." }));
       return;
     }
     var c = sel.computed || {};

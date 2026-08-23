@@ -7,7 +7,8 @@
     repo: null,
     slug: null,
     previewUrl: null,
-    selected: null,       // { selector, tag, classes, text, attrs, rect, computed }
+    selected: null,       // { selector, tag, classes, text, attrs, rect, computed } — primary/last selection
+    selection: [],        // [{ selector, tag, rect }] — full multi-selection (Shift/Cmd/Ctrl+click)
     changes: [],           // accumulated diff entries
     boxModelOn: false,
     activePanel: "inspect", // 'inspect' | 'code'

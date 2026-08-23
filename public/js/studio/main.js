@@ -199,6 +199,7 @@
   function reloadIframe() {
     iframe.src = iframe.src;
     S.selected = null;
+    S.selection = [];
     if (Studio.onSelectionChanged) Studio.onSelectionChanged();
   }
 
