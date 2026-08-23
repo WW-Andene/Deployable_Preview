@@ -1,7 +1,7 @@
 # DeployView — Reference
 
 Complete reference for every module, route, configuration field, and
-environment variable. For higher-level pitch see [README.md](README.md);
+environment variable. For higher-level pitch see [README.md](../README.md);
 for AI-first usage patterns see [MCP-COOKBOOK.md](MCP-COOKBOOK.md).
 
 ---
@@ -1107,7 +1107,7 @@ rebuild from GitHub on demand.
 
 ## §14 · See also
 
-- [README.md](README.md) — 30-second pitch + competitor comparison
+- [README.md](../README.md) — 30-second pitch + competitor comparison
 - [MCP-COOKBOOK.md](MCP-COOKBOOK.md) — concrete Claude usage patterns
 - [SETUP.md](SETUP.md) — production deployment guide
 - [CHANGELOG.md](CHANGELOG.md) — what changed and when

@@ -48,10 +48,10 @@ That's it. Open the dashboard, paste a GitHub PAT, pick a repo, click Install.
 
 ## Quick links
 
-- [DOCS.md](DOCS.md) — full reference (every route, every config field, every env var)
-- [MCP-COOKBOOK.md](MCP-COOKBOOK.md) — concrete Claude usage patterns
-- [SETUP.md](SETUP.md) — production deployment guide (systemd, Docker, env vars)
-- [CHANGELOG.md](CHANGELOG.md) — what changed and when
+- [docs/DOCS.md](docs/DOCS.md) — full reference (every route, every config field, every env var)
+- [docs/MCP-COOKBOOK.md](docs/MCP-COOKBOOK.md) — concrete Claude usage patterns
+- [docs/SETUP.md](docs/SETUP.md) — production deployment guide (systemd, Docker, env vars)
+- [docs/CHANGELOG.md](docs/CHANGELOG.md) — what changed and when
 
 ## Requirements
 

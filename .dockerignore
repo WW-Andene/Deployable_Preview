@@ -1,0 +1,9 @@
+node_modules
+workspace
+logs
+*.log
+.git
+deployview.json
+*.pem
+*.key
+*.cert

@@ -1,0 +1,13 @@
+node_modules/
+workspace/
+deployview.json
+deployview.json.bak
+logs/
+.apks/
+h5w-autoloop.log
+npm-debug.log*
+*.log
+.DS_Store
+Thumbs.db
+.env
+.env.local
