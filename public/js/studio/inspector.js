@@ -68,8 +68,12 @@
   function renderMultiSelectPanel(root, selection) {
     root.appendChild(h("div", { class: "st-selected-tag" }, [
       h("span", { class: "st-tag-name", text: selection.length + " elements selected" }),
-      h("span", { class: "st-tag-sel", text: "Shift/Cmd/Ctrl+click to add or remove elements." })
+      h("span", { class: "st-tag-sel", text: "Shift/Cmd/Ctrl+click (or Multi-select mode on touch) to add or remove elements." })
     ]));
+    var dupBtn = h("button", { class: "st-btn-sm st-btn-primary", text: "⧉ Duplicate (" + selection.length + ")" });
+    dupBtn.title = "Ctrl/Cmd+D";
+    dupBtn.addEventListener("click", function () { Studio.guides.duplicate(); });
+    root.appendChild(dupBtn);
     root.appendChild(h("div", { class: "st-section-title", text: "Align" }));
     var alignGrid = h("div", { class: "st-grid-2" });
     ALIGN_ACTIONS.slice(0, 6).forEach(function (pair) {
@@ -118,7 +122,7 @@
       h("span", { class: "st-tag-sel", text: sel.selector })
     ]));
 
-    // Box model toggle
+    // Box model toggle + duplicate
     var boxRow = h("div", { class: "st-row" });
     var boxBtn = h("button", { class: "st-btn-sm" + (Studio.S.boxModelOn ? " on" : ""), text: Studio.S.boxModelOn ? "Hide box model" : "Show box model" });
     boxBtn.addEventListener("click", function () {
@@ -127,6 +131,10 @@
       Studio.renderInspector(root);
     });
     boxRow.appendChild(boxBtn);
+    var dupBtn = h("button", { class: "st-btn-sm", text: "⧉ Duplicate" });
+    dupBtn.title = "Ctrl/Cmd+D";
+    dupBtn.addEventListener("click", function () { Studio.guides.duplicate(); });
+    boxRow.appendChild(dupBtn);
     root.appendChild(boxRow);
 
     // ── Size ──

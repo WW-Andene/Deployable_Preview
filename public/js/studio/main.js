@@ -240,16 +240,17 @@
     setTimeout(function () { toastEl.className = "st-toast"; }, 4000);
   };
 
-  // Undo/redo while focus is in the parent Studio chrome (not the preview
-  // iframe, which forwards its own Ctrl/Cmd+Z via postMessage — see
+  // Undo/redo/duplicate while focus is in the parent Studio chrome (not the
+  // preview iframe, which forwards its own shortcuts via postMessage — see
   // injected-overlay.js).
   document.addEventListener("keydown", function (e) {
     var mod = e.metaKey || e.ctrlKey;
-    if (!mod || e.key.toLowerCase() !== "z") return;
+    if (!mod) return;
     var t = e.target;
     if (t && t.closest && t.closest("input,textarea,select,[contenteditable]")) return;
-    e.preventDefault();
-    if (e.shiftKey) Studio.redo(); else Studio.undo();
+    var key = e.key.toLowerCase();
+    if (key === "z") { e.preventDefault(); if (e.shiftKey) Studio.redo(); else Studio.undo(); }
+    else if (key === "d") { e.preventDefault(); Studio.guides.duplicate(); }
   });
 
   window.addEventListener("hashchange", build);

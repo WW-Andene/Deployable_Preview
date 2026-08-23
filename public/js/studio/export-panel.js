@@ -58,8 +58,13 @@
         var row = h("div", { class: "st-changelog-row" });
         var label = c.sourceFile ? (c.sourceFile + ":" + c.sourceLine) : (c.selector || "(unknown)");
         row.appendChild(h("div", { class: "st-cl-label", text: label }));
-        row.appendChild(h("div", { class: "st-cl-detail", text: c.property + (c.to !== undefined ? (": " + JSON.stringify(c.to)) : "") }));
-        if (!c.sourceFile && c.el) {
+        var detail = c.property === "duplicate"
+          ? "Duplicated from " + (c.from && c.from.selector || "?")
+          : c.property + (c.to !== undefined ? (": " + JSON.stringify(c.to)) : "");
+        row.appendChild(h("div", { class: "st-cl-detail", text: detail }));
+        if (c.property === "duplicate") {
+          row.appendChild(h("div", { class: "st-hint", text: "Duplication is a visual-only change for now — apply it to code by hand, or export JSON." }));
+        } else if (!c.sourceFile && c.el) {
           var applyRow = h("div", { class: "st-cl-apply" });
           var applyBtn = h("button", { class: "st-btn-xs", text: "Apply to code…" });
           var mount = h("div", { class: "st-cl-apply-mount" });

@@ -19,6 +19,9 @@
     requestSelectedStyle: function () { Studio.guides.send("getSelectedStyle"); },
     align: function (mode) { Studio.guides.send("align", { mode: mode }); },
     setMultiSelectMode: function (on) { Studio.guides.send("setMultiSelectMode", { value: on }); },
+    duplicate: function () { Studio.guides.send("duplicate"); },
+    removeElement: function (selector) { Studio.guides.send("removeElement", { selector: selector }); },
+    redoDuplicate: function (selector) { Studio.guides.send("redoDuplicate", { selector: selector }); },
     applyValue: function (selector, property, value) { Studio.guides.send("applyValue", { selector: selector, property: property, value: value }); }
   };
 

@@ -74,6 +74,17 @@
   }
 
   // ── Selector generation (best-effort, stable-ish) ──────────────────────
+  // Studio's own bookkeeping classes must never leak into a computed
+  // selector or the "classes" sent for source-file matching — they're not
+  // part of the page's real markup, and matching on them would either
+  // produce a selector that can never match anything in source, or (worse)
+  // silently target whatever else happens to be hovered/selected at the
+  // moment the selector is read back later.
+  var STUDIO_OWN_CLASSES = ["__studio-hover", "__studio-selected", "__studio-multi-selected"];
+  function realClassList(el) {
+    return Array.prototype.slice.call(el.classList).filter(function (c) { return STUDIO_OWN_CLASSES.indexOf(c) === -1; });
+  }
+
   function cssPath(el) {
     if (!el || el.nodeType !== 1) return "";
     if (el.id) return "#" + CSS.escape(el.id);
@@ -81,8 +92,9 @@
     var node = el;
     while (node && node.nodeType === 1 && parts.length < 6) {
       var seg = node.tagName.toLowerCase();
-      if (node.classList.length) {
-        var cls = Array.prototype.slice.call(node.classList).slice(0, 3).map(function (c) { return "." + CSS.escape(c); }).join("");
+      var realClasses = realClassList(node);
+      if (realClasses.length) {
+        var cls = realClasses.slice(0, 3).map(function (c) { return "." + CSS.escape(c); }).join("");
         seg += cls;
       }
       var parent = node.parentElement;
@@ -109,7 +121,7 @@
     return {
       selector: cssPath(el),
       tag: el.tagName.toLowerCase(),
-      classes: Array.prototype.slice.call(el.classList),
+      classes: realClassList(el),
       text: (el.childElementCount === 0 ? el.textContent : "") || "",
       attrs: attrs
     };
@@ -275,6 +287,70 @@
     var aRect = anchor ? anchor.getBoundingClientRect() : { left: 0, top: 0 };
     el.style.left = (targetLeft - aRect.left) + "px";
     el.style.top = (targetTop - aRect.top) + "px";
+  }
+
+  // ── Duplicate (Canva/Figma Ctrl/Cmd+D) ───────────────────────────────────
+  // Clones the element next to itself. A freeform (absolute) element's
+  // clone is nudged +16/+16 so it's visibly distinct from the original
+  // instead of sitting exactly on top of it; an in-flow element's clone is
+  // simply inserted right after it, so it appears "below" in normal layout
+  // — no coordinate math needed, and it stays subject to the same flex/
+  // grid rules as its sibling.
+  function duplicateOne(el) {
+    var clone = el.cloneNode(true);
+    // IDs must be unique — cloneNode copies them verbatim, which would
+    // leave two elements answering to the same "#id" selector and make
+    // every selector-based command (align, apply-to-code, undo…) target
+    // whichever one document.querySelector happens to hit first. Strip
+    // them from the clone and all its descendants; cssPath() then falls
+    // back to its class/nth-child path, which does disambiguate correctly.
+    if (clone.id) clone.removeAttribute("id");
+    var idEls = clone.querySelectorAll ? clone.querySelectorAll("[id]") : [];
+    for (var i = 0; i < idEls.length; i++) idEls[i].removeAttribute("id");
+    var cs = getComputedStyle(el);
+    if (cs.position === "absolute" || cs.position === "fixed") {
+      var left = parseFloat(el.style.left) || 0;
+      var top = parseFloat(el.style.top) || 0;
+      clone.style.left = (left + 16) + "px";
+      clone.style.top = (top + 16) + "px";
+    }
+    el.insertAdjacentElement("afterend", clone);
+    return clone;
+  }
+
+  function duplicateSelection() {
+    var targets = selectedSet.length ? selectedSet.slice() : (selected ? [selected] : []);
+    if (!targets.length) return;
+    clearSelectionClasses();
+    var newSet = [];
+    targets.forEach(function (el) {
+      var originalSelector = cssPath(el);
+      var clone = duplicateOne(el);
+      newSet.push(clone);
+      post({
+        type: "change",
+        selector: cssPath(clone),
+        el: describeEl(clone),
+        property: "duplicate",
+        from: { selector: originalSelector },
+        to: { selector: cssPath(clone) }
+      });
+    });
+    selectedSet = newSet;
+    selected = newSet[newSet.length - 1];
+    applySelectionClasses();
+    postSelection();
+  }
+
+  // Used by undo (removes a clone) — selector must still resolve to exactly
+  // the cloned node, which holds as long as nothing else changed the DOM
+  // shape in between (same caveat as every other selector-based command).
+  function removeBySelector(selector) {
+    var el = selector ? document.querySelector(selector) : null;
+    if (!el) return;
+    if (selectedSet.indexOf(el) !== -1) { clearSelectionClasses(); selectedSet = selectedSet.filter(function (e) { return e !== el; }); selected = selectedSet.length ? selectedSet[selectedSet.length - 1] : null; applySelectionClasses(); }
+    el.remove();
+    postSelection();
   }
 
   // ── Align & distribute (Canva/Figma toolbar actions on a multi-selection) ─
@@ -730,6 +806,21 @@
       case "align":
         alignSelection(msg.mode);
         break;
+      case "duplicate":
+        duplicateSelection();
+        break;
+      case "removeElement":
+        removeBySelector(msg.selector);
+        break;
+      case "redoDuplicate":
+        // Used by redo — recreates a clone from the ORIGINAL element
+        // without recording a new change (undo.js re-pushes the existing
+        // one). The recreated clone's selector may differ slightly from
+        // the one that was undone if the DOM shape shifted in between —
+        // same best-effort caveat as every other selector-based command.
+        var origEl = msg.selector ? document.querySelector(msg.selector) : null;
+        if (origEl) selectElement(duplicateOne(origEl));
+        break;
       case "showBoxModel":
         showBoxModel(selected);
         break;
@@ -780,10 +871,11 @@
   document.addEventListener("keydown", function (e) {
     if (!enabled) return;
     var mod = e.metaKey || e.ctrlKey;
-    if (!mod || e.key.toLowerCase() !== "z") return;
+    if (!mod) return;
     if (e.target && e.target.closest && e.target.closest("input,textarea,[contenteditable]")) return;
-    e.preventDefault();
-    post({ type: e.shiftKey ? "redo" : "undo" });
+    var key = e.key.toLowerCase();
+    if (key === "z") { e.preventDefault(); post({ type: e.shiftKey ? "redo" : "undo" }); }
+    else if (key === "d") { e.preventDefault(); duplicateSelection(); }
   });
 
   post({ type: "ready" });

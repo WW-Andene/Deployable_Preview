@@ -27,7 +27,13 @@
     if (!changes.length) { Studio.toast("Nothing to undo."); return; }
     var c = changes.pop();
     Studio.S.undoneStack.push(c);
-    Studio.guides.applyValue(c.selector, c.property, valueFor(c, "from"));
+    if (c.property === "duplicate") {
+      // Undoing a duplication removes the clone it created — there's no
+      // style value to revert.
+      Studio.guides.removeElement(c.to.selector);
+    } else {
+      Studio.guides.applyValue(c.selector, c.property, valueFor(c, "from"));
+    }
     if (c.sourceFile) Studio.toast("Reverted in preview only — " + c.sourceFile + " on disk still has this change.", true);
     else Studio.toast("Undid: " + c.property);
     if (Studio.S.selected && Studio.S.selected.selector === c.selector) Studio.guides.requestSelectedStyle();
@@ -39,7 +45,13 @@
     if (!stack.length) { Studio.toast("Nothing to redo."); return; }
     var c = stack.pop();
     Studio.S.changes.push(c);
-    Studio.guides.applyValue(c.selector, c.property, valueFor(c, "to"));
+    if (c.property === "duplicate") {
+      // Recreates the clone from the original element rather than
+      // reverting a style — see redoDuplicate in injected-overlay.js.
+      Studio.guides.redoDuplicate(c.from.selector);
+    } else {
+      Studio.guides.applyValue(c.selector, c.property, valueFor(c, "to"));
+    }
     Studio.toast("Redid: " + c.property);
     if (Studio.S.selected && Studio.S.selected.selector === c.selector) Studio.guides.requestSelectedStyle();
     if (Studio.onChangesUpdated) Studio.onChangesUpdated();
