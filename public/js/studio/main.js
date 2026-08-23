@@ -63,6 +63,7 @@
     previewWrap.appendChild(deviceFrame);
     body.appendChild(previewWrap);
     Studio.guides.bindIframe(iframe);
+    applyDeviceFrame();
 
     iframe.addEventListener("load", function () {
       injectOverlay();
@@ -93,20 +94,38 @@
     panelBody.appendChild(viewRoot);
     dock.appendChild(panelBody);
 
-    // View panel: toggle between windowed (Xiaomi-format) and full preview
-    var isFullView = false;
+    // View panel: pick any device preset from the classic Preview mode
+    // (window.DV.VIEW_PRESETS), or switch to full-bleed. Keeps Studio's
+    // windowed frame in sync with whatever format the user is actually
+    // targeting, instead of being locked to the Xiaomi 13T default.
+    var presets = (window.DV && window.DV.VIEW_PRESETS) || {};
     var viewPanelInner = h("div", { class: "st-view-panel" });
-    var viewToggleBtn = h("button", { class: "st-btn-sm", text: "Passer en vue complète" });
-    var viewHint = h("div", { class: "st-view-hint", text: "Par défaut, l'aperçu s'affiche fenêtré au format Xiaomi 13T (439\u00d7976, comme dans le mode preview classique). Utilisez ce bouton pour l'afficher en plein écran." });
-    viewToggleBtn.addEventListener("click", function () {
-      isFullView = !isFullView;
-      previewWrap.classList.toggle("st-full", isFullView);
-      previewWrap.classList.toggle("st-framed", !isFullView);
-      viewToggleBtn.textContent = isFullView ? "Repasser en vue fenêtrée (Xiaomi)" : "Passer en vue complète";
+    var presetGrid = h("div", { class: "st-preset-grid" });
+    var presetButtons = {};
+
+    function selectPreset(key) {
+      S.devicePreset = key;
+      S.isFullView = (key === "full");
+      Object.keys(presetButtons).forEach(function (k) { presetButtons[k].classList.toggle("on", k === key); });
+      applyDeviceFrame();
+    }
+
+    Object.keys(presets).forEach(function (key) {
+      var p = presets[key];
+      var btn = h("button", { class: "st-btn-sm st-preset-btn", text: p.label + " (" + p.w + "\u00d7" + p.h + ")" });
+      btn.addEventListener("click", function () { selectPreset(key); });
+      presetButtons[key] = btn;
+      presetGrid.appendChild(btn);
     });
-    viewPanelInner.appendChild(viewToggleBtn);
-    viewPanelInner.appendChild(viewHint);
+    var fullBtn = h("button", { class: "st-btn-sm st-preset-btn", text: "Vue compl\u00e8te (plein \u00e9cran)" });
+    fullBtn.addEventListener("click", function () { selectPreset("full"); });
+    presetButtons["full"] = fullBtn;
+    presetGrid.appendChild(fullBtn);
+
+    viewPanelInner.appendChild(h("div", { class: "st-view-hint", text: "Choisissez le format d'\u00e9cran affich\u00e9 dans Studio \u2014 les m\u00eames presets que le mode preview classique (Xiaomi 13T, iPhone 15, Galaxy S24, iPad Air, etc.), ou la vue plein \u00e9cran." }));
+    viewPanelInner.appendChild(presetGrid);
     viewRoot.appendChild(viewPanelInner);
+    selectPreset(S.devicePreset);
 
     body.appendChild(dock);
     root.appendChild(body);
@@ -144,6 +163,23 @@
     };
     Studio.renderInspector(inspectorRoot);
     Studio.onChangesUpdated();
+
+    function applyDeviceFrame() {
+      var key = S.devicePreset;
+      var presetsNow = (window.DV && window.DV.VIEW_PRESETS) || {};
+      var p = presetsNow[key];
+      previewWrap.classList.toggle("st-full", S.isFullView);
+      previewWrap.classList.toggle("st-framed", !S.isFullView);
+      if (!S.isFullView && p) {
+        var scale = p.scale || 1;
+        iframe.style.width = Math.round(p.w * scale) + "px";
+        iframe.style.height = Math.round(p.h * scale) + "px";
+      } else {
+        iframe.style.width = "";
+        iframe.style.height = "";
+      }
+    }
+    Studio.applyDeviceFrame = applyDeviceFrame;
   }
 
   function injectOverlay() {

@@ -24,10 +24,11 @@
 }
 .st-preview-iframe { width: 100%; height: 100%; border: 0; display: block; }
 
-/* Xiaomi-format windowed device frame (default studio view)
-   Matches the "Xiaomi 13T" preset used in classic preview mode
-   (public/js/app.js VIEW_PRESETS["13t"]: 439×976 @ scale 0.9), i.e. the
-   iframe is sized directly at 439*0.9 × 976*0.9 ≈ 395×878.
+/* Windowed device frame — size is driven by main.js applyDeviceFrame(),
+   which sets iframe.style.width/height inline from window.DV.VIEW_PRESETS
+   (the same preset table as classic preview mode: Xiaomi 13T, iPhone 15,
+   Galaxy S24, iPad Air, 9:16, 16:9…). The 395×878 values below are just
+   the fallback/default (Xiaomi 13T @ scale 0.9) before JS runs.
    IMPORTANT: do NOT use a CSS transform:scale() on the iframe or any of
    its ancestors — that breaks mouse coordinate mapping inside the iframe
    (clientX/clientY get out of sync with the visible pointer position),
@@ -62,6 +63,8 @@
 .st-view-panel { padding: 16px; display: flex; flex-direction: column; gap: 10px; }
 .st-view-panel .st-btn-sm { align-self: flex-start; }
 .st-view-hint { color: var(--tx2); font-size: 12px; line-height: 1.5; }
+.st-preset-grid { display: flex; flex-direction: column; gap: 6px; }
+.st-preset-btn { width: 100%; text-align: left; }
 
 .st-dock {
   width: 340px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0;
